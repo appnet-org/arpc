@@ -2,7 +2,6 @@ package transport
 
 import (
 	"net"
-	"time"
 )
 
 type UDPTransport struct {
