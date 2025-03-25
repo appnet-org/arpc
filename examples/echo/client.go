@@ -3,20 +3,21 @@ package main
 import (
 	"fmt"
 	"log"
+
 	"github.com/appnet-org/aprc/pkg/rpc"
-	"github.com/appnet-org/aprc/internal/protocol"
 )
 
 func main() {
-	client := rpc.NewClient()
-	message := &protocol.RPCMessage{
-		ID:      1,
-		Method:  "Echo",
-		Payload: []byte("Hello, UDP RPC!"),
-	}
-	response, err := client.Call("localhost:9000", message)
+	client, err := rpc.NewClient()
 	if err != nil {
-		log.Fatalf("Failed to call server: %v", err)
+		log.Fatal("Failed to create client:", err)
 	}
-	fmt.Printf("Response: %s\n", string(response.Payload))
+
+	message := "Hello, UDP RPC!"
+	response, err := client.Call("127.0.0.1:9000", []byte(message))
+	if err != nil {
+		log.Fatal("RPC call failed:", err)
+	}
+
+	fmt.Println("Echoed response:", string(response))
 }

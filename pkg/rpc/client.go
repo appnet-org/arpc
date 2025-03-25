@@ -1,53 +1,43 @@
 package rpc
 
 import (
-	"github.com/appnet-org/aprc/internal/transport"
+	"fmt"
+	"log"
+
 	"github.com/appnet-org/aprc/internal/protocol"
+	"github.com/appnet-org/aprc/internal/transport"
 )
 
-// Client represents an RPC client that communicates with a remote server over UDP.
 type Client struct {
-	transport *transport.UDPTransport // UDP transport for sending and receiving messages
+	transport *transport.UDPTransport
 }
 
-// NewClient creates a new RPC client instance.
-// Currently, this function does not initialize the transport since it is created per request.
-func NewClient() *Client {
-	return &Client{}
+// NewClient initializes and returns an RPC client with a UDP transport instance
+func NewClient() (*Client, error) {
+	udpTransport, err := transport.NewUDPTransport("")
+	if err != nil {
+		return nil, err
+	}
+
+	return &Client{transport: udpTransport}, nil
 }
 
-// Call sends an RPC request to the given address and waits for a response.
-// It performs the following steps:
-// 1. Establishes a temporary UDP transport.
-// 2. Encodes the RPC message into a byte slice.
-// 3. Sends the encoded message to the server.
-// 4. Waits for a response from the server.
-// 5. Decodes the response and returns it.
-func (c *Client) Call(addr string, msg *protocol.RPCMessage) (*protocol.RPCMessage, error) {
-	// Create a temporary UDP transport for sending and receiving messages.
-	transport, err := transport.NewUDPTransport("")
+// Call sends a request to the specified address and waits for a response
+func (c *Client) Call(addr string, data []byte) ([]byte, error) {
+	rpcID := transport.GenerateRPCID()
+
+	log.Printf("Sending request (RPC ID: %d) to %s\n", rpcID, addr)
+
+	err := c.transport.Send(addr, rpcID, data)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer transport.Close() // Ensure transport is closed after the request completes.
 
-	// Encode the message into a byte slice.
-	data, err := protocol.EncodeMessage(msg)
+	response, _, _, err := c.transport.Receive(protocol.MaxUDPPayloadSize)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to receive response: %w", err)
 	}
 
-	// Send the message to the server at the specified address.
-	if err := transport.Send(addr, data); err != nil {
-		return nil, err
-	}
-
-	// Wait for a response from the server (up to 1024 bytes).
-	respData, _, err := transport.Receive(1024)
-	if err != nil {
-		return nil, err
-	}
-
-	// Decode the received response into an RPCMessage and return it.
-	return protocol.DecodeMessage(respData)
+	log.Printf("Received response: %s\n", string(response))
+	return response, nil
 }

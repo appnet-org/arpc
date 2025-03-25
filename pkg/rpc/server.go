@@ -1,51 +1,52 @@
 package rpc
 
 import (
-	"github.com/appnet-org/aprc/internal/transport"
+	"log"
+
 	"github.com/appnet-org/aprc/internal/protocol"
+	"github.com/appnet-org/aprc/internal/transport"
 )
 
-// Server represents a UDP-based RPC server that listens for incoming requests,
-// processes them using a user-defined handler, and sends responses.
 type Server struct {
-	transport *transport.UDPTransport                // UDP transport for receiving and sending messages
-	handler   func(*protocol.RPCMessage) *protocol.RPCMessage // Function to process incoming RPC messages
+	transport *transport.UDPTransport
+	handler   func([]byte) []byte
 }
 
-// NewServer initializes a new RPC server that listens on the specified address.
-// The handler function is responsible for processing incoming requests and returning responses.
-func NewServer(addr string, handler func(*protocol.RPCMessage) *protocol.RPCMessage) (*Server, error) {
-	// Create a new UDP transport to listen on the given address.
+// NewServer initializes and returns a new UDP-based RPC server
+func NewServer(addr string, handler func([]byte) []byte) (*Server, error) {
 	udpTransport, err := transport.NewUDPTransport(addr)
 	if err != nil {
 		return nil, err
 	}
 
-	// Return the initialized server instance with the provided handler.
 	return &Server{transport: udpTransport, handler: handler}, nil
 }
 
-// Start begins listening for incoming UDP messages and processes them using the handler function.
-// The server runs in an infinite loop, continuously handling requests.
+// Start listens for incoming requests, processes them, and sends responses
 func (s *Server) Start() {
+	log.Println("Server started... Waiting for messages.")
+
 	for {
-		// Receive a UDP message (up to 1024 bytes).
-		data, addr, err := s.transport.Receive(1024)
+		// Receive a message from a client
+		data, addr, rpcID, err := s.transport.Receive(protocol.MaxUDPPayloadSize)
 		if err != nil {
-			continue // Ignore errors and continue listening.
+			log.Println("Error receiving data:", err)
+			continue
 		}
 
-		// Decode the received message into an RPCMessage struct.
-		msg, err := protocol.DecodeMessage(data)
-		if err != nil {
-			continue // Ignore malformed messages.
+		if data == nil {
+			continue // Still waiting for fragments
 		}
 
-		// Process the message using the handler function.
-		response := s.handler(msg)
+		log.Printf("Received message from %s: %s\n", addr.String(), string(data))
 
-		// Encode the response message and send it back to the client.
-		respData, _ := protocol.EncodeMessage(response)
-		s.transport.Send(addr.String(), respData)
+		// Process request and get response
+		response := s.handler(data)
+
+		// Send the response back
+		err = s.transport.Send(addr.String(), rpcID, response)
+		if err != nil {
+			log.Println("Error sending response:", err)
+		}
 	}
 }

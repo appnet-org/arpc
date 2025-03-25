@@ -3,72 +3,87 @@ package protocol
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 )
 
-// EncodeMessage serializes an RPCMessage into a byte slice for transmission over UDP.
-// The format is:
-// - 8 bytes: Message ID (uint64, Little Endian)
-// - 2 bytes: Method name length (uint16, Little Endian)
-// - N bytes: Method name (raw bytes)
-// - M bytes: Payload (remaining data)
-func EncodeMessage(msg *RPCMessage) ([]byte, error) {
+const MaxUDPPayloadSize = 1400 // Adjust based on MTU considerations
+
+type Packet struct {
+	RPCID        uint64 // Unique RPC ID
+	TotalPackets uint16 // Total number of packets in this RPC
+	SeqNumber    uint16 // Sequence number of this packet
+	Payload      []byte // Partial application data
+}
+
+// SerializePacket encodes a Packet into bytes
+func SerializePacket(pkt *Packet) ([]byte, error) {
 	buf := new(bytes.Buffer)
 
-	// Write message ID (8 bytes)
-	if err := binary.Write(buf, binary.LittleEndian, msg.ID); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, pkt.RPCID); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(buf, binary.LittleEndian, pkt.TotalPackets); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(buf, binary.LittleEndian, pkt.SeqNumber); err != nil {
+		return nil, err
+	}
+	if _, err := buf.Write(pkt.Payload); err != nil {
 		return nil, err
 	}
 
-	// Convert method name to bytes and write its length (2 bytes)
-	methodBytes := []byte(msg.Method)
-	if err := binary.Write(buf, binary.LittleEndian, uint16(len(methodBytes))); err != nil {
-		return nil, err
-	}
-
-	// Write method name bytes
-	if _, err := buf.Write(methodBytes); err != nil {
-		return nil, err
-	}
-
-	// Write payload bytes
-	if _, err := buf.Write(msg.Payload); err != nil {
-		return nil, err
-	}
-
-	// Return the serialized message
 	return buf.Bytes(), nil
 }
 
-// DecodeMessage deserializes a byte slice back into an RPCMessage.
-// It follows the same format as EncodeMessage.
-func DecodeMessage(data []byte) (*RPCMessage, error) {
+// DeserializePacket decodes bytes into a Packet struct
+func DeserializePacket(data []byte) (*Packet, error) {
+	if len(data) < 12 { // Minimum header size (8 + 2 + 2)
+		return nil, errors.New("packet too small")
+	}
+
 	buf := bytes.NewReader(data)
-	msg := &RPCMessage{}
+	pkt := &Packet{}
 
-	// Read message ID (8 bytes)
-	if err := binary.Read(buf, binary.LittleEndian, &msg.ID); err != nil {
+	if err := binary.Read(buf, binary.LittleEndian, &pkt.RPCID); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &pkt.TotalPackets); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &pkt.SeqNumber); err != nil {
 		return nil, err
 	}
 
-	// Read method name length (2 bytes)
-	var methodLen uint16
-	if err := binary.Read(buf, binary.LittleEndian, &methodLen); err != nil {
+	pkt.Payload = make([]byte, buf.Len())
+	if _, err := buf.Read(pkt.Payload); err != nil {
 		return nil, err
 	}
 
-	// Read method name bytes
-	methodBytes := make([]byte, methodLen)
-	if _, err := buf.Read(methodBytes); err != nil {
-		return nil, err
-	}
-	msg.Method = string(methodBytes)
+	return pkt, nil
+}
 
-	// Read remaining payload bytes
-	msg.Payload = make([]byte, buf.Len())
-	if _, err := buf.Read(msg.Payload); err != nil {
-		return nil, err
+// FragmentData splits data into multiple UDP packets
+func FragmentData(rpcID uint64, data []byte) ([]*Packet, error) {
+	chunkSize := MaxUDPPayloadSize - 12                             // Subtract header size
+	totalPackets := uint16((len(data) + chunkSize - 1) / chunkSize) // Compute number of packets
+	var packets []*Packet
+
+	for i := uint16(0); i < totalPackets; i++ {
+		start := int(i) * chunkSize
+		end := start + chunkSize
+		if end > len(data) {
+			end = len(data)
+		}
+
+		// Create a packet for the current chunk
+		pkt := &Packet{
+			RPCID:        rpcID,
+			TotalPackets: totalPackets,
+			SeqNumber:    i,
+			Payload:      data[start:end],
+		}
+		packets = append(packets, pkt)
 	}
 
-	// Return the decoded message
-	return msg, nil
+	return packets, nil
 }
