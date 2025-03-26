@@ -33,11 +33,15 @@ func (c *Client) Call(addr string, data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
-	response, _, _, err := c.transport.Receive(protocol.MaxUDPPayloadSize)
-	if err != nil {
-		return nil, fmt.Errorf("failed to receive response: %w", err)
+	for { // TODO: add timeout
+		response, _, _, err := c.transport.Receive(protocol.MaxUDPPayloadSize)
+		if err != nil {
+			return nil, fmt.Errorf("failed to receive response: %w", err)
+		}
+		if response == nil {
+			continue // Still waiting for fragments
+		}
+		log.Printf("Received response: %s\n", string(response))
+		return response, nil
 	}
-
-	log.Printf("Received response: %s\n", string(response))
-	return response, nil
 }
