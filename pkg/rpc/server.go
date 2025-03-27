@@ -38,7 +38,7 @@ func (s *Server) Start() {
 			continue // Still waiting for fragments
 		}
 
-		log.Printf("Received message from %s: %s\n", addr.String(), string(data))
+		log.Printf("Received a message from %s, Message Length %d\n", addr.String(), len(data))
 
 		// Process request and get response
 		response := s.handler(data)

@@ -8,7 +8,8 @@ import (
 
 func main() {
 	server, err := rpc.NewServer(":9000", func(data []byte) []byte {
-		log.Println("Server received:", string(data))
+		// log.Println("Server received:", string(data))
+		log.Printf("Message length: %d bytes\n", len(data))
 		return data // Echo back
 	})
 

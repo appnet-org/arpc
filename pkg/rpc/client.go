@@ -33,11 +33,19 @@ func (c *Client) Call(addr string, data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
-	response, _, _, err := c.transport.Receive(protocol.MaxUDPPayloadSize)
-	if err != nil {
-		return nil, fmt.Errorf("failed to receive response: %w", err)
-	}
+	// Wait for the full response with matching RPC ID
+	for {
+		response, _, respID, err := c.transport.Receive(protocol.MaxUDPPayloadSize)
+		if err != nil {
+			return nil, fmt.Errorf("failed to receive response: %w", err)
+		}
 
-	log.Printf("Received response: %s\n", string(response))
-	return response, nil
+		// TODO: handle concurrent messages
+		if response == nil {
+			continue // Response is not complete, continue reading
+		}
+
+		log.Printf("Received full response for RPC ID %d\n", respID)
+		return response, nil
+	}
 }
