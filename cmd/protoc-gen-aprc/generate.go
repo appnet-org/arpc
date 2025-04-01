@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
@@ -75,9 +74,11 @@ func genService(g *protogen.GeneratedFile, service *protogen.Service) {
 	// Register function
 	g.P("func Register", svcName, "Server(r *rpc.Server, impl ", svcName, "Server) {")
 	for _, m := range service.Methods {
-		handler := fmt.Sprintf("func(req any) any {\n    res, _ := impl.%s(context.Background(), req.(*%s))\n    return res\n  }",
-			m.GoName, m.Input.GoIdent)
-		g.P(`  r.Register("`, strings.ToLower(m.GoName), `", `, handler, `)`)
+		g.P(`  r.Register("`, m, `", func(req any) any {`)
+		g.P(`    res, _ := impl.`, m.GoName, `(context.Background(), req.(*`, m.Input.GoIdent, `))`)
+		g.P(`    return res`)
+		g.P(`  })`)
+
 	}
 	g.P("}")
 }
