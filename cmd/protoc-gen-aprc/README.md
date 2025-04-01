@@ -19,5 +19,5 @@ go install ./cmd/protoc-gen-aprc
 protoc \
   --go_out=paths=source_relative:. \
   --aprc_out=paths=source_relative:. \
-  examples/echo/proto/echo.proto
+  <your-proto-file>
 ```

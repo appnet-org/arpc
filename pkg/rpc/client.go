@@ -3,49 +3,72 @@ package rpc
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/appnet-org/aprc/internal/protocol"
+	"github.com/appnet-org/aprc/internal/serializer"
 	"github.com/appnet-org/aprc/internal/transport"
 )
 
 type Client struct {
-	transport *transport.UDPTransport
+	transport   *transport.UDPTransport
+	serializer  serializer.Serializer
+	defaultAddr string
 }
 
-// NewClient initializes and returns an RPC client with a UDP transport instance
-func NewClient() (*Client, error) {
-	udpTransport, err := transport.NewUDPTransport("")
+// NewClient creates a new Client using the given serializer and target address.
+func NewClient(serializer serializer.Serializer, addr string) (*Client, error) {
+	t, err := transport.NewUDPTransport("")
 	if err != nil {
 		return nil, err
 	}
-
-	return &Client{transport: udpTransport}, nil
+	return &Client{
+		transport:   t,
+		serializer:  serializer,
+		defaultAddr: addr,
+	}, nil
 }
 
-// Call sends a request to the specified address and waits for a response
-func (c *Client) Call(addr string, data []byte) ([]byte, error) {
+// Call sends a request to the specified method and unmarshals the response into resp.
+func (c *Client) Call(method string, req any, resp any) error {
 	rpcID := transport.GenerateRPCID()
 
-	log.Printf("Sending request (RPC ID: %d) to %s\n", rpcID, addr)
-
-	err := c.transport.Send(addr, rpcID, data)
+	// Serialize the request
+	payload, err := c.serializer.Marshal(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Wait for the full response with matching RPC ID
+	log.Printf("Sending request to method '%s' (RPC ID: %d) -> %s\n", method, rpcID, c.defaultAddr)
+
+	// Send fragmented request
+	if err := c.transport.Send(c.defaultAddr, rpcID, payload); err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+
+	// Wait for response
 	for {
-		response, _, respID, err := c.transport.Receive(protocol.MaxUDPPayloadSize)
+		data, _, respID, err := c.transport.Receive(protocol.MaxUDPPayloadSize)
 		if err != nil {
-			return nil, fmt.Errorf("failed to receive response: %w", err)
+			return fmt.Errorf("failed to receive response: %w", err)
 		}
 
-		// TODO: handle concurrent messages
-		if response == nil {
-			continue // Response is not complete, continue reading
+		if data == nil {
+			time.Sleep(10 * time.Millisecond)
+			continue // still waiting on full message
 		}
 
-		log.Printf("Received full response for RPC ID %d\n", respID)
-		return response, nil
+		if respID != rpcID {
+			log.Printf("Ignoring response with mismatched RPC ID: %d (expected %d)", respID, rpcID)
+			continue
+		}
+
+		// Deserialize into provided response
+		if err := c.serializer.Unmarshal(data, resp); err != nil {
+			return fmt.Errorf("failed to unmarshal response: %w", err)
+		}
+
+		log.Printf("Successfully received response for RPC ID %d\n", rpcID)
+		return nil
 	}
 }

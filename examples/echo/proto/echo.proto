@@ -4,9 +4,13 @@ package pb;
 option go_package = "./pb";
 
 service EchoService {
-    rpc echo(Msg) returns(Msg);
+    rpc echo(EchoRequest) returns(EchoRequest);
 }
 
-message Msg {
-    string Body = 1;
+message EchoRequest {
+    string message = 1;
+  }
+  
+message EchoResponse {
+    string message = 1;
 }
