@@ -1,7 +1,7 @@
 package main
 
 import (
-	"strings"
+	"fmt"
 
 	"google.golang.org/protobuf/compiler/protogen"
 )
@@ -15,7 +15,7 @@ func generateFile(plugin *protogen.Plugin, file *protogen.File) {
 	g.P()
 	g.P(`import (`)
 	g.P(`  "context"`)
-	g.P(`  "github.com/appnet-org/aprc/internal/codec"`)
+	g.P(`  "github.com/appnet-org/aprc/internal/serializer"`)
 	g.P(`  "github.com/appnet-org/aprc/pkg/rpc"`)
 	g.P(`)`)
 	g.P()
@@ -29,7 +29,7 @@ func genService(g *protogen.GeneratedFile, service *protogen.Service) {
 	svcName := service.GoName
 	clientName := svcName + "Client"
 
-	// Client interface
+	// === Client interface ===
 	g.P("// ", clientName, " is the client API for ", svcName, " service.")
 	g.P("type ", clientName, " interface {")
 	for _, m := range service.Methods {
@@ -38,32 +38,32 @@ func genService(g *protogen.GeneratedFile, service *protogen.Service) {
 	g.P("}")
 	g.P()
 
-	// Client implementation
+	// === Client implementation ===
 	implName := "aprc" + clientName
 	g.P("type ", implName, " struct {")
 	g.P("  client *rpc.Client")
 	g.P("}")
 	g.P()
 
-	// NewClient constructor
 	g.P("func New", clientName, "(client *rpc.Client) ", clientName, " {")
 	g.P("  return &", implName, "{client: client}")
 	g.P("}")
 	g.P()
 
 	for _, m := range service.Methods {
+		fullName := fmt.Sprintf("%s/%s", service.GoName, m.GoName)
 		g.P("func (c *", implName, ") ", m.GoName,
 			"(ctx context.Context, req *", m.Input.GoIdent, ") (*", m.Output.GoIdent, ", error) {")
-		g.P("  var resp ", m.Output.GoIdent)
-		g.P("  if err := c.client.Call(\"", strings.ToLower(m.GoName), "\", req, &resp); err != nil {")
+		g.P("  resp := new(", m.Output.GoIdent, ")")
+		g.P("  if err := c.client.Call(\"", fullName, "\", req, resp); err != nil {")
 		g.P("    return nil, err")
 		g.P("  }")
-		g.P("  return &resp, nil")
+		g.P("  return resp, nil")
 		g.P("}")
 		g.P()
 	}
 
-	// Server registration
+	// === Server interface ===
 	g.P("type ", svcName, "Server interface {")
 	for _, m := range service.Methods {
 		g.P(m.GoName, "(ctx context.Context, req *", m.Input.GoIdent, ") (*", m.Output.GoIdent, ", error)")
@@ -71,14 +71,33 @@ func genService(g *protogen.GeneratedFile, service *protogen.Service) {
 	g.P("}")
 	g.P()
 
-	// Register function
-	g.P("func Register", svcName, "Server(r *rpc.Server, impl ", svcName, "Server) {")
+	// === Register<Service>Server ===
+	g.P("func Register", svcName, "Server(s *rpc.Server, srv ", svcName, "Server) {")
+	g.P("  s.RegisterService(&rpc.ServiceDesc{")
+	g.P("    ServiceName: \"", service.GoName, "\",")
+	g.P("    serviceImpl: srv,")
+	g.P("    methods: map[string]*rpc.MethodDesc{")
 	for _, m := range service.Methods {
-		g.P(`  r.Register("`, m, `", func(req any) any {`)
-		g.P(`    res, _ := impl.`, m.GoName, `(context.Background(), req.(*`, m.Input.GoIdent, `))`)
-		g.P(`    return res`)
-		g.P(`  })`)
-
+		handlerName := fmt.Sprintf("_%s_%s_Handler", svcName, m.GoName)
+		g.P("      \"", m.GoName, "\": {")
+		g.P("        MethodName: \"", m.GoName, "\",")
+		g.P("        Handler: ", handlerName, ",")
+		g.P("      },")
 	}
+	g.P("    },")
+	g.P("  })")
 	g.P("}")
+
+	// === Handler Implementations ===
+	for _, m := range service.Methods {
+		handlerName := fmt.Sprintf("_%s_%s_Handler", svcName, m.GoName)
+		inputType := m.Input.GoIdent.GoName
+
+		g.P("func ", handlerName, "(srv any, ctx context.Context, dec func(any) error) (any, error) {")
+		g.P("  in := new(", inputType, ")")
+		g.P("  if err := dec(in); err != nil { return nil, err }")
+		g.P("  return srv.(", svcName, "Server).", m.GoName, "(ctx, in)")
+		g.P("}")
+		g.P()
+	}
 }

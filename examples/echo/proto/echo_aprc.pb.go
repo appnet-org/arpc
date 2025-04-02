@@ -3,13 +3,13 @@ package pb
 
 import (
 	"context"
-	"github.com/appnet-org/aprc/internal/codec"
+	"github.com/appnet-org/aprc/internal/serializer"
 	"github.com/appnet-org/aprc/pkg/rpc"
 )
 
 // EchoServiceClient is the client API for EchoService service.
 type EchoServiceClient interface {
-	Echo(ctx context.Context, req *EchoRequest) (*EchoRequest, error)
+	Echo(ctx context.Context, req *EchoRequest) (*EchoResponse, error)
 }
 
 type aprcEchoServiceClient struct {
@@ -20,21 +20,34 @@ func NewEchoServiceClient(client *rpc.Client) EchoServiceClient {
 	return &aprcEchoServiceClient{client: client}
 }
 
-func (c *aprcEchoServiceClient) Echo(ctx context.Context, req *EchoRequest) (*EchoRequest, error) {
-	var resp EchoRequest
-	if err := c.client.Call("echo", req, &resp); err != nil {
+func (c *aprcEchoServiceClient) Echo(ctx context.Context, req *EchoRequest) (*EchoResponse, error) {
+	resp := new(EchoResponse)
+	if err := c.client.Call("EchoService/Echo", req, resp); err != nil {
 		return nil, err
 	}
-	return &resp, nil
+	return resp, nil
 }
 
 type EchoServiceServer interface {
-	Echo(ctx context.Context, req *EchoRequest) (*EchoRequest, error)
+	Echo(ctx context.Context, req *EchoRequest) (*EchoResponse, error)
 }
 
-func RegisterEchoServiceServer(r *rpc.Server, impl EchoServiceServer) {
-	r.Register("&{MethodDescriptor{Syntax: proto3, FullName: pb.EchoService.echo, Input: pb.EchoRequest, Output: pb.EchoRequest} Echo 0xc00019b7c0 0xc0001bd8c0 0xc0001bd8c0 {examples/echo/proto/echo.proto .service[0].method[0]} {[]  }}", func(req any) any {
-		res, _ := impl.Echo(context.Background(), req.(*EchoRequest))
-		return res
+func RegisterEchoServiceServer(s *rpc.Server, srv EchoServiceServer) {
+	s.RegisterService(&rpc.ServiceDesc{
+		ServiceName: "EchoService",
+		ServiceImpl: srv,
+		Methods: map[string]*rpc.MethodDesc{
+			"Echo": {
+				MethodName: "Echo",
+				Handler:    _EchoService_Echo_Handler,
+			},
+		},
 	})
+}
+func _EchoService_Echo_Handler(srv any, ctx context.Context, dec func(any) error) (any, error) {
+	in := new(EchoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	return srv.(EchoServiceServer).Echo(ctx, in)
 }
