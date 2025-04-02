@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/binary"
 	"log"
-	"strings"
 
 	"github.com/appnet-org/aprc/internal/protocol"
 	"github.com/appnet-org/aprc/internal/serializer"
 	"github.com/appnet-org/aprc/internal/transport"
 )
 
+// MethodHandler defines the function signature for handling an RPC method.
 type MethodHandler func(srv any, ctx context.Context, dec func(any) error) (any, error)
 
 // MethodDesc represents an RPC service's method specification.
@@ -19,20 +19,21 @@ type MethodDesc struct {
 	Handler    MethodHandler
 }
 
-// ServiceDesc represents an RPC service's specification.
+// ServiceDesc describes an RPC service, including its implementation and methods.
 type ServiceDesc struct {
 	ServiceImpl any
 	ServiceName string
 	Methods     map[string]*MethodDesc
 }
 
+// Server is the core RPC server handling transport, serialization, and registered services.
 type Server struct {
 	transport  *transport.UDPTransport
 	serializer serializer.Serializer
 	services   map[string]*ServiceDesc
 }
 
-// NewServer initializes a new server
+// NewServer initializes a new Server instance with the given address and serializer.
 func NewServer(addr string, serializer serializer.Serializer) (*Server, error) {
 	udpTransport, err := transport.NewUDPTransport(addr)
 	if err != nil {
@@ -47,15 +48,17 @@ func NewServer(addr string, serializer serializer.Serializer) (*Server, error) {
 
 // RegisterService registers a service and its methods with the server.
 func (s *Server) RegisterService(desc *ServiceDesc, impl any) {
-	s.services[strings.ToLower(desc.ServiceName)] = desc
+	s.services[desc.ServiceName] = desc
 	log.Printf("Registered service: %s\n", desc.ServiceName)
 }
 
+// RequestHeader holds metadata about an incoming RPC request.
 type RequestHeader struct {
 	Service string
 	Method  string
 }
 
+// parseFramedRequest extracts service, method, and payload from a framed request.
 func parseFramedRequest(data []byte) (RequestHeader, []byte) {
 	serviceLen := int(binary.LittleEndian.Uint16(data[0:2]))
 	service := string(data[2 : 2+serviceLen])
@@ -68,7 +71,7 @@ func parseFramedRequest(data []byte) (RequestHeader, []byte) {
 	return RequestHeader{Service: service, Method: method}, payload
 }
 
-// Start listens for incoming requests, processes them, and sends responses
+// Start begins listening for incoming RPC requests, dispatching to the appropriate service/method handler.
 func (s *Server) Start() {
 	log.Println("Server started... Waiting for messages.")
 
@@ -84,10 +87,12 @@ func (s *Server) Start() {
 			continue // Still waiting for fragments
 		}
 
+		// Parse request header and payload
 		header, payload := parseFramedRequest(data)
-		serviceName := strings.ToLower(header.Service)
-		methodName := strings.ToLower(header.Method)
+		serviceName := header.Service
+		methodName := header.Method
 
+		// Lookup service and method
 		svcDesc, ok := s.services[serviceName]
 		if !ok {
 			log.Printf("Unknown service: %s", serviceName)
@@ -99,9 +104,9 @@ func (s *Server) Start() {
 			continue
 		}
 
-		// Now delegate to the method's handler
-		// TODO: fix context
-		respBytes, err := methodDesc.Handler(svcDesc.ServiceImpl, context.Background(), func(v any) error {
+		// Invoke method handler
+		// TODO: improve context usage
+		resp, err := methodDesc.Handler(svcDesc.ServiceImpl, context.Background(), func(v any) error {
 			return s.serializer.Unmarshal(payload, v)
 		})
 		if err != nil {
@@ -109,12 +114,14 @@ func (s *Server) Start() {
 			continue
 		}
 
-		resp, ok := respBytes.([]byte)
-		if !ok {
-			log.Printf("Handler returned non-byte response: %T", respBytes)
+		// Serialize and send response
+		respBytes, err := s.serializer.Marshal(resp)
+		if err != nil {
+			log.Printf("Error marshaling response: %v", err)
 			continue
 		}
-		err = s.transport.Send(addr.String(), rpcID, resp)
+
+		err = s.transport.Send(addr.String(), rpcID, respBytes)
 		if err != nil {
 			log.Printf("Error sending response: %v", err)
 		}

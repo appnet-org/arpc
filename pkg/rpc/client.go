@@ -12,6 +12,7 @@ import (
 	"github.com/appnet-org/aprc/internal/transport"
 )
 
+// Client represents an RPC client with a transport and serializer.
 type Client struct {
 	transport   *transport.UDPTransport
 	serializer  serializer.Serializer
@@ -31,10 +32,11 @@ func NewClient(serializer serializer.Serializer, addr string) (*Client, error) {
 	}, nil
 }
 
+// frameRequest constructs the binary message with service name, method name, and payload.
 func frameRequest(service, method string, payload []byte) ([]byte, error) {
 	buf := new(bytes.Buffer)
 
-	// Write service name length and value
+	// Write service name length and bytes
 	if err := binary.Write(buf, binary.LittleEndian, uint16(len(service))); err != nil {
 		return nil, err
 	}
@@ -42,7 +44,7 @@ func frameRequest(service, method string, payload []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	// Write method name length and value
+	// Write method name length and bytes
 	if err := binary.Write(buf, binary.LittleEndian, uint16(len(method))); err != nil {
 		return nil, err
 	}
@@ -50,7 +52,7 @@ func frameRequest(service, method string, payload []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	// Write payload
+	// Write payload bytes
 	if _, err := buf.Write(payload); err != nil {
 		return nil, err
 	}
@@ -58,7 +60,8 @@ func frameRequest(service, method string, payload []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Call sends a request to the specified service + method and unmarshals the response into resp.
+// Call sends an RPC request to the given service and method, waits for the response,
+// and unmarshals it into resp.
 func (c *Client) Call(service, method string, req any, resp any) error {
 	rpcID := transport.GenerateRPCID()
 
@@ -68,7 +71,7 @@ func (c *Client) Call(service, method string, req any, resp any) error {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Frame the request: [serviceLen][service][methodLen][method][payload]
+	// Frame the request into binary format
 	framed, err := frameRequest(service, method, payload)
 	if err != nil {
 		return fmt.Errorf("failed to frame request: %w", err)
@@ -76,12 +79,12 @@ func (c *Client) Call(service, method string, req any, resp any) error {
 
 	log.Printf("Sending request to %s.%s (RPC ID: %d) -> %s\n", service, method, rpcID, c.defaultAddr)
 
-	// Send fragmented request
+	// Send the framed request
 	if err := c.transport.Send(c.defaultAddr, rpcID, framed); err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 
-	// Wait for response
+	// Wait and process the response
 	for {
 		data, _, respID, err := c.transport.Receive(protocol.MaxUDPPayloadSize)
 		if err != nil {
@@ -89,13 +92,14 @@ func (c *Client) Call(service, method string, req any, resp any) error {
 		}
 		if data == nil {
 			time.Sleep(10 * time.Millisecond)
-			continue
+			continue // waiting for complete response
 		}
 		if respID != rpcID {
 			log.Printf("Ignoring response with mismatched RPC ID: %d (expected %d)", respID, rpcID)
 			continue
 		}
 
+		// Deserialize the response into resp
 		if err := c.serializer.Unmarshal(data, resp); err != nil {
 			return fmt.Errorf("failed to unmarshal response: %w", err)
 		}
