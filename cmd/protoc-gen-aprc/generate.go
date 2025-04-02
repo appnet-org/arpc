@@ -15,7 +15,6 @@ func generateFile(plugin *protogen.Plugin, file *protogen.File) {
 	g.P()
 	g.P(`import (`)
 	g.P(`  "context"`)
-	g.P(`  "github.com/appnet-org/aprc/internal/serializer"`)
 	g.P(`  "github.com/appnet-org/aprc/pkg/rpc"`)
 	g.P(`)`)
 	g.P()
@@ -51,11 +50,14 @@ func genService(g *protogen.GeneratedFile, service *protogen.Service) {
 	g.P()
 
 	for _, m := range service.Methods {
-		fullName := fmt.Sprintf("%s/%s", service.GoName, m.GoName)
-		g.P("func (c *", implName, ") ", m.GoName,
+		serviceName := service.GoName
+		methodName := m.GoName
+
+		g.P("func (c *", implName, ") ", methodName,
 			"(ctx context.Context, req *", m.Input.GoIdent, ") (*", m.Output.GoIdent, ", error) {")
+
 		g.P("  resp := new(", m.Output.GoIdent, ")")
-		g.P("  if err := c.client.Call(\"", fullName, "\", req, resp); err != nil {")
+		g.P("  if err := c.client.Call(\"", serviceName, "\", \"", methodName, "\", req, resp); err != nil {")
 		g.P("    return nil, err")
 		g.P("  }")
 		g.P("  return resp, nil")
@@ -75,8 +77,8 @@ func genService(g *protogen.GeneratedFile, service *protogen.Service) {
 	g.P("func Register", svcName, "Server(s *rpc.Server, srv ", svcName, "Server) {")
 	g.P("  s.RegisterService(&rpc.ServiceDesc{")
 	g.P("    ServiceName: \"", service.GoName, "\",")
-	g.P("    serviceImpl: srv,")
-	g.P("    methods: map[string]*rpc.MethodDesc{")
+	g.P("    ServiceImpl: srv,")
+	g.P("    Methods: map[string]*rpc.MethodDesc{")
 	for _, m := range service.Methods {
 		handlerName := fmt.Sprintf("_%s_%s_Handler", svcName, m.GoName)
 		g.P("      \"", m.GoName, "\": {")
@@ -85,7 +87,7 @@ func genService(g *protogen.GeneratedFile, service *protogen.Service) {
 		g.P("      },")
 	}
 	g.P("    },")
-	g.P("  })")
+	g.P("  }, srv)")
 	g.P("}")
 
 	// === Handler Implementations ===

@@ -3,7 +3,6 @@ package pb
 
 import (
 	"context"
-	"github.com/appnet-org/aprc/internal/serializer"
 	"github.com/appnet-org/aprc/pkg/rpc"
 )
 
@@ -22,7 +21,7 @@ func NewEchoServiceClient(client *rpc.Client) EchoServiceClient {
 
 func (c *aprcEchoServiceClient) Echo(ctx context.Context, req *EchoRequest) (*EchoResponse, error) {
 	resp := new(EchoResponse)
-	if err := c.client.Call("EchoService/Echo", req, resp); err != nil {
+	if err := c.client.Call("EchoService", "Echo", req, resp); err != nil {
 		return nil, err
 	}
 	return resp, nil
@@ -42,7 +41,7 @@ func RegisterEchoServiceServer(s *rpc.Server, srv EchoServiceServer) {
 				Handler:    _EchoService_Echo_Handler,
 			},
 		},
-	})
+	}, srv)
 }
 func _EchoService_Echo_Handler(srv any, ctx context.Context, dec func(any) error) (any, error) {
 	in := new(EchoRequest)

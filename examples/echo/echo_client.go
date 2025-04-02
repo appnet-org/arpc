@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -10,16 +11,19 @@ import (
 )
 
 func main() {
-
 	serializer := &serializer.ProtoSerializer{}
 	client, err := rpc.NewClient(serializer, "127.0.0.1:9000")
 	if err != nil {
 		log.Fatal("Failed to create client:", err)
 	}
 
-	req := &pb.EchoRequest{Message: "hello"}
-	resp := &pb.EchoResponse{}
+	echoClient := pb.NewEchoServiceClient(client)
 
-	err = client.Call("echo", req, resp)
+	req := &pb.EchoRequest{Message: "hello"}
+	resp, err := echoClient.Echo(context.Background(), req)
+	if err != nil {
+		log.Fatal("RPC call failed:", err)
+	}
+
 	fmt.Println("Response:", resp.Message)
 }
