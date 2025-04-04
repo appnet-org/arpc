@@ -4,7 +4,7 @@ import (
 	"context"
 	"log"
 
-	pb "github.com/appnet-org/aprc/examples/echo/proto"
+	echo "github.com/appnet-org/aprc/examples/echo/proto"
 	"github.com/appnet-org/aprc/internal/serializer"
 	"github.com/appnet-org/aprc/pkg/rpc"
 )
@@ -12,9 +12,9 @@ import (
 // EchoService implementation
 type echoServer struct{}
 
-func (s *echoServer) Echo(ctx context.Context, req *pb.EchoRequest) (*pb.EchoResponse, error) {
+func (s *echoServer) Echo(ctx context.Context, req *echo.EchoRequest) (*echo.EchoResponse, error) {
 	log.Printf("Received message from client: %s", req.Message)
-	return &pb.EchoResponse{Message: "Echo: " + req.Message}, nil
+	return &echo.EchoResponse{Message: "Echo: " + req.Message}, nil
 }
 
 func main() {
@@ -24,6 +24,6 @@ func main() {
 		log.Fatal("Failed to start server:", err)
 	}
 
-	pb.RegisterEchoServiceServer(server, &echoServer{})
+	echo.RegisterEchoServiceServer(server, &echoServer{})
 	server.Start()
 }
