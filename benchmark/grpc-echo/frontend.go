@@ -19,7 +19,7 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 	var conn *grpc.ClientConn
 
 	conn, err := grpc.Dial(
-		"server:9000",
+		":9000",
 		grpc.WithInsecure(),
 	)
 	if err != nil {

@@ -45,11 +45,17 @@ This will generate:
 Start the server:
 
 ```bash
-go run echo/echo_server.go
+go run echo/server.go
 ```
 
 In a **separate terminal**, run the client:
 
 ```bash
-go run echo/echo_client.go
+go run echo/frontend.go
+```
+
+## 4. Test
+
+```bash
+curl http://localhost:8080?key=hello
 ```
