@@ -13,8 +13,14 @@ import (
 type echoServer struct{}
 
 func (s *echoServer) Echo(ctx context.Context, req *echo.EchoRequest) (*echo.EchoResponse, error) {
-	log.Printf("Received message from client: %s", req.Message)
-	return &echo.EchoResponse{Message: "Echo: " + req.Message}, nil
+
+	log.Printf("Server got: [%s]", req.GetMessage())
+
+	resp := &echo.EchoResponse{
+		Message: "Echo " + req.GetMessage(),
+	}
+
+	return resp, nil
 }
 
 func main() {

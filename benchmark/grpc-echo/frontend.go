@@ -7,7 +7,6 @@ import (
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 
 	echo "github.com/appnet-org/arpc/benchmark/grpc-echo/proto"
 )
@@ -28,22 +27,14 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 	}
 	defer conn.Close()
 
-	c := echo.NewEchoServiceClient(conn)
+	echoClient := echo.NewEchoServiceClient(conn)
 
-	// Create and attach metadata with the custom header
-	md := metadata.New(map[string]string{
-		"key": requestBody, // Here we're setting the custom header "key" to the requestBody
-	})
-	ctx := metadata.NewOutgoingContext(context.Background(), md)
-
-	message := echo.EchoRequest{
+	message := &echo.EchoRequest{
 		Message: requestBody,
 	}
 
-	var header metadata.MD
-
 	// Make sure to pass the context (ctx) which includes the metadata
-	response, err := c.Echo(ctx, &message, grpc.Header(&header))
+	response, err := echoClient.Echo(context.Background(), message)
 
 	if err != nil {
 		fmt.Fprintf(writer, "Echo server returns an error: %s\n", err)
@@ -51,12 +42,6 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 	} else {
 		fmt.Fprintf(writer, "Response from server: %s\n", response.Message)
 		log.Printf("Response from server: %s", response.Message)
-
-		// Print the response headers (metadata)
-		log.Println("Response headers:")
-		for key, values := range header {
-			log.Printf("  %s: %v", key, values)
-		}
 	}
 }
 
