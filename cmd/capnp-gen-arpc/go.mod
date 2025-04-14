@@ -1,8 +1,6 @@
-module github.com/appnet-org/aprc
+module github.com/appnet-org/arpc/cmd/capnp-gen-arpc
 
-go 1.22.1
-
-require google.golang.org/protobuf v1.36.6
+go 1.23.8
 
 require (
 	capnproto.org/go/capnp/v3 v3.1.0-alpha.1 // indirect
