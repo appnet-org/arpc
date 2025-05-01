@@ -12,7 +12,6 @@ Make sure `$GOPATH/bin` is in your shell `PATH`.
 go install ./cmd/protoc-gen-arpc
 ```
 
-
 ## Generate aRPC stubs
 
 ```bash

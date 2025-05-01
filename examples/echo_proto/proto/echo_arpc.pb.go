@@ -21,7 +21,7 @@ func NewEchoServiceClient(client *rpc.Client) EchoServiceClient {
 
 func (c *arpcEchoServiceClient) Echo(ctx context.Context, req *EchoRequest) (*EchoResponse, error) {
 	resp := new(EchoResponse)
-	if err := c.client.Call("EchoService", "Echo", req, resp); err != nil {
+	if err := c.client.Call(ctx, "EchoService", "Echo", req, resp); err != nil {
 		return nil, err
 	}
 	return resp, nil

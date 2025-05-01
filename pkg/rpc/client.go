@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"log"
@@ -62,7 +63,7 @@ func frameRequest(service, method string, payload []byte) ([]byte, error) {
 
 // Call sends an RPC request to the given service and method, waits for the response,
 // and unmarshals it into resp.
-func (c *Client) Call(service, method string, req any, resp any) error {
+func (c *Client) Call(ctx context.Context, service, method string, req any, resp any) error {
 	rpcID := transport.GenerateRPCID()
 
 	// Serialize the request payload

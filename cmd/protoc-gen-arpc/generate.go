@@ -63,7 +63,7 @@ func genService(g *protogen.GeneratedFile, service *protogen.Service) {
 			"(ctx context.Context, req *", m.Input.GoIdent, ") (*", m.Output.GoIdent, ", error) {")
 
 		g.P("  resp := new(", m.Output.GoIdent, ")")
-		g.P("  if err := c.client.Call(\"", serviceName, "\", \"", methodName, "\", req, resp); err != nil {")
+		g.P("  if err := c.client.Call(ctx, \"", serviceName, "\", \"", methodName, "\", req, resp); err != nil {")
 		g.P("    return nil, err")
 		g.P("  }")
 		g.P("  return resp, nil")
