@@ -4,7 +4,7 @@ import (
 	"context"
 	"log"
 
-	echo "github.com/appnet-org/arpc/examples/echo/proto"
+	echo "github.com/appnet-org/arpc/examples/echo_proto/proto"
 	"github.com/appnet-org/arpc/internal/serializer"
 	"github.com/appnet-org/arpc/pkg/rpc"
 )
