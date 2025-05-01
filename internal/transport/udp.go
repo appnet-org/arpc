@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/appnet-org/aprc/internal/protocol"
+	"github.com/appnet-org/arpc/internal/protocol"
 )
 
 // GenerateRPCID creates a unique RPC ID

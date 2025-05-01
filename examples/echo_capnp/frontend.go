@@ -6,9 +6,9 @@ import (
 	"log"
 	"net/http"
 
-	echo "github.com/appnet-org/aprc/examples/echo_capnp/capnp"
-	"github.com/appnet-org/aprc/internal/serializer"
-	"github.com/appnet-org/aprc/pkg/rpc"
+	echo "github.com/appnet-org/arpc/examples/echo_capnp/capnp"
+	"github.com/appnet-org/arpc/internal/serializer"
+	"github.com/appnet-org/arpc/pkg/rpc"
 )
 
 var echoClient echo.EchoServiceClient

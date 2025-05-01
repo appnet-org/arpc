@@ -10,7 +10,7 @@ Then install the Go protobuf compiler and aRPC plugin:
 
 ```bash
 go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-go install ./cmd/protoc-gen-aprc  # From this repo
+go install ./cmd/protoc-gen-arpc  # From this repo
 ```
 
 Ensure your `$PATH` includes `$GOPATH/bin` or `$HOME/go/bin` so `protoc` can find the plugins.
@@ -24,7 +24,7 @@ See [examples/README.md](examples/README.md)
 ```
 .
 ├── cmd
-│   └── protoc-gen-aprc       # aRPC plugin for protoc
+│   └── protoc-gen-arpc       # aRPC plugin for protoc
 ├── examples
 │   └── echo                  # Echo service with client + server
 ├── go.mod

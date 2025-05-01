@@ -7,9 +7,9 @@ import (
 	"log"
 	"time"
 
-	"github.com/appnet-org/aprc/internal/protocol"
-	"github.com/appnet-org/aprc/internal/serializer"
-	"github.com/appnet-org/aprc/internal/transport"
+	"github.com/appnet-org/arpc/internal/protocol"
+	"github.com/appnet-org/arpc/internal/serializer"
+	"github.com/appnet-org/arpc/internal/transport"
 )
 
 // Client represents an RPC client with a transport and serializer.

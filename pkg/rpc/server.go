@@ -5,9 +5,9 @@ import (
 	"encoding/binary"
 	"log"
 
-	"github.com/appnet-org/aprc/internal/protocol"
-	"github.com/appnet-org/aprc/internal/serializer"
-	"github.com/appnet-org/aprc/internal/transport"
+	"github.com/appnet-org/arpc/internal/protocol"
+	"github.com/appnet-org/arpc/internal/serializer"
+	"github.com/appnet-org/arpc/internal/transport"
 )
 
 // MethodHandler defines the function signature for handling an RPC method.

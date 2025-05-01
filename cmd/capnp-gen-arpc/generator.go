@@ -18,7 +18,7 @@ func writeCode(f *os.File, args ...string) {
 }
 
 func genMethod(f *os.File, iname string, mname string, method *Method) {
-	writeCode(f, "func (c *aprc%sClient) %s(ctx context.Context, req *%s_) (*%s_, error) {", iname, mname, method.ReqType, method.RespType)
+	writeCode(f, "func (c *arpc%sClient) %s(ctx context.Context, req *%s_) (*%s_, error) {", iname, mname, method.ReqType, method.RespType)
 	writeCode(f, "    resp := new(%s_)", method.RespType)
 	writeCode(f, "    if err := c.client.Call(\"%s\", \"%s\", req.Msg, &resp.Msg); err != nil {", iname, mname)
 	writeCode(f, "        return nil, err")
@@ -41,13 +41,13 @@ func genServiceClient(f *os.File, iname string, iface *Interface) {
 	writeCode(f, "}")
 	writeCode(f, "")
 
-	writeCode(f, "type aprc%sClient struct {", iname)
+	writeCode(f, "type arpc%sClient struct {", iname)
 	writeCode(f, "    client *rpc.Client")
 	writeCode(f, "}")
 	writeCode(f, "")
 
 	writeCode(f, "func New%sClient(client *rpc.Client) %sClient {", iname, iname)
-	writeCode(f, "    return &aprc%sClient{client: client}", iname)
+	writeCode(f, "    return &arpc%sClient{client: client}", iname)
 	writeCode(f, "}")
 	writeCode(f, "")
 
@@ -145,7 +145,7 @@ func genCode(f *os.File, schema *Schema) {
 	writeCode(f, "import (")
 	writeCode(f, "    \"context\"")
 	writeCode(f, "    \"capnproto.org/go/capnp/v3\"")
-	writeCode(f, "    \"github.com/appnet-org/aprc/pkg/rpc\"")
+	writeCode(f, "    \"github.com/appnet-org/arpc/pkg/rpc\"")
 	writeCode(f, ")")
 	writeCode(f, "")
 

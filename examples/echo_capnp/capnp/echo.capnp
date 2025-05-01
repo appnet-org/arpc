@@ -3,7 +3,7 @@
 using Go = import "/go.capnp";
 
 $Go.package("echo_capnp");
-$Go.import("github.com/appnet-org/aprc/examples/echo_capnp/capnp");
+$Go.import("github.com/appnet-org/arpc/examples/echo_capnp/capnp");
 
 struct EchoRequest {
   content @0 :Text;

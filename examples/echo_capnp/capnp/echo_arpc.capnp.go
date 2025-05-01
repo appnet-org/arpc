@@ -4,7 +4,7 @@ package echo_capnp
 import (
     "context"
     "capnproto.org/go/capnp/v3"
-    "github.com/appnet-org/aprc/pkg/rpc"
+    "github.com/appnet-org/arpc/pkg/rpc"
 )
 
 type EchoRequest_ struct {
@@ -69,15 +69,15 @@ type EchoServiceClient interface {
     Echo(ctx context.Context, req *EchoRequest_) (*EchoResponse_, error)
 }
 
-type aprcEchoServiceClient struct {
+type arpcEchoServiceClient struct {
     client *rpc.Client
 }
 
 func NewEchoServiceClient(client *rpc.Client) EchoServiceClient {
-    return &aprcEchoServiceClient{client: client}
+    return &arpcEchoServiceClient{client: client}
 }
 
-func (c *aprcEchoServiceClient) Echo(ctx context.Context, req *EchoRequest_) (*EchoResponse_, error) {
+func (c *arpcEchoServiceClient) Echo(ctx context.Context, req *EchoRequest_) (*EchoResponse_, error) {
     resp := new(EchoResponse_)
     if err := c.client.Call("EchoService", "Echo", req.Msg, &resp.Msg); err != nil {
         return nil, err

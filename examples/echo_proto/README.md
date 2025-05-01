@@ -30,13 +30,13 @@ Run the following command to generate both Protobuf types and aRPC stubs:
 ```bash
 protoc \
   --go_out=paths=source_relative:. \
-  --aprc_out=paths=source_relative:. \
+  --arpc_out=paths=source_relative:. \
   echo/proto/echo.proto
 ```
 
 This will generate:
 - Standard Go types from Protobuf definitions (via `protoc-gen-go`)
-- aRPC client/server stubs (via `protoc-gen-aprc`) in `*_aprc.pb.go`
+- aRPC client/server stubs (via `protoc-gen-arpc`) in `*_arpc.pb.go`
 
 ---
 

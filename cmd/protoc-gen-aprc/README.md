@@ -9,7 +9,7 @@ Make sure `$GOPATH/bin` is in your shell `PATH`.
 ## Install the aRPC codegen plugin
 
 ```bash
-go install ./cmd/protoc-gen-aprc
+go install ./cmd/protoc-gen-arpc
 ```
 
 
@@ -18,6 +18,6 @@ go install ./cmd/protoc-gen-aprc
 ```bash
 protoc \
   --go_out=paths=source_relative:. \
-  --aprc_out=paths=source_relative:. \
+  --arpc_out=paths=source_relative:. \
   <your-proto-file>
 ```

@@ -1,4 +1,4 @@
-module github.com/appnet-org/aprc
+module github.com/appnet-org/arpc
 
 go 1.22.1
 
