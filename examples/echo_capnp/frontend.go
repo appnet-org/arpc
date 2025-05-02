@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	echo "github.com/appnet-org/arpc/examples/echo_capnp/capnp"
+	"github.com/appnet-org/arpc/internal/metadata"
 	"github.com/appnet-org/arpc/internal/serializer"
 	"github.com/appnet-org/arpc/pkg/rpc"
 )
@@ -23,7 +24,12 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := echoClient.Echo(context.Background(), req)
+	md := metadata.New(map[string]string{
+		"username": "Bob",
+	})
+	ctx := metadata.NewOutgoingContext(context.Background(), md)
+
+	resp, err := echoClient.Echo(ctx, req)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("RPC call failed: %v", err), http.StatusInternalServerError)
 		return
