@@ -79,7 +79,7 @@ func NewEchoServiceClient(client *rpc.Client) EchoServiceClient {
 
 func (c *arpcEchoServiceClient) Echo(ctx context.Context, req *EchoRequest_) (*EchoResponse_, error) {
     resp := new(EchoResponse_)
-    if err := c.client.Call("EchoService", "Echo", req.Msg, &resp.Msg); err != nil {
+    if err := c.client.Call(ctx, "EchoService", "Echo", req.Msg, &resp.Msg); err != nil {
         return nil, err
     }
     echoResponse, err := ReadRootEchoResponse(resp.Msg)
@@ -91,7 +91,7 @@ func (c *arpcEchoServiceClient) Echo(ctx context.Context, req *EchoRequest_) (*E
 }
 
 type EchoServiceServer interface {
-    Echo(ctx context.Context, req *EchoRequest_) (*EchoResponse_, error)
+    Echo(ctx context.Context, req *EchoRequest_) (*EchoResponse_, context.Context, error)
 }
 
 func RegisterEchoServiceServer(s *rpc.Server, srv EchoServiceServer) {
@@ -107,17 +107,17 @@ func RegisterEchoServiceServer(s *rpc.Server, srv EchoServiceServer) {
     }, srv)
 }
 
-func _EchoService_Echo_Handler(srv any, ctx context.Context, dec func(any) error) (any, error) {
+func _EchoService_Echo_Handler(srv any, ctx context.Context, dec func(any) error) (any, context.Context, error) {
     in := new(EchoRequest_)
     if err := dec(&in.Msg); err != nil {
-        return nil, err
+        return nil, ctx, err
     }
     echoRequest, err := ReadRootEchoRequest(in.Msg)
     if err != nil {
-        return nil, err
+        return nil, ctx, err
     }
     in.CapnpStruct = &echoRequest
-    resp, err := srv.(EchoServiceServer).Echo(ctx, in)
-    return resp.Msg, err
+    resp, newCtx, err := srv.(EchoServiceServer).Echo(ctx, in)
+    return resp.Msg, newCtx, err
 }
 

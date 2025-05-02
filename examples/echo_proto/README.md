@@ -45,13 +45,13 @@ This will generate:
 Start the server:
 
 ```bash
-go run echo/server.go
+go run server.go
 ```
 
 In a **separate terminal**, run the client:
 
 ```bash
-go run echo/frontend.go
+go run frontend.go
 ```
 
 ## 4. Test

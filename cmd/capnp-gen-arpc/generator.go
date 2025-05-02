@@ -20,7 +20,7 @@ func writeCode(f *os.File, args ...string) {
 func genMethod(f *os.File, iname string, mname string, method *Method) {
 	writeCode(f, "func (c *arpc%sClient) %s(ctx context.Context, req *%s_) (*%s_, error) {", iname, mname, method.ReqType, method.RespType)
 	writeCode(f, "    resp := new(%s_)", method.RespType)
-	writeCode(f, "    if err := c.client.Call(\"%s\", \"%s\", req.Msg, &resp.Msg); err != nil {", iname, mname)
+	writeCode(f, "    if err := c.client.Call(ctx, \"%s\", \"%s\", req.Msg, &resp.Msg); err != nil {", iname, mname)
 	writeCode(f, "        return nil, err")
 	writeCode(f, "    }")
 	writeCode(f, "    %s, err := ReadRoot%s(resp.Msg)", Uncapitalize(method.RespType), method.RespType)
@@ -59,7 +59,7 @@ func genServiceClient(f *os.File, iname string, iface *Interface) {
 func genServiceServer(f *os.File, iname string, iface *Interface) {
 	writeCode(f, "type %sServer interface {", iname)
 	for mname, method := range iface.Methods {
-		writeCode(f, "    %s(ctx context.Context, req *%s_) (*%s_, error)", mname, method.ReqType, method.RespType)
+		writeCode(f, "    %s(ctx context.Context, req *%s_) (*%s_, context.Context, error)", mname, method.ReqType, method.RespType)
 	}
 	writeCode(f, "}")
 	writeCode(f, "")
@@ -81,18 +81,18 @@ func genServiceServer(f *os.File, iname string, iface *Interface) {
 	writeCode(f, "")
 
 	for mname, method := range iface.Methods {
-		writeCode(f, "func _%s_%s_Handler(srv any, ctx context.Context, dec func(any) error) (any, error) {", iname, mname)
+		writeCode(f, "func _%s_%s_Handler(srv any, ctx context.Context, dec func(any) error) (any, context.Context, error) {", iname, mname)
 		writeCode(f, "    in := new(%s_)", method.ReqType)
 		writeCode(f, "    if err := dec(&in.Msg); err != nil {")
-		writeCode(f, "        return nil, err")
+		writeCode(f, "        return nil, ctx, err")
 		writeCode(f, "    }")
 		writeCode(f, "    %s, err := ReadRoot%s(in.Msg)", Uncapitalize(method.ReqType), method.ReqType)
 		writeCode(f, "    if err != nil {")
-		writeCode(f, "        return nil, err")
+		writeCode(f, "        return nil, ctx, err")
 		writeCode(f, "    }")
 		writeCode(f, "    in.CapnpStruct = &%s", Uncapitalize(method.ReqType))
-		writeCode(f, "    resp, err := srv.(%sServer).%s(ctx, in)", iname, mname)
-		writeCode(f, "    return resp.Msg, err")
+		writeCode(f, "    resp, newCtx, err := srv.(%sServer).%s(ctx, in)", iname, mname)
+		writeCode(f, "    return resp.Msg, newCtx, err")
 		writeCode(f, "}")
 		writeCode(f, "")
 	}
