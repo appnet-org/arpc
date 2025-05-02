@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	echo "github.com/appnet-org/arpc/examples/echo_proto/proto"
+	"github.com/appnet-org/arpc/internal/metadata"
 	"github.com/appnet-org/arpc/internal/serializer"
 	"github.com/appnet-org/arpc/pkg/rpc"
 )
@@ -12,15 +14,22 @@ import (
 // EchoService implementation
 type echoServer struct{}
 
-func (s *echoServer) Echo(ctx context.Context, req *echo.EchoRequest) (*echo.EchoResponse, error) {
+func (s *echoServer) Echo(ctx context.Context, req *echo.EchoRequest) (*echo.EchoResponse, context.Context, error) {
 
 	log.Printf("Server got: [%s]", req.GetMessage())
+
+	// Inject some outgoing metadata for the response
+	md := metadata.New(map[string]string{
+		"handled-by": "echoServer",
+		"req-len":    fmt.Sprintf("%d", len(req.GetMessage())),
+	})
+	respCtx := metadata.NewOutgoingContext(ctx, md)
 
 	resp := &echo.EchoResponse{
 		Message: "Echo " + req.GetMessage(),
 	}
 
-	return resp, nil
+	return resp, respCtx, nil
 }
 
 func main() {

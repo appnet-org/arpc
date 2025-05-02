@@ -102,11 +102,11 @@ func genService(g *protogen.GeneratedFile, service *protogen.Service) {
 		inputType := m.Input.GoIdent.GoName
 
 		// Each handler decodes the request and invokes the appropriate method
-		g.P("func ", handlerName, "(srv any, ctx context.Context, dec func(any) error) (any, error) {")
+		g.P("func ", handlerName, "(srv any, ctx context.Context, dec func(any) error) (any, context.Context, error) {")
 		g.P("  in := new(", inputType, ")")
-		g.P("  if err := dec(in); err != nil { return nil, err }")
-		g.P("  return srv.(", svcName, "Server).", m.GoName, "(ctx, in)")
+		g.P("  if err := dec(in); err != nil { return nil, ctx, err }")
+		g.P("  out, err := srv.(", svcName, "Server).", m.GoName, "(ctx, in)")
+		g.P("  return out, ctx, err")
 		g.P("}")
-		g.P()
 	}
 }

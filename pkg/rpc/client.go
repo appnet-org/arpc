@@ -8,6 +8,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/appnet-org/arpc/internal/metadata"
 	"github.com/appnet-org/arpc/internal/protocol"
 	"github.com/appnet-org/arpc/internal/serializer"
 	"github.com/appnet-org/arpc/internal/transport"
@@ -15,9 +16,10 @@ import (
 
 // Client represents an RPC client with a transport and serializer.
 type Client struct {
-	transport   *transport.UDPTransport
-	serializer  serializer.Serializer
-	defaultAddr string
+	transport     *transport.UDPTransport
+	serializer    serializer.Serializer
+	metadataCodec metadata.MetadataCodec
+	defaultAddr   string
 }
 
 // NewClient creates a new Client using the given serializer and target address.
@@ -27,17 +29,18 @@ func NewClient(serializer serializer.Serializer, addr string) (*Client, error) {
 		return nil, err
 	}
 	return &Client{
-		transport:   t,
-		serializer:  serializer,
-		defaultAddr: addr,
+		transport:     t,
+		serializer:    serializer,
+		metadataCodec: metadata.MetadataCodec{},
+		defaultAddr:   addr,
 	}, nil
 }
 
-// frameRequest constructs the binary message with service name, method name, and payload.
-func frameRequest(service, method string, payload []byte) ([]byte, error) {
+// frameRequest constructs a binary message with [serviceLen][service][methodLen][method][headerLen][headers][payload]
+func frameRequest(service, method string, headers []byte, payload []byte) ([]byte, error) {
 	buf := new(bytes.Buffer)
 
-	// Write service name length and bytes
+	// Write service name
 	if err := binary.Write(buf, binary.LittleEndian, uint16(len(service))); err != nil {
 		return nil, err
 	}
@@ -45,7 +48,7 @@ func frameRequest(service, method string, payload []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	// Write method name length and bytes
+	// Write method name
 	if err := binary.Write(buf, binary.LittleEndian, uint16(len(method))); err != nil {
 		return nil, err
 	}
@@ -53,12 +56,60 @@ func frameRequest(service, method string, payload []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	// Write payload bytes
+	// Write header length and header bytes
+	if err := binary.Write(buf, binary.LittleEndian, uint16(len(headers))); err != nil {
+		return nil, err
+	}
+	if _, err := buf.Write(headers); err != nil {
+		return nil, err
+	}
+
+	// Write payload
 	if _, err := buf.Write(payload); err != nil {
 		return nil, err
 	}
 
 	return buf.Bytes(), nil
+}
+
+func parseFramedResponse(data []byte) (service string, method string, headers []byte, payload []byte, err error) {
+	offset := 0
+
+	if len(data) < 2 {
+		return "", "", nil, nil, fmt.Errorf("invalid response (too short for serviceLen)")
+	}
+	serviceLen := int(binary.LittleEndian.Uint16(data[offset:]))
+	offset += 2
+	if offset+serviceLen > len(data) {
+		return "", "", nil, nil, fmt.Errorf("invalid response (truncated service)")
+	}
+	service = string(data[offset : offset+serviceLen])
+	offset += serviceLen
+
+	if offset+2 > len(data) {
+		return "", "", nil, nil, fmt.Errorf("invalid response (too short for methodLen)")
+	}
+	methodLen := int(binary.LittleEndian.Uint16(data[offset:]))
+	offset += 2
+	if offset+methodLen > len(data) {
+		return "", "", nil, nil, fmt.Errorf("invalid response (truncated method)")
+	}
+	method = string(data[offset : offset+methodLen])
+	offset += methodLen
+
+	if offset+2 > len(data) {
+		return "", "", nil, nil, fmt.Errorf("invalid response (too short for headerLen)")
+	}
+	headerLen := int(binary.LittleEndian.Uint16(data[offset:]))
+	offset += 2
+	if offset+headerLen > len(data) {
+		return "", "", nil, nil, fmt.Errorf("invalid response (truncated header)")
+	}
+	headers = data[offset : offset+headerLen]
+	offset += headerLen
+
+	payload = data[offset:]
+	return service, method, headers, payload, nil
 }
 
 // Call sends an RPC request to the given service and method, waits for the response,
@@ -67,13 +118,20 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 	rpcID := transport.GenerateRPCID()
 
 	// Serialize the request payload
-	payload, err := c.serializer.Marshal(req)
+	reqPayloadBytes, err := c.serializer.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
+	// Extract and encode headers
+	reqMD := metadata.FromOutgoingContext(ctx)
+	headerBytes, err := c.metadataCodec.EncodeHeaders(reqMD)
+	if err != nil {
+		return fmt.Errorf("failed to encode headers: %w", err)
+	}
+
 	// Frame the request into binary format
-	framed, err := frameRequest(service, method, payload)
+	framedReq, err := frameRequest(service, method, headerBytes, reqPayloadBytes)
 	if err != nil {
 		return fmt.Errorf("failed to frame request: %w", err)
 	}
@@ -81,7 +139,7 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 	log.Printf("Sending request to %s.%s (RPC ID: %d) -> %s\n", service, method, rpcID, c.defaultAddr)
 
 	// Send the framed request
-	if err := c.transport.Send(c.defaultAddr, rpcID, framed); err != nil {
+	if err := c.transport.Send(c.defaultAddr, rpcID, framedReq); err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 
@@ -100,8 +158,26 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 			continue
 		}
 
+		// Parse framed response: extract service, method, headers, payload
+		_, _, respHeaderBytes, respPayloadBytes, err := parseFramedResponse(data)
+		if err != nil {
+			return fmt.Errorf("failed to parse framed response: %w", err)
+		}
+
+		// Decode headers
+		md, err := c.metadataCodec.DecodeHeaders(respHeaderBytes)
+		if err != nil {
+			return fmt.Errorf("failed to decode response headers: %w", err)
+		}
+
+		// Log the response headers
+		log.Printf("Response headers from %s.%s:", service, method)
+		for k, v := range md {
+			log.Printf("  %s: %s", k, v)
+		}
+
 		// Deserialize the response into resp
-		if err := c.serializer.Unmarshal(data, resp); err != nil {
+		if err := c.serializer.Unmarshal(respPayloadBytes, resp); err != nil {
 			return fmt.Errorf("failed to unmarshal response: %w", err)
 		}
 

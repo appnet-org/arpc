@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	echo "github.com/appnet-org/arpc/examples/echo_proto/proto"
+	"github.com/appnet-org/arpc/internal/metadata"
 	"github.com/appnet-org/arpc/internal/serializer"
 	"github.com/appnet-org/arpc/pkg/rpc"
 )
@@ -17,8 +18,14 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	message := r.URL.Query().Get("key")
 	log.Printf("Received HTTP request with key: %s\n", message)
 
+	// Create and attach metadata with the custom header
+	md := metadata.New(map[string]string{
+		"username": "Bob", // Here we're setting the custom header "key" to the requestBody
+	})
+	ctx := metadata.NewOutgoingContext(context.Background(), md)
+
 	req := &echo.EchoRequest{Message: message}
-	resp, err := echoClient.Echo(context.Background(), req)
+	resp, err := echoClient.Echo(ctx, req)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("RPC call failed: %v", err), http.StatusInternalServerError)
 		return
