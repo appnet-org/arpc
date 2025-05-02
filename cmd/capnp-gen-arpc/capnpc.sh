@@ -12,10 +12,10 @@ CAPNP_DIR=$(dirname "$CAPNP_FILE")
 CAPNP_FILENAME=$(basename "$CAPNP_FILE")
 
 if [ ! -f "./capnpc" ]; then
-    go build -o capnpc .
+    go build -o capnpc_arpc .
 fi
 
-./capnpc $1
+./capnpc_arpc $1
 
 cd $CAPNP_DIR
 capnp compile -I$(go list -f '{{.Dir}}' capnproto.org/go/capnp/v3)/std -ogo $CAPNP_FILENAME

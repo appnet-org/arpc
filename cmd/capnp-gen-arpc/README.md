@@ -1,9 +1,26 @@
 # Capnp aRPC Compiler
 
-Make sure you have capnp tool installed. Run
+**Step 1: Install Cap'n Proto Tools**
 
 ```bash
-./compile <path-to-capnp-file>
+curl -O https://capnproto.org/capnproto-c++-1.1.0.tar.gz
+tar zxf capnproto-c++-1.1.0.tar.gz
+cd capnproto-c++-1.1.0
+./configure
+make -j6 check
+sudo make install
 ```
 
-to generate aRPC stubs.
+**Step 2: Install Capnp Go Plugin**
+
+```bash
+go install capnproto.org/go/capnp/v3/capnpc-go@latest
+```
+
+**Step 3: Generate aRPC Stubs**
+
+In `cmd/capnp-gen-arpc`, run
+
+```bash
+./capnpc.sh <path-to-capnp-file>
+# Example: ./capnpc.sh ../../examples/echo_capnp/capnp/echo.capnp
