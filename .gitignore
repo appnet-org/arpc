@@ -4,3 +4,5 @@ __pycache__/
 wrk/
 wrk2/
 
+bcc/
+bcc/build/

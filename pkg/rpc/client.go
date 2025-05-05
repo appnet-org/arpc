@@ -136,6 +136,9 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		return fmt.Errorf("failed to frame request: %w", err)
 	}
 
+	fmt.Printf("Framed request (hex): %x\n", framedReq)
+	fmt.Printf("Framed request length: %d bytes\n", len(framedReq))
+
 	log.Printf("Sending request to %s.%s (RPC ID: %d) -> %s\n", service, method, rpcID, c.defaultAddr)
 
 	// Send the framed request
