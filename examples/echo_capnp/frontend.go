@@ -7,9 +7,9 @@ import (
 	"net/http"
 
 	echo "github.com/appnet-org/arpc/examples/echo_capnp/capnp"
-	"github.com/appnet-org/arpc/internal/metadata"
-	"github.com/appnet-org/arpc/internal/serializer"
+	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/rpc"
+	"github.com/appnet-org/arpc/pkg/serializer"
 )
 
 var echoClient echo.EchoServiceClient
@@ -45,9 +45,11 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Create RPC client
+	// Create RPC client with capnp serializer
 	serializer := &serializer.CapnpSerializer{}
-	client, err := rpc.NewClient(serializer, "127.0.0.1:9000")
+
+	// Replace with your server's address
+	client, err := rpc.NewClient(serializer, "server:9000")
 	if err != nil {
 		log.Fatal("Failed to create RPC client:", err)
 	}

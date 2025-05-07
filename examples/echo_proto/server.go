@@ -6,9 +6,9 @@ import (
 	"log"
 
 	echo "github.com/appnet-org/arpc/examples/echo_proto/proto"
-	"github.com/appnet-org/arpc/internal/metadata"
-	"github.com/appnet-org/arpc/internal/serializer"
+	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/rpc"
+	"github.com/appnet-org/arpc/pkg/serializer"
 )
 
 // EchoService implementation
