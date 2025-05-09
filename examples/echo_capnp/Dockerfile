@@ -1,7 +1,7 @@
 # Use the official Go image as the base image
 FROM golang:1.22.1-bullseye AS builder
 
-ENV CGO_ENABLED=1
+ENV CGO_ENABLED=0
 
 # Set the working directory
 WORKDIR /app
@@ -27,4 +27,4 @@ WORKDIR /app
 COPY --from=builder /app/arpc/frontend /app/frontend
 COPY --from=builder /app/arpc/server /app/server
 
-
+RUN chmod +x /app/frontend /app/server

@@ -7,7 +7,7 @@ metadata:
 spec:
   clusterIP: 10.96.88.88
   ports:
-  - name: arpc-frontend
+  - name: frontend
     port: 80
     targetPort: 8080
   selector:
@@ -42,7 +42,7 @@ metadata:
 spec:
   clusterIP: 10.96.77.76
   ports:
-  - name: arpc-server
+  - name: server
     port: 9000
     targetPort: 9000
   selector:

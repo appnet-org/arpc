@@ -49,7 +49,7 @@ func main() {
 	serializer := &serializer.CapnpSerializer{}
 
 	// Replace with your server's address
-	client, err := rpc.NewClient(serializer, "server:9000")
+	client, err := rpc.NewClient(serializer, "10.244.0.26:9000") // TODO: change to your server's address (currently retrived from k get endpoints)
 	if err != nil {
 		log.Fatal("Failed to create RPC client:", err)
 	}
