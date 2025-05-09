@@ -1,0 +1,1 @@
+{"rustc":13226066032359371072,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[12937651641611023678,"build_script_build",false,7352100663858967888]],"local":[{"RerunIfChanged":{"output":"wasm32-wasip1/release/build/firewall-98089a5a9796e74e/output","paths":["../../../echo-pb/echo.proto"]}}],"rustflags":[],"config":0,"compile_kind":0}

@@ -27,8 +27,90 @@ class Data(ctypes.Structure):
         ("payload_len", ctypes.c_uint32),
     ]
 
+def decode_rpc_frame(data):
+    try:
+        offset = 0
+        
+        # Message ID (8 bytes)
+        if len(data) < offset + 8:
+            return f"Too short for message_id (offset={offset}, len={len(data)})", {}
+        message_id = struct.unpack("<Q", data[offset:offset+8])[0]
+        offset += 8
+        
+        # Protocol version (4 bytes)
+        if len(data) < offset + 4:
+            return f"Too short for protocol_version (offset={offset}, len={len(data)})", {}
+        protocol_version = struct.unpack("<I", data[offset:offset+4])[0]
+        offset += 4
+        
+        # Service name
+        if len(data) < offset + 2:
+            return f"Too short for service_len (offset={offset}, len={len(data)})", {}
+        service_len = struct.unpack("<H", data[offset:offset+2])[0]
+        offset += 2
+        
+        if len(data) < offset + service_len:
+            return f"Too short for service (offset={offset}, service_len={service_len}, len={len(data)})", {}
+        service = data[offset:offset+service_len].decode("utf-8", errors="ignore")
+        offset += service_len
+        
+        # Method name
+        if len(data) < offset + 2:
+            return f"Too short for method_len (offset={offset}, len={len(data)})", {}
+        method_len = struct.unpack("<H", data[offset:offset+2])[0]
+        offset += 2
+        
+        if len(data) < offset + method_len:
+            return f"Too short for method (offset={offset}, method_len={method_len}, len={len(data)})", {}
+        method = data[offset:offset+method_len].decode("utf-8", errors="ignore")
+        offset += method_len
+        
+        # Message type
+        if len(data) < offset + 4:
+            return f"Too short for message_type (offset={offset}, len={len(data)})", {}
+        message_type = struct.unpack("<I", data[offset:offset+4])[0]
+        offset += 4
+        
+        # Parameters
+        params = {}
+        while offset < len(data):
+            if len(data) < offset + 2:
+                break
+            param_len = struct.unpack("<H", data[offset:offset+2])[0]
+            offset += 2
+            
+            if len(data) < offset + param_len:
+                break
+            param_name = data[offset:offset+param_len].decode("utf-8", errors="ignore")
+            offset += param_len
+            
+            if len(data) < offset + 2:
+                break
+            value_len = struct.unpack("<H", data[offset:offset+2])[0]
+            offset += 2
+            
+            if len(data) < offset + value_len:
+                break
+            param_value = data[offset:offset+value_len].decode("utf-8", errors="ignore")
+            offset += value_len
+            
+            params[param_name] = param_value
+        
+        return "OK", {
+            "message_id": message_id,
+            "protocol_version": protocol_version,
+            "service": service,
+            "method": method,
+            "message_type": message_type,
+            "params": params
+        }
+        
+    except Exception as e:
+        return f"Error: {e}", {}
+
 class EventHandler:
     def process_event(self, cpu, data, size):
+        print(f"Processing event on CPU {cpu}")
         event = ctypes.cast(data, ctypes.POINTER(Data)).contents
         proto = 'TCP' if event.protocol == 6 else 'UDP' if event.protocol == 17 else str(event.protocol)
         print(f"{datetime.now().strftime('%H:%M:%S')} | "
@@ -39,10 +121,23 @@ class EventHandler:
               f"PROTO: {proto}")
         if event.payload_len > 0:
             try:
-                payload = bytes(event.payload[:event.payload_len]).hex()
+                payload = bytes(event.payload[:event.payload_len])
+                status, decoded = decode_rpc_frame(payload)
+                if status == "OK":
+                    print(f"RPC Message:")
+                    print(f"  Message ID: {decoded['message_id']}")
+                    print(f"  Service: {decoded['service']}")
+                    print(f"  Method: {decoded['method']}")
+                    print(f"  Message Type: {decoded['message_type']}")
+                    print(f"  Parameters:")
+                    for name, value in decoded['params'].items():
+                        print(f"    {name}: {value}")
+                else:
+                    print(f"Decode Error: {status}")
+                    print(f"Raw Payload: {payload.hex()}")
             except Exception as e:
-                payload = "<decode error>"
-            print(f"PAYLOAD: {payload}")
+                print(f"Error decoding payload: {e}")
+                print(f"Raw Payload: {payload.hex()}")
         print("-" * 80)
 
 def main():

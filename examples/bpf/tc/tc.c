@@ -8,6 +8,7 @@
 #include <linux/in.h>
 
 #define MAX_PAYLOAD_LEN 64
+#define PAYLOAD_SIZE 64
 
 typedef __u32 u32;
 typedef __u16 u16;
@@ -27,13 +28,6 @@ struct data_t {
 // Perf event output map for sending data to user space
 BPF_PERF_OUTPUT(events);
 
-// Temporary map for storing payloads
-
-struct payload_t {
-    u8 data[MAX_PAYLOAD_LEN];
-};
-
-BPF_PERCPU_ARRAY(tmp_map, struct payload_t, 1);
 
 // Inline function to process packets
 static __always_inline int handle_packet(struct __sk_buff *skb) {
@@ -58,6 +52,8 @@ static __always_inline int handle_packet(struct __sk_buff *skb) {
     new_data.daddr = ip->daddr;
     new_data.protocol = ip->protocol;
 
+    u16 ip_hdr_len = ip->ihl * 4;
+
     // Only handle UDP packets
     if (ip->protocol == IPPROTO_UDP) {
         struct udphdr *udp = (void *)ip + sizeof(*ip);
@@ -70,6 +66,21 @@ static __always_inline int handle_packet(struct __sk_buff *skb) {
         // Only capture packets with source or dest port 9000
         if (new_data.sport != 9000 && new_data.dport != 9000)
             return TC_ACT_OK;
+
+        // Extract payload
+        u16 total_len = ntohs(udp->len); // Convert to host byte order
+        u16 udp_hdr_len = sizeof(*udp);
+        u16 payload_offset = sizeof(*eth) + ip_hdr_len + udp_hdr_len;
+
+        
+        if (skb->len > payload_offset)
+        {
+            if (data + payload_offset + PAYLOAD_SIZE > data_end)
+                return TC_ACT_OK;
+            bpf_skb_load_bytes(skb, payload_offset, new_data.payload, PAYLOAD_SIZE);
+        }
+
+        new_data.payload_len = PAYLOAD_SIZE;
 
     } else {
         // Ignore non-UDP packets

@@ -1,0 +1,3 @@
+cargo:rerun-if-changed=build.rs
+cargo:rerun-if-env-changed=RUSTFLAGS
+cargo:rustc-check-cfg=cfg(wasi_exec_model_reactor)

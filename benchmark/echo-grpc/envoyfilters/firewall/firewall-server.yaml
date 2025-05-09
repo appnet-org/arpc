@@ -1,0 +1,35 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: firewall-server
+spec:
+  workloadSelector:
+    labels:
+      app: server
+  configPatches:
+  - applyTo: HTTP_FILTER
+    match:
+      context: SIDECAR_INBOUND
+      listener:
+        portNumber: 9000
+        filterChain:
+          filter:
+            name: "envoy.filters.network.http_connection_manager"
+            subFilter:
+              name: "envoy.filters.http.router"
+    patch:
+      operation: INSERT_BEFORE
+      value: 
+        name: envoy.filters.http.wasm
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.http.wasm.v3.Wasm
+          config:
+            name: firewall-server
+            root_id: firewall-server
+            vm_config:
+              vm_id: vm.sentinel.firewall-server
+              runtime: envoy.wasm.runtime.v8
+              code:
+                local:
+                  filename: /envoyfilters/firewall.wasm
+              allow_precompiled: false
