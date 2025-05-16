@@ -1,6 +1,10 @@
 # AppNet RPC (aRPC)
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/appnet-org/arpc)](https://goreportcard.com/report/github.com/appnet-org/arpc)
+[![Apache 2.0 License][license-badge]][license-link]
+
+[license-badge]: https://img.shields.io/github/license/appnet-org/arpc
+[license-link]: https://github.com/appnet-org/arpc/blob/main/LICENSE
 
 **AppNet RPC (arpc)** is a minimal, fast, and pluggable Remote Procedure Call framework built on top of **UDP**, with support for customizable serialization formats.
 
@@ -16,7 +20,7 @@ See [examples/README.md](examples/README.md)
 ## Learn more
 
 - [Low-level technical docs](docs/)
-- [Performance Benchmark](benchmark)
+- [Performance Benchmark](benchmark/)
 
 
 ## Contact
