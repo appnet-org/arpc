@@ -6,7 +6,7 @@ go 1.22.1
 
 require (
 	github.com/appnet-org/golib/sample/echo-pb v0.0.0-00010101000000-000000000000
-	golang.org/x/net v0.29.0
+	golang.org/x/net v0.38.0
 	google.golang.org/grpc v1.66.2
 )
 

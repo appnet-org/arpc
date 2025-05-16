@@ -38,7 +38,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	// Create RPC client
 	serializer := &serializer.ProtoSerializer{}
-	client, err := rpc.NewClient(serializer, "127.0.0.1:9000")
+	client, err := rpc.NewClient(serializer, ":9000") // TODO: change to your server's address (currently retrived from k get endpoints)
 	if err != nil {
 		log.Fatal("Failed to create RPC client:", err)
 	}
