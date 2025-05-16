@@ -17,8 +17,8 @@ A simple echo service implementation using Cap'n Proto as the IDL format. The se
 ### Quick Start
 1. Define service in `echo.capnp`
 2. Generate Go code using `capnp-gen-arpc`
-3. Run server: `go run server.go`
-4. Run client: `go run frontend.go`
+3. Run server: `go run server/server.go`
+4. Run client: `go run frontend/frontend.go`
 5. Test: `curl http://localhost:8080?key=hello`
 
 ## Echo Protocol Buffers Example (`echo_proto/`)
@@ -28,8 +28,8 @@ A simple echo service implementation using Protocol Buffers as the IDL format. T
 ### Quick Start
 1. Define service in `echo.proto`
 2. Generate Go code: `protoc --go_out=. --arpc_out=. echo/proto/echo.proto`
-3. Run server: `go run server.go`
-4. Run client: `go run frontend.go`
+3. Run server: `go run server/server.go`
+4. Run client: `go run frontend/frontend.go`
 5. Test: `curl http://localhost:8080?key=hello`
 
 Both examples demonstrate how to:

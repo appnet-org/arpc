@@ -13,10 +13,10 @@ COPY ../.. /app/arpc/
 WORKDIR /app/arpc
 
 # Build the frontend
-RUN go build -trimpath -ldflags="-s -w" -o frontend frontend.go
+RUN go build -trimpath -ldflags="-s -w" -o frontend frontend/frontend.go
 
 # Build the server
-RUN go build -trimpath -ldflags="-s -w" -o server server.go
+RUN go build -trimpath -ldflags="-s -w" -o server server/server.go
 
 # Use a minimal alpine image for the final stage
 FROM alpine:latest

@@ -33,13 +33,13 @@ See [capnp-gen-arpc](../../cmd/capnp-gen-arpc/README.md) for details.
 Start the server:
 
 ```bash
-go run server.go
+go run server/server.go
 ```
 
 In a **separate terminal**, run the client:
 
 ```bash
-go run frontend.go
+go run frontend/frontend.go
 ```
 
 ## 4. Test
