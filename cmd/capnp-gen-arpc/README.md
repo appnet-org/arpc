@@ -1,4 +1,4 @@
-# Capnp aRPC Compiler
+# Cap’n Proto aRPC Compiler
 
 **Step 1: Install Cap'n Proto Tools**
 
