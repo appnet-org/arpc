@@ -6,11 +6,15 @@ $Go.package("echo_capnp");
 $Go.import("github.com/appnet-org/arpc/examples/echo_capnp/capnp");
 
 struct EchoRequest {
-  content @0 :Text;
+  id      @0 :Int32;
+  score   @1 :Float32;
+  content @2 :Text;
 }
 
 struct EchoResponse {
-  content @0 :Text;
+  id      @0 :Int32;
+  score   @1 :Float32;
+  content @2 :Text;
 }
 
 interface EchoService {

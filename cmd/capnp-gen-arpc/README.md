@@ -24,3 +24,6 @@ In `cmd/capnp-gen-arpc`, run
 ```bash
 ./capnpc.sh <path-to-capnp-file>
 # Example: ./capnpc.sh ../../examples/echo_capnp/capnp/echo.capnp
+```
+
+Make sure `$GOPATH/bin` is in your shell `PATH`.

@@ -11,9 +11,8 @@ CAPNP_FILE=$1
 CAPNP_DIR=$(dirname "$CAPNP_FILE")
 CAPNP_FILENAME=$(basename "$CAPNP_FILE")
 
-if [ ! -f "./capnpc" ]; then
-    go build -o capnpc_arpc .
-fi
+# Always build the capnpc_arpc binary for now
+go build -o capnpc_arpc .
 
 ./capnpc_arpc $1
 

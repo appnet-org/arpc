@@ -12,16 +12,32 @@ type EchoRequest_ struct {
     CapnpStruct *EchoRequest
 }
 
+func (e *EchoRequest_) GetId() (int32, error) {
+    return e.CapnpStruct.Id(), nil
+}
+
+func (e *EchoRequest_) GetScore() (float32, error) {
+    return e.CapnpStruct.Score(), nil
+}
+
 func (e *EchoRequest_) GetContent() (string, error) {
     return e.CapnpStruct.Content()
 }
 
-func CreateEchoRequest(content string) (*EchoRequest_, error) {
+func CreateEchoRequest(id int32, score float32, content string) (*EchoRequest_, error) {
     msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
     if err != nil {
         return nil, err
     }
     capnpStruct, err := NewRootEchoRequest(seg)
+    if err != nil {
+        return nil, err
+    }
+    capnpStruct.SetId(id)
+    if err != nil {
+        return nil, err
+    }
+    capnpStruct.SetScore(score)
     if err != nil {
         return nil, err
     }
@@ -41,11 +57,19 @@ type EchoResponse_ struct {
     CapnpStruct *EchoResponse
 }
 
+func (e *EchoResponse_) GetId() (int32, error) {
+    return e.CapnpStruct.Id(), nil
+}
+
+func (e *EchoResponse_) GetScore() (float32, error) {
+    return e.CapnpStruct.Score(), nil
+}
+
 func (e *EchoResponse_) GetContent() (string, error) {
     return e.CapnpStruct.Content()
 }
 
-func CreateEchoResponse(content string) (*EchoResponse_, error) {
+func CreateEchoResponse(id int32, score float32, content string) (*EchoResponse_, error) {
     msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
     if err != nil {
         return nil, err
@@ -54,7 +78,15 @@ func CreateEchoResponse(content string) (*EchoResponse_, error) {
     if err != nil {
         return nil, err
     }
+    capnpStruct.SetScore(score)
+    if err != nil {
+        return nil, err
+    }
     err = capnpStruct.SetContent(content)
+    if err != nil {
+        return nil, err
+    }
+    capnpStruct.SetId(id)
     if err != nil {
         return nil, err
     }

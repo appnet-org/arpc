@@ -18,7 +18,11 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	content := r.URL.Query().Get("key")
 	log.Printf("Received HTTP request with key: %s\n", content)
 
-	req, err := echo.CreateEchoRequest(content)
+	req, err := echo.CreateEchoRequest(
+		1,       // id
+		10.0,    // score
+		content, // content
+	)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to create request: %v", err), http.StatusInternalServerError)
 		return

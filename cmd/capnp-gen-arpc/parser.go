@@ -13,6 +13,15 @@ func primitiveTypeLookUp(typeName string) string {
 	if typeName == "Text" {
 		return "string"
 	}
+
+	if typeName == "Float32" {
+		return "float32"
+	}
+
+	if typeName == "Int32" {
+		return "int32"
+	}
+
 	return typeName
 }
 
