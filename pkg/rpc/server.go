@@ -9,6 +9,7 @@ import (
 	"github.com/appnet-org/arpc/internal/protocol"
 	"github.com/appnet-org/arpc/internal/transport"
 	"github.com/appnet-org/arpc/pkg/metadata"
+	"github.com/appnet-org/arpc/pkg/rpc/element"
 	"github.com/appnet-org/arpc/pkg/serializer"
 )
 
@@ -30,23 +31,25 @@ type ServiceDesc struct {
 
 // Server is the core RPC server handling transport, serialization, and registered services.
 type Server struct {
-	transport     *transport.UDPTransport
-	serializer    serializer.Serializer
-	metadataCodec metadata.MetadataCodec
-	services      map[string]*ServiceDesc
+	transport       *transport.UDPTransport
+	serializer      serializer.Serializer
+	metadataCodec   metadata.MetadataCodec
+	services        map[string]*ServiceDesc
+	rpcElementChain *element.RPCElementChain
 }
 
 // NewServer initializes a new Server instance with the given address and serializer.
-func NewServer(addr string, serializer serializer.Serializer) (*Server, error) {
+func NewServer(addr string, serializer serializer.Serializer, rpcElements []element.RPCElement) (*Server, error) {
 	udpTransport, err := transport.NewUDPTransport(addr)
 	if err != nil {
 		return nil, err
 	}
 	return &Server{
-		transport:     udpTransport,
-		serializer:    serializer,
-		metadataCodec: metadata.MetadataCodec{},
-		services:      make(map[string]*ServiceDesc),
+		transport:       udpTransport,
+		serializer:      serializer,
+		metadataCodec:   metadata.MetadataCodec{},
+		services:        make(map[string]*ServiceDesc),
+		rpcElementChain: element.NewRPCElementChain(rpcElements...),
 	}, nil
 }
 
@@ -142,15 +145,30 @@ func (s *Server) Start() {
 			continue
 		}
 
-		// Lookup service and method
-		svcDesc, ok := s.services[serviceName]
-		if !ok {
-			log.Printf("Unknown service: %s", serviceName)
+		// Create RPC request for element processing
+		rpcReq := &element.RPCRequest{
+			ID:          rpcID,
+			ServiceName: serviceName,
+			Method:      methodName,
+			Payload:     reqPayloadBytes,
+		}
+
+		// Process request through RPC elements
+		rpcReq, err = s.rpcElementChain.ProcessRequest(context.Background(), rpcReq)
+		if err != nil {
+			log.Printf("RPC element processing error: %v", err)
 			continue
 		}
-		methodDesc, ok := svcDesc.Methods[methodName]
+
+		// Lookup service and method
+		svcDesc, ok := s.services[rpcReq.ServiceName]
 		if !ok {
-			log.Printf("Unknown method: %s.%s", serviceName, methodName)
+			log.Printf("Unknown service: %s", rpcReq.ServiceName)
+			continue
+		}
+		methodDesc, ok := svcDesc.Methods[rpcReq.Method]
+		if !ok {
+			log.Printf("Unknown method: %s.%s", rpcReq.ServiceName, rpcReq.Method)
 			continue
 		}
 
@@ -163,29 +181,42 @@ func (s *Server) Start() {
 		ctx := metadata.NewIncomingContext(context.Background(), md)
 
 		// Log all headers
-		log.Printf("Received headers for %s.%s:", serviceName, methodName)
+		log.Printf("Received headers for %s.%s:", rpcReq.ServiceName, rpcReq.Method)
 		for k, v := range md {
 			log.Printf("  %s: %s", k, v)
 		}
 
 		// Invoke method handler
 		resp, ctx, err := methodDesc.Handler(svcDesc.ServiceImpl, ctx, func(v any) error {
-			return s.serializer.Unmarshal(reqPayloadBytes, v)
+			return s.serializer.Unmarshal(rpcReq.Payload.([]byte), v)
 		})
 		if err != nil {
 			log.Printf("Handler error: %v", err)
 			continue
 		}
 
+		// Create RPC response for element processing
+		rpcResp := &element.RPCResponse{
+			Result: resp,
+			Error:  err,
+		}
+
+		// Process response through RPC elements
+		rpcResp, err = s.rpcElementChain.ProcessResponse(ctx, rpcResp)
+		if err != nil {
+			log.Printf("RPC element response processing error: %v", err)
+			continue
+		}
+
 		// Serialize response
-		respPayloadBytes, err := s.serializer.Marshal(resp)
+		respPayloadBytes, err := s.serializer.Marshal(rpcResp.Result)
 		if err != nil {
 			log.Printf("Error marshaling response: %v", err)
 			continue
 		}
 
 		// Extract response headers from context
-		respMD := metadata.FromOutgoingContext(ctx) // default to empty for now
+		respMD := metadata.FromOutgoingContext(ctx)
 		respHeaderBytes, err := s.metadataCodec.EncodeHeaders(respMD)
 		if err != nil {
 			log.Printf("Failed to encode response headers: %v", err)
@@ -193,7 +224,7 @@ func (s *Server) Start() {
 		}
 
 		// Frame response
-		framedResp, err := frameResponse(serviceName, methodName, respHeaderBytes, respPayloadBytes)
+		framedResp, err := frameResponse(rpcReq.ServiceName, rpcReq.Method, respHeaderBytes, respPayloadBytes)
 		if err != nil {
 			log.Printf("Failed to frame response: %v", err)
 			continue

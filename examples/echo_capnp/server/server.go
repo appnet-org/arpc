@@ -38,7 +38,7 @@ func (s *echoServer) Echo(ctx context.Context, req *echo.EchoRequest_) (*echo.Ec
 
 func main() {
 	serializer := &serializer.CapnpSerializer{}
-	server, err := rpc.NewServer(":9000", serializer)
+	server, err := rpc.NewServer(":9000", serializer, nil)
 	if err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
