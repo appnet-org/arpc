@@ -11,28 +11,31 @@ import (
 	"github.com/appnet-org/arpc/internal/protocol"
 	"github.com/appnet-org/arpc/internal/transport"
 	"github.com/appnet-org/arpc/pkg/metadata"
+	"github.com/appnet-org/arpc/pkg/rpc/element"
 	"github.com/appnet-org/arpc/pkg/serializer"
 )
 
 // Client represents an RPC client with a transport and serializer.
 type Client struct {
-	transport     *transport.UDPTransport
-	serializer    serializer.Serializer
-	metadataCodec metadata.MetadataCodec
-	defaultAddr   string
+	transport       *transport.UDPTransport
+	serializer      serializer.Serializer
+	metadataCodec   metadata.MetadataCodec
+	defaultAddr     string
+	rpcElementChain *element.RPCElementChain
 }
 
 // NewClient creates a new Client using the given serializer and target address.
-func NewClient(serializer serializer.Serializer, addr string, elements ...transport.TransportElement) (*Client, error) {
-	t, err := transport.NewUDPTransport("", elements...)
+func NewClient(serializer serializer.Serializer, addr string, transportElements []transport.TransportElement, rpcElements []element.RPCElement) (*Client, error) {
+	t, err := transport.NewUDPTransport("", transportElements...)
 	if err != nil {
 		return nil, err
 	}
 	return &Client{
-		transport:     t,
-		serializer:    serializer,
-		metadataCodec: metadata.MetadataCodec{},
-		defaultAddr:   addr,
+		transport:       t,
+		serializer:      serializer,
+		metadataCodec:   metadata.MetadataCodec{},
+		defaultAddr:     addr,
+		rpcElementChain: element.NewRPCElementChain(rpcElements...),
 	}, nil
 }
 
@@ -112,13 +115,27 @@ func parseFramedResponse(data []byte) (service string, method string, headers []
 	return service, method, headers, payload, nil
 }
 
-// Call sends an RPC request to the given service and method, waits for the response,
-// and unmarshals it into resp.
+// Call makes an RPC call with RPC element processing
 func (c *Client) Call(ctx context.Context, service, method string, req any, resp any) error {
-	rpcID := transport.GenerateRPCID()
+
+	rpcReqID := transport.GenerateRPCID()
+
+	// Create request with service and method information
+	rpcReq := &element.RPCRequest{
+		ServiceName: service,
+		Method:      method,
+		ID:          rpcReqID,
+		Payload:     req,
+	}
+
+	// Process request through RPC elements
+	rpcReq, err := c.rpcElementChain.ProcessRequest(ctx, rpcReq)
+	if err != nil {
+		return err
+	}
 
 	// Serialize the request payload
-	reqPayloadBytes, err := c.serializer.Marshal(req)
+	reqPayloadBytes, err := c.serializer.Marshal(rpcReq.Payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
@@ -131,18 +148,18 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 	}
 
 	// Frame the request into binary format
-	framedReq, err := frameRequest(service, method, headerBytes, reqPayloadBytes)
+	framedReq, err := frameRequest(rpcReq.ServiceName, rpcReq.Method, headerBytes, reqPayloadBytes)
 	if err != nil {
 		return fmt.Errorf("failed to frame request: %w", err)
 	}
 
-	log.Printf("Framed request (hex): %x\n", framedReq)
-	log.Printf("Framed request length: %d bytes\n", len(framedReq))
+	// log.Printf("Framed request (hex): %x\n", framedReq)
+	// log.Printf("Framed request length: %d bytes\n", len(framedReq))
 
-	log.Printf("Sending request to %s.%s (RPC ID: %d) -> %s\n", service, method, rpcID, c.defaultAddr)
+	// log.Printf("Sending request to %s.%s (RPC ID: %d) -> %s\n", rpcReq.ServiceName, rpcReq.Method, rpcReq.ID, c.defaultAddr)
 
 	// Send the framed request
-	if err := c.transport.Send(c.defaultAddr, rpcID, framedReq); err != nil {
+	if err := c.transport.Send(c.defaultAddr, rpcReq.ID, framedReq); err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 
@@ -156,8 +173,8 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 			time.Sleep(10 * time.Millisecond)
 			continue // waiting for complete response
 		}
-		if respID != rpcID {
-			log.Printf("Ignoring response with mismatched RPC ID: %d (expected %d)", respID, rpcID)
+		if respID != rpcReq.ID {
+			log.Printf("Ignoring response with mismatched RPC ID: %d (expected %d)", respID, rpcReq.ID)
 			continue
 		}
 
@@ -174,7 +191,7 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		}
 
 		// Log the response headers
-		log.Printf("Response headers from %s.%s:", service, method)
+		log.Printf("Response headers from %s.%s:", rpcReq.ServiceName, rpcReq.Method)
 		for k, v := range md {
 			log.Printf("  %s: %s", k, v)
 		}
@@ -184,7 +201,20 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 			return fmt.Errorf("failed to unmarshal response: %w", err)
 		}
 
-		log.Printf("Successfully received response for RPC ID %d\n", rpcID)
-		return nil
+		log.Printf("Successfully received response for RPC ID %d\n", rpcReq.ID)
+
+		// Create response for RPC element processing
+		rpcResp := &element.RPCResponse{
+			Result: resp,
+			Error:  nil,
+		}
+
+		// Process response through RPC elements
+		rpcResp, err = c.rpcElementChain.ProcessResponse(ctx, rpcResp)
+		if err != nil {
+			return err
+		}
+
+		return rpcResp.Error
 	}
 }

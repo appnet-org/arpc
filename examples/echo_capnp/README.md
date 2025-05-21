@@ -39,7 +39,7 @@ go run server/server.go
 In a **separate terminal**, run the client:
 
 ```bash
-go run frontend/frontend.go
+go run frontend/frontend.go frontend/metrics.go
 ```
 
 ## 4. Test

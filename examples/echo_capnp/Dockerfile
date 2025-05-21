@@ -13,7 +13,7 @@ COPY ../.. /app/arpc/
 WORKDIR /app/arpc
 
 # Build the frontend
-RUN go build -trimpath -ldflags="-s -w" -o frontend frontend/frontend.go
+RUN go build -trimpath -ldflags="-s -w" -o frontend frontend/frontend.go frontend/metrics.go
 
 # Build the server
 RUN go build -trimpath -ldflags="-s -w" -o server server/server.go
