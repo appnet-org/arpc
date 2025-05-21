@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	echo "github.com/appnet-org/arpc/examples/echo_capnp/capnp"
+	"github.com/appnet-org/arpc/internal/transport"
+	"github.com/appnet-org/arpc/internal/transport/elements"
 	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/rpc"
 	"github.com/appnet-org/arpc/pkg/serializer"
@@ -52,8 +55,13 @@ func main() {
 	// Create RPC client with capnp serializer
 	serializer := &serializer.CapnpSerializer{}
 
+	// Create a new logger for logging
+	elements := []transport.TransportElement{
+		elements.NewLoggingElement(log.New(os.Stdout, "aRPC: ", log.LstdFlags)),
+	}
+
 	// Replace with your server's address
-	client, err := rpc.NewClient(serializer, ":9000") // TODO: change to your server's address (currently retrived from k get endpoints)
+	client, err := rpc.NewClient(serializer, ":9000", elements...) // TODO: change to your server's address (currently retrived from k get endpoints)
 	if err != nil {
 		log.Fatal("Failed to create RPC client:", err)
 	}

@@ -70,10 +70,7 @@ func FragmentData(rpcID uint64, data []byte) ([]*Packet, error) {
 
 	for i := uint16(0); i < totalPackets; i++ {
 		start := int(i) * chunkSize
-		end := start + chunkSize
-		if end > len(data) {
-			end = len(data)
-		}
+		end := min(start+chunkSize, len(data))
 
 		// Create a packet for the current chunk
 		pkt := &Packet{

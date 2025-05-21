@@ -23,8 +23,8 @@ type Client struct {
 }
 
 // NewClient creates a new Client using the given serializer and target address.
-func NewClient(serializer serializer.Serializer, addr string) (*Client, error) {
-	t, err := transport.NewUDPTransport("")
+func NewClient(serializer serializer.Serializer, addr string, elements ...transport.TransportElement) (*Client, error) {
+	t, err := transport.NewUDPTransport("", elements...)
 	if err != nil {
 		return nil, err
 	}
@@ -136,8 +136,8 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		return fmt.Errorf("failed to frame request: %w", err)
 	}
 
-	fmt.Printf("Framed request (hex): %x\n", framedReq)
-	fmt.Printf("Framed request length: %d bytes\n", len(framedReq))
+	log.Printf("Framed request (hex): %x\n", framedReq)
+	log.Printf("Framed request length: %d bytes\n", len(framedReq))
 
 	log.Printf("Sending request to %s.%s (RPC ID: %d) -> %s\n", service, method, rpcID, c.defaultAddr)
 

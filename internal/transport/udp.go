@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"log"
 	"math/rand"
 	"net"
 	"sync"
@@ -8,6 +9,56 @@ import (
 
 	"github.com/appnet-org/arpc/internal/protocol"
 )
+
+// TransportElement defines the interface that all transport elements must implement
+type TransportElement interface {
+	// ProcessSend processes outgoing data before it's sent
+	ProcessSend(data []byte) ([]byte, error)
+
+	// ProcessReceive processes incoming data after it's received
+	ProcessReceive(data []byte) ([]byte, error)
+
+	// Name returns the name of the transport element
+	Name() string
+}
+
+// TransportElementChain represents a chain of transport elements
+type TransportElementChain struct {
+	elements []TransportElement
+}
+
+// NewTransportElementChain creates a new chain of transport elements
+func NewTransportElementChain(elements ...TransportElement) *TransportElementChain {
+	return &TransportElementChain{
+		elements: elements,
+	}
+}
+
+// ProcessSend processes data through all elements in the chain
+func (c *TransportElementChain) ProcessSend(data []byte) ([]byte, error) {
+	log.Println("Processing sent data through elements")
+	var err error
+	for _, element := range c.elements {
+		data, err = element.ProcessSend(data)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return data, nil
+}
+
+// ProcessReceive processes data through all elements in reverse order
+func (c *TransportElementChain) ProcessReceive(data []byte) ([]byte, error) {
+	log.Println("Processing received data through elements")
+	var err error
+	for i := len(c.elements) - 1; i >= 0; i-- {
+		data, err = c.elements[i].ProcessReceive(data)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return data, nil
+}
 
 // GenerateRPCID creates a unique RPC ID
 func GenerateRPCID() uint64 {
@@ -18,9 +69,10 @@ type UDPTransport struct {
 	conn     *net.UDPConn
 	incoming map[uint64]map[uint16][]byte // Buffer for reassembling messages
 	mu       sync.Mutex                   // Ensures thread safety
+	elements *TransportElementChain       // Add this field
 }
 
-func NewUDPTransport(address string) (*UDPTransport, error) {
+func NewUDPTransport(address string, elements ...TransportElement) (*UDPTransport, error) {
 	udpAddr, err := net.ResolveUDPAddr("udp", address)
 	if err != nil {
 		return nil, err
@@ -34,17 +86,24 @@ func NewUDPTransport(address string) (*UDPTransport, error) {
 	return &UDPTransport{
 		conn:     conn,
 		incoming: make(map[uint64]map[uint16][]byte),
+		elements: NewTransportElementChain(elements...),
 	}, nil
 }
 
 func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte) error {
+	// Process data through transport elements
+	processedData, err := t.elements.ProcessSend(data)
+	if err != nil {
+		return err
+	}
+
 	udpAddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
 		return err
 	}
 
 	// Fragment the data into multiple packets if it exceeds the UDP payload limit
-	packets, err := protocol.FragmentData(rpcID, data)
+	packets, err := protocol.FragmentData(rpcID, processedData)
 	if err != nil {
 		return err
 	}
@@ -99,7 +158,14 @@ func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, er
 		}
 
 		delete(t.incoming, pkt.RPCID)
-		return fullMessage, addr, pkt.RPCID, nil
+
+		// Process received data through transport elements
+		processedData, err := t.elements.ProcessReceive(fullMessage)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+
+		return processedData, addr, pkt.RPCID, nil
 	}
 
 	// If the message is incomplete, return nil to indicate more packets are needed
