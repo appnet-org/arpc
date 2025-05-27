@@ -17,6 +17,26 @@
 
 See [examples/README.md](examples/README.md)
 
+> **Note:** If you're running `aRPC` on Kubernetes and want to connect using a DNS name (e.g., `server.default.svc.cluster.local`), you must:
+>
+> 1. Define your service as a **headless service** by setting:
+>    ```yaml
+>    spec:
+>      clusterIP: None
+>    ```
+> 2. Explicitly specify the **UDP protocol** for your service port:
+>    ```yaml
+>    ports:
+>      - port: 9000
+>        targetPort: 9000
+>        protocol: UDP
+>    ```
+> 3. Use the **fully qualified domain name (FQDN)** when specifying the server address, such as `server.default.svc.cluster.local:9000`.
+>
+> Without these settings, Kubernetes will assign a default TCP-based ClusterIP, which does **not work properly for aRPC(UDP) communication**.
+
+
+
 ## Learn more
 
 - [Low-level technical docs](docs/)

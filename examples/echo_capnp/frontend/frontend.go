@@ -71,7 +71,7 @@ func main() {
 
 	// Create client with both transport and RPC elements
 	// TODO: change to your server's address (currently retrived from kubectl get endpoints)
-	client, err := rpc.NewClient(serializer, "10.244.0.21:9000", transportElements, rpcElements)
+	client, err := rpc.NewClient(serializer, "server.default.svc.cluster.local:9000", transportElements, rpcElements)
 	if err != nil {
 		log.Fatal("Failed to create RPC client:", err)
 	}

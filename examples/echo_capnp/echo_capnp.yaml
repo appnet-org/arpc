@@ -44,6 +44,7 @@ spec:
   ports:
   - name: server
     port: 9000
+    protocol: UDP
     targetPort: 9000
   selector:
     app: server
