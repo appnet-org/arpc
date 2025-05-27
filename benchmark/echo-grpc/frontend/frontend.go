@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
-	echo "github.com/appnet-org/golib/sample/echo-pb"
+	echo "github.com/appnet-org/arpc/benchmark/echo-grpc/proto"
 )
 
 func handler(writer http.ResponseWriter, request *http.Request) {
@@ -51,8 +51,8 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 
 	ctx := metadata.NewOutgoingContext(context.Background(), md)
 
-	message := echo.Msg{
-		Body: requestBody,
+	message := echo.EchoRequest{
+		Message: requestBody,
 	}
 
 	var header metadata.MD
@@ -64,8 +64,8 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 		fmt.Fprintf(writer, "Echo server returns an error: %s\n", err)
 		log.Printf("Error when calling echo: %s", err)
 	} else {
-		fmt.Fprintf(writer, "Response from server: %s\n", response.Body)
-		log.Printf("Response from server: %s", response.Body)
+		fmt.Fprintf(writer, "Response from server: %s\n", response.Message)
+		log.Printf("Response from server: %s", response.Message)
 
 		// Print the response headers (metadata)
 		log.Println("Response headers:")

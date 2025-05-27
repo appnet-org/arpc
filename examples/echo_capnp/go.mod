@@ -6,7 +6,7 @@ toolchain go1.23.9
 
 require (
 	capnproto.org/go/capnp/v3 v3.1.0-alpha.1
-	github.com/appnet-org/arpc v0.0.0-00010101000000-000000000000
+	github.com/appnet-org/arpc v0.0.0-20250521234147-524183cf9b99
 )
 
 require (
@@ -14,5 +14,3 @@ require (
 	golang.org/x/sync v0.7.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 )
-
-replace github.com/appnet-org/arpc => ../../

@@ -24,11 +24,11 @@ spec:
       name: frontend
       labels:
         app: frontend
-        sidecar.istio.io/inject: "false"
     spec:
       containers:
-      - image: appnetorg/echo-plain-frontend
+      - image: appnetorg/echo-grpc-benchmark:latest
         name: frontend-grpc
+        command: ["/app/frontend/frontend"]
   selector:
     matchLabels:
       app: frontend
@@ -59,46 +59,11 @@ spec:
       name: server
       labels:
         app: server
-        sidecar.istio.io/inject: "true"
     spec:
       containers:
-      - image: appnetorg/echo-plain-server
+      - image: appnetorg/echo-grpc-benchmark:latest
         name: server-grpc
-        volumeMounts:
-        - name: server-storage
-          mountPath: "/data"
-      volumes:
-      - name: server-storage
-        persistentVolumeClaim:
-          claimName: echo-pvc
+        command: ["/app/server/server"]
   selector:
     matchLabels:
       app: server
----
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: echo-pv
-spec:
-  capacity:
-    storage: 1Gi
-  accessModes:
-    - ReadWriteOnce
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: local-storage
-  hostPath:
-    path: /tmp/appnet
-    type: Directory
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: echo-pvc
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
-  storageClassName: local-storage
----

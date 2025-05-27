@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/net/context"
 
-	echo "github.com/appnet-org/golib/sample/echo-pb"
+	echo "github.com/appnet-org/arpc/benchmark/echo-grpc/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -17,7 +17,7 @@ type server struct {
 	echo.UnimplementedEchoServiceServer
 }
 
-func (s *server) Echo(ctx context.Context, x *echo.Msg) (*echo.Msg, error) {
+func (s *server) Echo(ctx context.Context, x *echo.EchoRequest) (*echo.EchoResponse, error) {
 
 	// Log the HTTP headers received
 	if md, ok := metadata.FromIncomingContext(ctx); ok {
@@ -29,16 +29,16 @@ func (s *server) Echo(ctx context.Context, x *echo.Msg) (*echo.Msg, error) {
 		log.Println("No metadata (HTTP headers) received.")
 	}
 
-	log.Printf("Server got: [%s]", x.GetBody())
+	log.Printf("Server got: [%s]", x.GetMessage())
 
 	// Check if the message contains "sleep"
-	if x.GetBody() == "sleep" {
+	if x.GetMessage() == "sleep" {
 		log.Printf("Sleeping for 30 seconds...")
 		time.Sleep(30 * time.Second)
 	}
 
-	msg := &echo.Msg{
-		Body: x.GetBody(),
+	msg := &echo.EchoResponse{
+		Message: x.GetMessage(),
 	}
 
 	return msg, nil

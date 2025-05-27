@@ -28,7 +28,7 @@ spec:
       containers:
       - image: appnetorg/echo-capnp:latest
         name: frontend-echo-capnp
-        command: ["/app/frontend"]
+        command: ["/app/frontend/frontend"]
   selector:
     matchLabels:
       app: frontend
@@ -63,7 +63,7 @@ spec:
       containers:
       - image: appnetorg/echo-capnp:latest
         name: server-echo-capnp
-        command: ["/app/server"]
+        command: ["/app/server/server"]
   selector:
     matchLabels:
       app: server

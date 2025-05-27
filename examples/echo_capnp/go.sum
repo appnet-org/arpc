@@ -1,5 +1,7 @@
 capnproto.org/go/capnp/v3 v3.1.0-alpha.1 h1:8/sMnWuatR99G0L0vmnrXj0zVP0MrlyClRqSmqGYydo=
 capnproto.org/go/capnp/v3 v3.1.0-alpha.1/go.mod h1:2vT5D2dtG8sJGEoEKU17e+j7shdaYp1Myl8X03B3hmc=
+github.com/appnet-org/arpc v0.0.0-20250521234147-524183cf9b99 h1:WmpeshdDy2xqHzrX5xnFI8Ux7QkmrMhGTcJr+a4xH3o=
+github.com/appnet-org/arpc v0.0.0-20250521234147-524183cf9b99/go.mod h1:Q0E8j8BVT/wyJDV3mq1n3v0zMPOovKcl8Rth06kV6g4=
 github.com/colega/zeropool v0.0.0-20230505084239-6fb4a4f75381 h1:d5EKgQfRQvO97jnISfR89AiCCCJMwMFoSxUiU0OGCRU=
 github.com/colega/zeropool v0.0.0-20230505084239-6fb4a4f75381/go.mod h1:OU76gHeRo8xrzGJU3F3I1CqX1ekM8dfJw0+wPeMwnp0=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=

@@ -7,15 +7,21 @@ sudo apt-get update
 sudo apt-get install -y linux-tools-common linux-tools-generic linux-tools-`uname -r`
 
 # Disable TurboBoost
-# cat /sys/devices/system/cpu/intel_pstate/no_turbo
-echo "1" | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo
+if [ -d "/sys/devices/system/cpu/intel_pstate" ]; then
+    echo "1" | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo
+else
+    echo "TurboBoost control directory not found, skipping..."
+fi
 
 # Disable CPU Frequency Scaling 
-# cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
-echo "performance" | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+if [ -d "/sys/devices/system/cpu/cpu0/cpufreq" ]; then
+    echo "performance" | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+else
+    echo "CPU frequency scaling directory not found, skipping..."
+fi
 
 # Disable CPU Idle State
-# sudo cpupower frequency-info
+# cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
 sudo cpupower idle-set -D 0
 
 # Disable address space randomization 
