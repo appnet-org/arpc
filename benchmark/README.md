@@ -69,5 +69,5 @@ kubectl delete -f ../examples/echo_capnp/echo_capnp.yaml
 Framework|Latency(median)|Latency(mean)|Latency(P99)|Latency(max)|QPS
 -------------|-------------|-------------|-------------|-------------|-------------
 aRPC|0.98ms|1.10ms|2.07ms|2.84ms|962
-gRPC|1.89ms|2.02ms|3.03ms|6.03|495
+gRPC|1.89ms|2.02ms|3.03ms|6.03ms|495
 
