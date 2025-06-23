@@ -9,12 +9,14 @@ struct EchoRequest {
   id      @0 :Int32;
   score   @1 :Float32;
   content @2 :Text;
+  tag     @3 :Text;
 }
 
 struct EchoResponse {
   id      @0 :Int32;
   score   @1 :Float32;
   content @2 :Text;
+  tag     @3 :Text;
 }
 
 interface EchoService {

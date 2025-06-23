@@ -28,6 +28,7 @@ func (s *echoServer) Echo(ctx context.Context, req *echo.EchoRequest_) (*echo.Ec
 		3,                  // id
 		30.0,               // score
 		"Echo "+reqContent, // content
+		"latest",           // tag
 	)
 	if err != nil {
 		return nil, ctx, err

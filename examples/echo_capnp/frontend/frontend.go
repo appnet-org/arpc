@@ -23,9 +23,10 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Received HTTP request with key: %s\n", content)
 
 	req, err := echo.CreateEchoRequest(
-		1,       // id
-		10.0,    // score
-		content, // content
+		1,        // id
+		10.0,     // score
+		content,  // content
+		"latest", // tag
 	)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to create request: %v", err), http.StatusInternalServerError)
@@ -71,7 +72,7 @@ func main() {
 
 	// Create client with both transport and RPC elements
 	// TODO: change to your server's address (currently retrived from kubectl get endpoints)
-	client, err := rpc.NewClient(serializer, "server.default.svc.cluster.local:9000", transportElements, rpcElements)
+	client, err := rpc.NewClient(serializer, ":9000", transportElements, rpcElements)
 	if err != nil {
 		log.Fatal("Failed to create RPC client:", err)
 	}

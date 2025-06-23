@@ -18,12 +18,12 @@ type EchoRequest capnp.Struct
 const EchoRequest_TypeID = 0xc1220377c3a1b7a0
 
 func NewEchoRequest(s *capnp.Segment) (EchoRequest, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
 	return EchoRequest(st), err
 }
 
 func NewRootEchoRequest(s *capnp.Segment) (EchoRequest, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
 	return EchoRequest(st), err
 }
 
@@ -93,12 +93,30 @@ func (s EchoRequest) SetContent(v string) error {
 	return capnp.Struct(s).SetText(0, v)
 }
 
+func (s EchoRequest) Tag() (string, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return p.Text(), err
+}
+
+func (s EchoRequest) HasTag() bool {
+	return capnp.Struct(s).HasPtr(1)
+}
+
+func (s EchoRequest) TagBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return p.TextBytes(), err
+}
+
+func (s EchoRequest) SetTag(v string) error {
+	return capnp.Struct(s).SetText(1, v)
+}
+
 // EchoRequest_List is a list of EchoRequest.
 type EchoRequest_List = capnp.StructList[EchoRequest]
 
 // NewEchoRequest creates a new list of EchoRequest.
 func NewEchoRequest_List(s *capnp.Segment, sz int32) (EchoRequest_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2}, sz)
 	return capnp.StructList[EchoRequest](l), err
 }
 
@@ -116,12 +134,12 @@ type EchoResponse capnp.Struct
 const EchoResponse_TypeID = 0xb798c2c3642ab860
 
 func NewEchoResponse(s *capnp.Segment) (EchoResponse, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
 	return EchoResponse(st), err
 }
 
 func NewRootEchoResponse(s *capnp.Segment) (EchoResponse, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
 	return EchoResponse(st), err
 }
 
@@ -191,12 +209,30 @@ func (s EchoResponse) SetContent(v string) error {
 	return capnp.Struct(s).SetText(0, v)
 }
 
+func (s EchoResponse) Tag() (string, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return p.Text(), err
+}
+
+func (s EchoResponse) HasTag() bool {
+	return capnp.Struct(s).HasPtr(1)
+}
+
+func (s EchoResponse) TagBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return p.TextBytes(), err
+}
+
+func (s EchoResponse) SetTag(v string) error {
+	return capnp.Struct(s).SetText(1, v)
+}
+
 // EchoResponse_List is a list of EchoResponse.
 type EchoResponse_List = capnp.StructList[EchoResponse]
 
 // NewEchoResponse creates a new list of EchoResponse.
 func NewEchoResponse_List(s *capnp.Segment, sz int32) (EchoResponse_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2}, sz)
 	return capnp.StructList[EchoResponse](l), err
 }
 
@@ -551,32 +587,33 @@ func (p EchoService_echo_Results_Future) Resp() EchoResponse_Future {
 	return EchoResponse_Future{Future: p.Future.Field(0, nil)}
 }
 
-const schema_bf5147bb3b06fa3d = "x\xda\xc4\x92?k\x14Q\x14\xc5\xcf\xb9o6#\xc9" +
-	".\xd9\xe7\xac\x88i\x02K\xaa\x05\x83\x7f:Ew\x11" +
-	"C\x14\x14\xe6m\xac\xc5e\xf2 \x0133\x99?\x8a" +
-	"\x88\xf85,\xf5\x03\x88\x95$\xc4B\x924\x16b'" +
-	"ha\xa5\x85\xe9\x14D\xd0\xc2\x91\xc9\x9a\x1d\x85\x05\xcb" +
-	"t\x97\xcby?~\x97\xf3N\xb9\xec9\xa7\x1b\xb3\x0a" +
-	"b\xe6j\x13\xc5\xad\xcd\xce\xf2\xee\xce\xa3\x0d\x98)\xb2" +
-	"\xb8\xf0s\xe2\xfc\x8bE\xf3\x125\xba\x80\x97s\xc7{" +
-	"\xb0?\xdd\xe33\xb0x\xbc\xf1d\xf7\xaejo\x8f\x0d" +
-	"k\xd9\xf2NH9\x1d\x932\xfc\xe6\xe2\xd1\xb5\xfc{" +
-	"\xff\x1d\xf4qb\x989\xfbTf\x08z\xcf\xa5\x0b\xfe" +
-	"j|\xfa\xf8\xe3\xf5\x97\xcfzJU(\xd0{+[" +
-	"\xde\x87}\xce{Y\xf4\xa8\\\xa0\xc8\xb6on\xee\xbd" +
-	"\xba\xff\xedo\xd6\x9e\xb4K\xd6W\xe9\xe2da\x83\x95" +
-	"h>\x18\xc4\x12\xc6\xe7\x16\x82\x95\xa8o\xd38\x0aS" +
-	"\x0b\x9f4u\xe5\x00\x0e\x01\xbd0\x03\x98\x9e\xa2\xb9&" +
-	"\xd4d\x8b\xe5\xf2\xea\x19\xc0\\V4\xbe\x90\xd2\xa2\x00" +
-	"\xfa\xfa%\xc0\\Q47\x84ju\x99\x0e\x84\x0e8" +
-	"\x9b\x06Qb9\x09\xe1$\xf80\x88\xc2\xcc\x86\x19\xeb" +
-	"\x10\xd6\xc1\x91\x05\x0f,\xbav=\xb7iv(\x12\xea" +
-	"\x8f\xc4\x92M\xee\xac\x06v\xbe\xdc\xcf\xf9\x83d\xa0\xd6" +
-	"R\xe3\x8cl\x1am\xc0\x1cQ4-\xa1\x9b\xd8u6" +
-	"\xab\x9aA6\xc7\x9c\xb5\xd4\x1d\"\xcb\xb3\x1cU\x03F" +
-	"]\xf3\xa0(\xad;\x10]s\xa7\xcb\xb7=\xfa\xfc\x8f" +
-	"W\xdf\xa6\xb9{;\xfbG\xacS\x89M'6\x8d\xd9" +
-	"\xac~\xeb\xd0\xecw\x00\x00\x00\xff\xff\xc6\xce\xac\xe3"
+const schema_bf5147bb3b06fa3d = "x\xda\xcc\x92Ok\x13Q\x14\xc5\xcfyw\xa6#m" +
+	"C\xf3\x9c\x80\xd0M!\xb4\x9b@\x8b\x7fv\x8a\xa6\x08" +
+	"\xd2U!/\xa5;\x91\x0e\x93\x87\x094\x99\xe9\xccD" +
+	")\"~\x0d\x97\xfa)Z\xeaB\xdan\\\x88k\xf7" +
+	"\x0a\xea\xce\x85\x08\xbap\xe4\xb5&Q\x08\xb8\xed\xeep" +
+	"\xb9\xf3\x9b\xdf\xe5\x9d\xab+\\\xf7\xaeU\x96\x04\xca," +
+	"\xfb3\xe5\xcea\xa3sz\xf2\xfc\x00f\x8e,o\xff" +
+	"\x9c\xb9\xf5j\xc3\xbc\x86\xaf\x02 \x1c\xf2$|J\x97" +
+	"\xf6\xf9\x09,_\x1c\xbc<},\xf5\xe3\xa9\xcb\x9b\xea" +
+	"(\xdc>KF\xb9\xe5ww.\xf7\x87\xdf\xdb\xef\xa1" +
+	"\xaf\x10\xf0\x1d\xe6\xc6\x8a,\x12\x0cW\xa5\x09\xfe\xaa|" +
+	"\xfc\xf0\xe3\xed\xd7\xcfzN&(0\xdc\x94\xa3p[" +
+	"\xce8\xb2\x11\xee\xbbT\x16\xc7\x0f\x0e\xbf\xbcy\xf2\xed" +
+	"oV$u\xc7\xeaI\x13\xab\xa5\x8d\xbb\xc9Z\x1c\xa5" +
+	"j\x90\xde\xbc\x17w\x93\xb6\xcd\xd3d\x90[\xb4HS" +
+	"\x15\x0f\xf0\x08\xe8h\x110\xf7\x85\xa6\xab\xa8\xc9\x1a\xdd" +
+	"\xd0^\x07\xcc\x8e\xd0\xec*R\xd5\xa8\x00\xdd\xbb\x0b\x98" +
+	"\x8e\xd0\xa4\x8aZX\xa3\x00\xba_\x07LWh\x0aE" +
+	"\xe9u\xe8A\xd1\x03\x97\xf28\xc9,g\xa18\x0b>" +
+	"\x8b\x93Aa\x07\x05\xe7\xa18\x0f\x06E\xf4p\x94\xc7" +
+	"\x9a\x1ci6\xed\xde\xd0\xe6\xc5\xc5\xb4\x94?\x96[6" +
+	"{\xd4\x8b\xed\x9a\x9b/\xb7\xa2,\x92~n\xbc\xb1n" +
+	"\xc5\xfd\xf0\x92\xd0\xd4\x14\x83\xcc\xee\xb1:)\x0a\xc8\xea" +
+	"\x94\xbb\xb7\x9a\xe7Hw\xb7'>0n\x0bGO\xad" +
+	"u\x03J\xfb\xc1\x82\xfbv\x9d-\xfe\xc7\xabm\xf3a" +
+	"\xb0[\xfc#\xd6\x98\x88-d6OY\x9d\xf4\xfd\xdc" +
+	"\xecw\x00\x00\x00\xff\xff\x13\xaf\xb4R"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{

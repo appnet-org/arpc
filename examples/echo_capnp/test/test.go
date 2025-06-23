@@ -29,6 +29,9 @@ func main() {
 	if err := req.SetContent("hello"); err != nil {
 		log.Fatalf("failed to set content: %v", err)
 	}
+	if err := req.SetTag("test"); err != nil {
+		log.Fatalf("failed to set tag: %v", err)
+	}
 
 	// Serialize the message to a buffer
 	var buf bytes.Buffer
