@@ -98,7 +98,7 @@ func (m *MetricsElement) Name() string {
 ```go
 // Create individual elements
 metrics := NewMetricsElement()
-logging := NewLoggingElement()
+logging := NewLoggingElement(transport.RoleClient, log.New(os.Stdout, "aRPC: ", log.LstdFlags))
 
 // Create a chain with multiple elements
 rpcElements := []element.RPCElement{

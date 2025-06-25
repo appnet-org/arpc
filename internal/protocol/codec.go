@@ -3,31 +3,43 @@ package protocol
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 )
 
 const MaxUDPPayloadSize = 1400 // Adjust based on MTU considerations
 
+// PacketType is the type of packet. 0 is reserved for errors.
+type PacketType uint8
+
+const (
+	PacketTypeData PacketType = 1
+	PacketTypeAck  PacketType = 2
+)
+
 type Packet struct {
+	PacketType   PacketType
 	RPCID        uint64 // Unique RPC ID
 	TotalPackets uint16 // Total number of packets in this RPC
 	SeqNumber    uint16 // Sequence number of this packet
 	Payload      []byte // Partial application data
 }
 
-// SerializePacket encodes a Packet into bytes
-func SerializePacket(pkt *Packet) ([]byte, error) {
+func writeToBuffer(buf *bytes.Buffer, data ...any) error {
+	for _, d := range data {
+		if err := binary.Write(buf, binary.LittleEndian, d); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SerializePacket encodes a RPC Packet into bytes
+func SerializePacket(pkt *Packet, packetType PacketType) ([]byte, error) {
 	buf := new(bytes.Buffer)
 
-	if err := binary.Write(buf, binary.LittleEndian, pkt.RPCID); err != nil {
+	if err := writeToBuffer(buf, packetType, pkt.RPCID, pkt.TotalPackets, pkt.SeqNumber, pkt.Payload); err != nil {
 		return nil, err
 	}
-	if err := binary.Write(buf, binary.LittleEndian, pkt.TotalPackets); err != nil {
-		return nil, err
-	}
-	if err := binary.Write(buf, binary.LittleEndian, pkt.SeqNumber); err != nil {
-		return nil, err
-	}
+
 	if _, err := buf.Write(pkt.Payload); err != nil {
 		return nil, err
 	}
@@ -36,30 +48,35 @@ func SerializePacket(pkt *Packet) ([]byte, error) {
 }
 
 // DeserializePacket decodes bytes into a Packet struct
-func DeserializePacket(data []byte) (*Packet, error) {
-	if len(data) < 12 { // Minimum header size (8 + 2 + 2)
-		return nil, errors.New("packet too small")
-	}
-
+func DeserializePacket(data []byte) (*Packet, PacketType, error) {
 	buf := bytes.NewReader(data)
 	pkt := &Packet{}
 
+	if err := binary.Read(buf, binary.LittleEndian, &pkt.PacketType); err != nil {
+		return nil, 0, err
+	}
+
+	// If the packet is an ACK, return it immediately
+	if pkt.PacketType == PacketTypeAck {
+		return pkt, pkt.PacketType, nil
+	}
+
 	if err := binary.Read(buf, binary.LittleEndian, &pkt.RPCID); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if err := binary.Read(buf, binary.LittleEndian, &pkt.TotalPackets); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if err := binary.Read(buf, binary.LittleEndian, &pkt.SeqNumber); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	pkt.Payload = make([]byte, buf.Len())
 	if _, err := buf.Read(pkt.Payload); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return pkt, nil
+	return pkt, pkt.PacketType, nil
 }
 
 // FragmentData splits data into multiple UDP packets

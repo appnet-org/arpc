@@ -10,16 +10,35 @@ import (
 	"github.com/appnet-org/arpc/internal/protocol"
 )
 
+// PacketType is the type of packet. 0 is reserved for errors.
+type PacketType uint8
+
+const (
+	PacketTypeData PacketType = 1
+	PacketTypeAck  PacketType = 2
+)
+
+// Role indicates whether this is a client (caller) or server (callee)
+type Role string
+
+const (
+	RoleClient Role = "client" // caller
+	RoleServer Role = "server" // callee
+)
+
 // TransportElement defines the interface that all transport elements must implement
 type TransportElement interface {
 	// ProcessSend processes outgoing data before it's sent
-	ProcessSend(data []byte, rpcID uint64) ([]byte, error)
+	ProcessSend(addr string, data []byte, rpcID uint64) ([]byte, error)
 
 	// ProcessReceive processes incoming data after it's received
-	ProcessReceive(data []byte, rpcID uint64) ([]byte, error)
+	ProcessReceive(data []byte, rpcID uint64, packetType protocol.PacketType, addr *net.UDPAddr, conn *net.UDPConn) ([]byte, error)
 
 	// Name returns the name of the transport element
 	Name() string
+
+	// GetRole returns the role of this element (client/caller or server/callee)
+	GetRole() Role
 }
 
 // TransportElementChain represents a chain of transport elements
@@ -35,11 +54,11 @@ func NewTransportElementChain(elements ...TransportElement) *TransportElementCha
 }
 
 // ProcessSend processes data through all elements in the chain
-func (c *TransportElementChain) ProcessSend(data []byte, rpcID uint64) ([]byte, error) {
+func (c *TransportElementChain) ProcessSend(addr string, data []byte, rpcID uint64) ([]byte, error) {
 	log.Println("Processing sent data through elements")
 	var err error
 	for _, element := range c.elements {
-		data, err = element.ProcessSend(data, rpcID)
+		data, err = element.ProcessSend(addr, data, rpcID)
 		if err != nil {
 			return nil, err
 		}
@@ -48,11 +67,11 @@ func (c *TransportElementChain) ProcessSend(data []byte, rpcID uint64) ([]byte, 
 }
 
 // ProcessReceive processes data through all elements in reverse order
-func (c *TransportElementChain) ProcessReceive(data []byte, rpcID uint64) ([]byte, error) {
+func (c *TransportElementChain) ProcessReceive(data []byte, rpcID uint64, packetType protocol.PacketType, addr *net.UDPAddr, conn *net.UDPConn) ([]byte, error) {
 	log.Println("Processing received data through elements")
 	var err error
 	for i := len(c.elements) - 1; i >= 0; i-- {
-		data, err = c.elements[i].ProcessReceive(data, rpcID)
+		data, err = c.elements[i].ProcessReceive(data, rpcID, packetType, addr, conn)
 		if err != nil {
 			return nil, err
 		}
@@ -92,7 +111,7 @@ func NewUDPTransport(address string, elements ...TransportElement) (*UDPTranspor
 
 func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte) error {
 	// Process data through user-defined transport elements
-	processedData, err := t.elements.ProcessSend(data, rpcID)
+	processedData, err := t.elements.ProcessSend(addr, data, rpcID)
 	if err != nil {
 		return err
 	}
@@ -111,7 +130,7 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte) error {
 	// Iterate through each fragment and send it via the UDP connection
 	for _, pkt := range packets {
 		// Serialize the packet into a byte slice for transmission
-		packetData, err := protocol.SerializePacket(pkt)
+		packetData, err := protocol.SerializePacket(pkt, protocol.PacketTypeData)
 		if err != nil {
 			return err
 		}
@@ -135,9 +154,15 @@ func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, er
 	}
 
 	// Deserialize the received data into a structured packet format
-	pkt, err := protocol.DeserializePacket(buffer[:n])
+	pkt, packetType, err := protocol.DeserializePacket(buffer[:n])
 	if err != nil {
 		return nil, nil, 0, err
+	}
+
+	log.Printf("!!!!!!Received packet type: %d", packetType)
+	if packetType == protocol.PacketTypeAck {
+		t.elements.ProcessReceive(buffer[:n], pkt.RPCID, packetType, addr, t.conn)
+		return nil, addr, pkt.RPCID, nil
 	}
 
 	// Lock to ensure thread-safe access to the incoming packet storage
@@ -160,7 +185,7 @@ func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, er
 		delete(t.incoming, pkt.RPCID)
 
 		// Process received data through user-defined transport elements
-		processedData, err := t.elements.ProcessReceive(fullMessage, pkt.RPCID)
+		processedData, err := t.elements.ProcessReceive(fullMessage, pkt.RPCID, packetType, addr, t.conn)
 		if err != nil {
 			return nil, nil, 0, err
 		}

@@ -45,8 +45,8 @@ func main() {
 
 	// Create transport elements
 	transportElements := []transport.TransportElement{
-		// elements.NewLoggingElement(log.New(os.Stdout, "aRPC: ", log.LstdFlags)),
-		elements.NewReliabilityElement(3, 10*time.Second),
+		// elements.NewLoggingElement(transport.RoleServer, log.New(os.Stdout, "aRPC: ", log.LstdFlags)),
+		elements.NewReliabilityElement(transport.RoleServer, 3, 10*time.Second),
 	}
 
 	server, err := rpc.NewServer(":9000", serializer, transportElements, nil)
