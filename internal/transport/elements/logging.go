@@ -4,6 +4,7 @@ import (
 	"log"
 	"net"
 
+	"github.com/appnet-org/arpc/internal/protocol"
 	"github.com/appnet-org/arpc/internal/transport"
 )
 
@@ -20,13 +21,13 @@ func NewLoggingElement(role transport.Role, logger *log.Logger) *LoggingElement 
 	}
 }
 
-func (l *LoggingElement) ProcessSend(data []byte, rpcID uint64) ([]byte, error) {
+func (l *LoggingElement) ProcessSend(addr string, data []byte, rpcID uint64) ([]byte, error) {
 	l.logger.Printf("[%s] Sending data of length %d for RPC ID %d", l.role, len(data), rpcID)
 	return data, nil
 }
 
-func (l *LoggingElement) ProcessReceive(data []byte, rpcID uint64, addr *net.UDPAddr, conn *net.UDPConn) ([]byte, error) {
-	l.logger.Printf("[%s] Received data of length %d for RPC ID %d", l.role, len(data), rpcID)
+func (l *LoggingElement) ProcessReceive(data []byte, rpcID uint64, packetType protocol.PacketType, addr *net.UDPAddr, conn *net.UDPConn) ([]byte, error) {
+	l.logger.Printf("[%s] Received data of length %d for RPC ID %d, packet type %d", l.role, len(data), rpcID, packetType)
 	return data, nil
 }
 
