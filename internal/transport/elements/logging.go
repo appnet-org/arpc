@@ -15,13 +15,13 @@ func NewLoggingElement(logger *log.Logger) *LoggingElement {
 	}
 }
 
-func (l *LoggingElement) ProcessSend(data []byte) ([]byte, error) {
-	l.logger.Printf("Sending data of length %d", len(data))
+func (l *LoggingElement) ProcessSend(data []byte, rpcID uint64) ([]byte, error) {
+	l.logger.Printf("Sending data of length %d for RPC ID %d", len(data), rpcID)
 	return data, nil
 }
 
-func (l *LoggingElement) ProcessReceive(data []byte) ([]byte, error) {
-	l.logger.Printf("Received data of length %d", len(data))
+func (l *LoggingElement) ProcessReceive(data []byte, rpcID uint64) ([]byte, error) {
+	l.logger.Printf("Received data of length %d for RPC ID %d", len(data), rpcID)
 	return data, nil
 }
 

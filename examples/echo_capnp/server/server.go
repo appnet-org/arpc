@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	echo "github.com/appnet-org/arpc/examples/echo_capnp/capnp"
+	"github.com/appnet-org/arpc/internal/transport"
+	"github.com/appnet-org/arpc/internal/transport/elements"
 	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/rpc"
 	"github.com/appnet-org/arpc/pkg/serializer"
@@ -39,7 +42,14 @@ func (s *echoServer) Echo(ctx context.Context, req *echo.EchoRequest_) (*echo.Ec
 
 func main() {
 	serializer := &serializer.CapnpSerializer{}
-	server, err := rpc.NewServer(":9000", serializer, nil)
+
+	// Create transport elements
+	transportElements := []transport.TransportElement{
+		// elements.NewLoggingElement(log.New(os.Stdout, "aRPC: ", log.LstdFlags)),
+		elements.NewReliabilityElement(3, 10*time.Second),
+	}
+
+	server, err := rpc.NewServer(":9000", serializer, transportElements, nil)
 	if err != nil {
 		log.Fatal("Failed to start server:", err)
 	}

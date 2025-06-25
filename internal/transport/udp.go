@@ -13,10 +13,10 @@ import (
 // TransportElement defines the interface that all transport elements must implement
 type TransportElement interface {
 	// ProcessSend processes outgoing data before it's sent
-	ProcessSend(data []byte) ([]byte, error)
+	ProcessSend(data []byte, rpcID uint64) ([]byte, error)
 
 	// ProcessReceive processes incoming data after it's received
-	ProcessReceive(data []byte) ([]byte, error)
+	ProcessReceive(data []byte, rpcID uint64) ([]byte, error)
 
 	// Name returns the name of the transport element
 	Name() string
@@ -35,11 +35,11 @@ func NewTransportElementChain(elements ...TransportElement) *TransportElementCha
 }
 
 // ProcessSend processes data through all elements in the chain
-func (c *TransportElementChain) ProcessSend(data []byte) ([]byte, error) {
+func (c *TransportElementChain) ProcessSend(data []byte, rpcID uint64) ([]byte, error) {
 	log.Println("Processing sent data through elements")
 	var err error
 	for _, element := range c.elements {
-		data, err = element.ProcessSend(data)
+		data, err = element.ProcessSend(data, rpcID)
 		if err != nil {
 			return nil, err
 		}
@@ -48,11 +48,11 @@ func (c *TransportElementChain) ProcessSend(data []byte) ([]byte, error) {
 }
 
 // ProcessReceive processes data through all elements in reverse order
-func (c *TransportElementChain) ProcessReceive(data []byte) ([]byte, error) {
+func (c *TransportElementChain) ProcessReceive(data []byte, rpcID uint64) ([]byte, error) {
 	log.Println("Processing received data through elements")
 	var err error
 	for i := len(c.elements) - 1; i >= 0; i-- {
-		data, err = c.elements[i].ProcessReceive(data)
+		data, err = c.elements[i].ProcessReceive(data, rpcID)
 		if err != nil {
 			return nil, err
 		}
@@ -69,7 +69,7 @@ type UDPTransport struct {
 	conn     *net.UDPConn
 	incoming map[uint64]map[uint16][]byte // Buffer for reassembling messages
 	mu       sync.Mutex                   // Ensures thread safety
-	elements *TransportElementChain       // Add this field
+	elements *TransportElementChain
 }
 
 func NewUDPTransport(address string, elements ...TransportElement) (*UDPTransport, error) {
@@ -91,8 +91,8 @@ func NewUDPTransport(address string, elements ...TransportElement) (*UDPTranspor
 }
 
 func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte) error {
-	// Process data through transport elements
-	processedData, err := t.elements.ProcessSend(data)
+	// Process data through user-defined transport elements
+	processedData, err := t.elements.ProcessSend(data, rpcID)
 	if err != nil {
 		return err
 	}
@@ -159,8 +159,8 @@ func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, er
 
 		delete(t.incoming, pkt.RPCID)
 
-		// Process received data through transport elements
-		processedData, err := t.elements.ProcessReceive(fullMessage)
+		// Process received data through user-defined transport elements
+		processedData, err := t.elements.ProcessReceive(fullMessage, pkt.RPCID)
 		if err != nil {
 			return nil, nil, 0, err
 		}

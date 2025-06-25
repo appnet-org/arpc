@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
+	"time"
 
 	echo "github.com/appnet-org/arpc/examples/echo_capnp/capnp"
 	"github.com/appnet-org/arpc/internal/transport"
@@ -59,7 +59,8 @@ func main() {
 
 	// Create transport elements
 	transportElements := []transport.TransportElement{
-		elements.NewLoggingElement(log.New(os.Stdout, "aRPC: ", log.LstdFlags)),
+		// elements.NewLoggingElement(log.New(os.Stdout, "aRPC: ", log.LstdFlags)),
+		elements.NewReliabilityElement(3, 10*time.Second),
 	}
 
 	// Create metrics element
@@ -71,7 +72,7 @@ func main() {
 	}
 
 	// Create client with both transport and RPC elements
-	// TODO: change to your server's address (currently retrived from kubectl get endpoints)
+	// TODO (user): change to your server's address (currently retrived from kubectl get endpoints)
 	client, err := rpc.NewClient(serializer, ":9000", transportElements, rpcElements)
 	if err != nil {
 		log.Fatal("Failed to create RPC client:", err)
