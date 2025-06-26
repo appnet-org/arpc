@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"time"
+	"os"
 
 	echo "github.com/appnet-org/arpc/examples/echo_capnp/capnp"
 	"github.com/appnet-org/arpc/internal/transport"
@@ -59,8 +59,8 @@ func main() {
 
 	// Create transport elements
 	transportElements := []transport.TransportElement{
-		// elements.NewLoggingElement(transport.RoleClient, log.New(os.Stdout, "aRPC: ", log.LstdFlags)),
-		elements.NewReliabilityElement(transport.RoleClient, 3, 10*time.Second),
+		elements.NewLoggingElement(transport.RoleClient, log.New(os.Stdout, "aRPC: ", log.LstdFlags)),
+		// elements.NewReliabilityElement(transport.RoleClient, 3, 10*time.Second),
 	}
 
 	// Create metrics element
