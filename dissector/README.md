@@ -13,3 +13,8 @@ Copy `arpc.lua` to your personal Wireshark plugin directory
 (it can be found in **Help → About Wireshark → Folders**).
 
 Click **Analyze → Reload Lua Plugins** and decode the packet with `arpc`.
+
+
+## Example
+
+A sample aRPC message can be found in `samples/echo_capnp.pcap`.
