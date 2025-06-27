@@ -8,3 +8,7 @@ bcc/
 bcc/build/
 
 .vscode/
+
+# Rust files
+debug/
+target/
