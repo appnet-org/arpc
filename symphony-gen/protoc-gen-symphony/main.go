@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 func main() {
@@ -50,7 +51,7 @@ func generateMarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
 			g.P(fmt.Sprintf("	offset += len(m.%s)", goName))
 		} else {
 			// TODO: this is a hack to get the length of the field
-			g.P(fmt.Sprintf("	offset += %d", lenPlaceholder(field)))
+			g.P(fmt.Sprintf("	offset += %d", getFieldSize(field)))
 		}
 	}
 
@@ -122,11 +123,20 @@ func isVariableLength(field *protogen.Field) bool {
 	return field.Desc.Kind().String() == "string" || field.Desc.Kind().String() == "bytes"
 }
 
-func lenPlaceholder(field *protogen.Field) int {
-	if isVariableLength(field) {
-		return 0 // dynamic size, already accounted in loop
+func getFieldSize(field *protogen.Field) int {
+	kind := field.Desc.Kind()
+	switch kind {
+	case protoreflect.BoolKind:
+		return 1
+	case protoreflect.Int32Kind, protoreflect.Uint32Kind, protoreflect.FloatKind, protoreflect.EnumKind:
+		return 4
+	case protoreflect.Int64Kind, protoreflect.Uint64Kind, protoreflect.DoubleKind:
+		return 8
+	case protoreflect.StringKind, protoreflect.BytesKind:
+		panic("getFieldSize should not be called on variable-length field: " + string(field.Desc.Name()))
+	default:
+		panic(fmt.Sprintf("unsupported field kind: %v", kind))
 	}
-	return 4 // assume 4 bytes for fixed size like int32, float32
 }
 
 func numVarFields(msg *protogen.Message) int {
