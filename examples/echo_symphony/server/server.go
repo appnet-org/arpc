@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	echo "github.com/appnet-org/arpc/examples/echo_proto/proto"
+	echo "github.com/appnet-org/arpc/examples/echo_symphony/symphony"
 	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/rpc"
 	"github.com/appnet-org/arpc/pkg/serializer"
@@ -16,24 +16,27 @@ type echoServer struct{}
 
 func (s *echoServer) Echo(ctx context.Context, req *echo.EchoRequest) (*echo.EchoResponse, context.Context, error) {
 
-	log.Printf("Server got: [%s]", req.GetMessage())
+	log.Printf("Server got: [%s]", req.GetContent())
 
 	// Inject some outgoing metadata for the response
 	md := metadata.New(map[string]string{
 		"handled-by": "echoServer",
-		"req-len":    fmt.Sprintf("%d", len(req.GetMessage())),
+		"req-len":    fmt.Sprintf("%d", len(req.GetContent())),
 	})
 	respCtx := metadata.NewOutgoingContext(ctx, md)
 
 	resp := &echo.EchoResponse{
-		Message: "Echo " + req.GetMessage(),
+		Id:       req.GetId(),
+		Score:    req.GetScore(),
+		Username: req.GetUsername(),
+		Content:  "Echo " + req.GetContent(),
 	}
 
 	return resp, respCtx, nil
 }
 
 func main() {
-	serializer := &serializer.ProtoSerializer{}
+	serializer := &serializer.SymphonySerializer{}
 	server, err := rpc.NewServer(":9000", serializer, nil, nil)
 	if err != nil {
 		log.Fatal("Failed to start server:", err)

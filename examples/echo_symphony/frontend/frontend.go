@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 
-	echo "github.com/appnet-org/arpc/examples/echo_proto/proto"
+	echo "github.com/appnet-org/arpc/examples/echo_symphony/symphony"
 	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/rpc"
 	"github.com/appnet-org/arpc/pkg/serializer"
@@ -24,20 +24,25 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	})
 	ctx := metadata.NewOutgoingContext(context.Background(), md)
 
-	req := &echo.EchoRequest{Message: message}
+	req := &echo.EchoRequest{
+		Id:       42,
+		Score:    100,
+		Username: "alice",
+		Content:  "helloworld",
+	}
 	resp, err := echoClient.Echo(ctx, req)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("RPC call failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("RPC response: %s\n", resp.Message)
-	fmt.Fprintf(w, "Response from RPC: %s\n", resp.Message)
+	log.Printf("RPC response: %s\n", resp.Content)
+	fmt.Fprintf(w, "Response from RPC: %s\n", resp.Content)
 }
 
 func main() {
 	// Create RPC client
-	serializer := &serializer.ProtoSerializer{}
+	serializer := &serializer.SymphonySerializer{}
 	client, err := rpc.NewClient(serializer, ":9000", nil, nil) // TODO: change to your server's address (currently retrived from k get endpoints)
 	if err != nil {
 		log.Fatal("Failed to create RPC client:", err)

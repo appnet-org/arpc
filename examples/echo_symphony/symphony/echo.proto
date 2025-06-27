@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package echo;
+option go_package = "./echo";
+
+service EchoService {
+    rpc echo(EchoRequest) returns(EchoResponse);
+}
+
+message EchoRequest {
+  int32 id = 1;
+  int32 score = 2;
+  string username = 3;
+  string content = 4;
+}
+
+message EchoResponse {
+  int32 id = 1;
+  int32 score = 2;
+  string username = 3;
+  string content = 4;
+}
