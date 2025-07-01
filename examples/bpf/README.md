@@ -15,8 +15,6 @@ This tool uses eBPF (via BCC) to trace and decode aRPC UDP packets sent from you
    You can use the provided script:
 
    ```bash
-   cd examples/bpf
-   chmod +x install.sh
    ./install.sh
    ```
 
