@@ -131,6 +131,7 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte) error {
 	for _, pkt := range packets {
 		// Serialize the packet into a byte slice for transmission
 		packetData, err := protocol.SerializePacket(pkt, protocol.PacketTypeData)
+		log.Printf("Serialized packet: %x", packetData)
 		if err != nil {
 			return err
 		}
@@ -159,7 +160,6 @@ func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, er
 		return nil, nil, 0, err
 	}
 
-	log.Printf("!!!!!!Received packet type: %d", packetType)
 	if packetType == protocol.PacketTypeAck {
 		t.elements.ProcessReceive(buffer[:n], pkt.RPCID, packetType, addr, t.conn)
 		return nil, addr, pkt.RPCID, nil

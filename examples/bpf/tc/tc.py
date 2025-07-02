@@ -3,7 +3,7 @@
 from bcc import BPF
 from datetime import datetime
 import argparse
-from pyroute2 import IPRoute
+from pyroute2 import IPRoute # python3.8 -m pip install "pyroute2<0.7.0"
 import time
 import socket
 import struct

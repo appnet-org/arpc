@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 
 	echo "github.com/appnet-org/arpc/examples/echo_symphony/symphony"
-	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/rpc"
 	"github.com/appnet-org/arpc/pkg/serializer"
 )
@@ -18,13 +16,6 @@ func (s *echoServer) Echo(ctx context.Context, req *echo.EchoRequest) (*echo.Ech
 
 	log.Printf("Server got: [%s]", req.GetContent())
 
-	// Inject some outgoing metadata for the response
-	md := metadata.New(map[string]string{
-		"handled-by": "echoServer",
-		"req-len":    fmt.Sprintf("%d", len(req.GetContent())),
-	})
-	respCtx := metadata.NewOutgoingContext(ctx, md)
-
 	resp := &echo.EchoResponse{
 		Id:       req.GetId(),
 		Score:    req.GetScore(),
@@ -32,7 +23,7 @@ func (s *echoServer) Echo(ctx context.Context, req *echo.EchoRequest) (*echo.Ech
 		Content:  "Echo " + req.GetContent(),
 	}
 
-	return resp, respCtx, nil
+	return resp, context.Background(), nil
 }
 
 func main() {

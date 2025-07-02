@@ -8,7 +8,6 @@ import (
 
 	"github.com/appnet-org/arpc/internal/protocol"
 	"github.com/appnet-org/arpc/internal/transport"
-	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/rpc/element"
 	"github.com/appnet-org/arpc/pkg/serializer"
 )
@@ -33,7 +32,6 @@ type ServiceDesc struct {
 type Server struct {
 	transport       *transport.UDPTransport
 	serializer      serializer.Serializer
-	metadataCodec   metadata.MetadataCodec
 	services        map[string]*ServiceDesc
 	rpcElementChain *element.RPCElementChain
 }
@@ -47,7 +45,6 @@ func NewServer(addr string, serializer serializer.Serializer, transportElements 
 	return &Server{
 		transport:       udpTransport,
 		serializer:      serializer,
-		metadataCodec:   metadata.MetadataCodec{},
 		services:        make(map[string]*ServiceDesc),
 		rpcElementChain: element.NewRPCElementChain(rpcElements...),
 	}, nil
@@ -60,7 +57,7 @@ func (s *Server) RegisterService(desc *ServiceDesc, impl any) {
 }
 
 // parseFramedRequest extracts service, method, header, and payload segments from a request frame.
-func parseFramedRequest(data []byte) (string, string, []byte, []byte, error) {
+func parseFramedRequest(data []byte) (string, string, []byte, error) {
 	offset := 0
 
 	// Service
@@ -75,19 +72,13 @@ func parseFramedRequest(data []byte) (string, string, []byte, []byte, error) {
 	method := string(data[offset : offset+methodLen])
 	offset += methodLen
 
-	// Headers
-	headerLen := int(binary.LittleEndian.Uint16(data[offset:]))
-	offset += 2
-	headers := data[offset : offset+headerLen]
-	offset += headerLen
-
 	// Payload
 	payload := data[offset:]
 
-	return service, method, headers, payload, nil
+	return service, method, payload, nil
 }
 
-func frameResponse(service, method string, headers []byte, payload []byte) ([]byte, error) {
+func frameResponse(service, method string, payload []byte) ([]byte, error) {
 	buf := new(bytes.Buffer)
 
 	// Write service name
@@ -103,14 +94,6 @@ func frameResponse(service, method string, headers []byte, payload []byte) ([]by
 		return nil, err
 	}
 	if _, err := buf.Write([]byte(method)); err != nil {
-		return nil, err
-	}
-
-	// Write header bytes
-	if err := binary.Write(buf, binary.LittleEndian, uint16(len(headers))); err != nil {
-		return nil, err
-	}
-	if _, err := buf.Write(headers); err != nil {
 		return nil, err
 	}
 
@@ -138,8 +121,8 @@ func (s *Server) Start() {
 			continue // Still waiting for fragments
 		}
 
-		// Parse request header and payload
-		serviceName, methodName, reqHeaderBytes, reqPayloadBytes, err := parseFramedRequest(data)
+		// Parse request payload
+		serviceName, methodName, reqPayloadBytes, err := parseFramedRequest(data)
 		if err != nil {
 			log.Printf("Failed to parse framed request: %v", err)
 			continue
@@ -172,22 +155,8 @@ func (s *Server) Start() {
 			continue
 		}
 
-		// Decode headers
-		md, err := s.metadataCodec.DecodeHeaders(reqHeaderBytes)
-		if err != nil {
-			log.Printf("Failed to decode headers: %v", err)
-			continue
-		}
-		ctx := metadata.NewIncomingContext(context.Background(), md)
-
-		// Log all headers
-		log.Printf("Received headers for %s.%s:", rpcReq.ServiceName, rpcReq.Method)
-		for k, v := range md {
-			log.Printf("  %s: %s", k, v)
-		}
-
 		// Invoke method handler
-		resp, ctx, err := methodDesc.Handler(svcDesc.ServiceImpl, ctx, func(v any) error {
+		resp, _, err := methodDesc.Handler(svcDesc.ServiceImpl, context.Background(), func(v any) error {
 			return s.serializer.Unmarshal(rpcReq.Payload.([]byte), v)
 		})
 		if err != nil {
@@ -202,7 +171,7 @@ func (s *Server) Start() {
 		}
 
 		// Process response through RPC elements
-		rpcResp, err = s.rpcElementChain.ProcessResponse(ctx, rpcResp)
+		rpcResp, err = s.rpcElementChain.ProcessResponse(context.Background(), rpcResp)
 		if err != nil {
 			log.Printf("RPC element response processing error: %v", err)
 			continue
@@ -215,16 +184,8 @@ func (s *Server) Start() {
 			continue
 		}
 
-		// Extract response headers from context
-		respMD := metadata.FromOutgoingContext(ctx)
-		respHeaderBytes, err := s.metadataCodec.EncodeHeaders(respMD)
-		if err != nil {
-			log.Printf("Failed to encode response headers: %v", err)
-			continue
-		}
-
 		// Frame response
-		framedResp, err := frameResponse(rpcReq.ServiceName, rpcReq.Method, respHeaderBytes, respPayloadBytes)
+		framedResp, err := frameResponse(rpcReq.ServiceName, rpcReq.Method, respPayloadBytes)
 		if err != nil {
 			log.Printf("Failed to frame response: %v", err)
 			continue

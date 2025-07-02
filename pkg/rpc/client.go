@@ -40,7 +40,7 @@ func NewClient(serializer serializer.Serializer, addr string, transportElements 
 }
 
 // frameRequest constructs a binary message with [serviceLen][service][methodLen][method][headerLen][headers][payload]
-func frameRequest(service, method string, headers []byte, payload []byte) ([]byte, error) {
+func frameRequest(service, method string, payload []byte) ([]byte, error) {
 	buf := new(bytes.Buffer)
 
 	// Write service name
@@ -59,14 +59,6 @@ func frameRequest(service, method string, headers []byte, payload []byte) ([]byt
 		return nil, err
 	}
 
-	// Write header length and header bytes
-	if err := binary.Write(buf, binary.LittleEndian, uint16(len(headers))); err != nil {
-		return nil, err
-	}
-	if _, err := buf.Write(headers); err != nil {
-		return nil, err
-	}
-
 	// Write payload
 	if _, err := buf.Write(payload); err != nil {
 		return nil, err
@@ -75,44 +67,35 @@ func frameRequest(service, method string, headers []byte, payload []byte) ([]byt
 	return buf.Bytes(), nil
 }
 
-func parseFramedResponse(data []byte) (service string, method string, headers []byte, payload []byte, err error) {
+func parseFramedResponse(data []byte) (service string, method string, payload []byte, err error) {
 	offset := 0
 
+	// Parse service name
 	if len(data) < 2 {
-		return "", "", nil, nil, fmt.Errorf("invalid response (too short for serviceLen)")
+		return "", "", nil, fmt.Errorf("invalid response (too short for serviceLen)")
 	}
 	serviceLen := int(binary.LittleEndian.Uint16(data[offset:]))
 	offset += 2
 	if offset+serviceLen > len(data) {
-		return "", "", nil, nil, fmt.Errorf("invalid response (truncated service)")
+		return "", "", nil, fmt.Errorf("invalid response (truncated service)")
 	}
 	service = string(data[offset : offset+serviceLen])
 	offset += serviceLen
 
+	// Parse method name
 	if offset+2 > len(data) {
-		return "", "", nil, nil, fmt.Errorf("invalid response (too short for methodLen)")
+		return "", "", nil, fmt.Errorf("invalid response (too short for methodLen)")
 	}
 	methodLen := int(binary.LittleEndian.Uint16(data[offset:]))
 	offset += 2
 	if offset+methodLen > len(data) {
-		return "", "", nil, nil, fmt.Errorf("invalid response (truncated method)")
+		return "", "", nil, fmt.Errorf("invalid response (truncated method)")
 	}
 	method = string(data[offset : offset+methodLen])
 	offset += methodLen
 
-	if offset+2 > len(data) {
-		return "", "", nil, nil, fmt.Errorf("invalid response (too short for headerLen)")
-	}
-	headerLen := int(binary.LittleEndian.Uint16(data[offset:]))
-	offset += 2
-	if offset+headerLen > len(data) {
-		return "", "", nil, nil, fmt.Errorf("invalid response (truncated header)")
-	}
-	headers = data[offset : offset+headerLen]
-	offset += headerLen
-
 	payload = data[offset:]
-	return service, method, headers, payload, nil
+	return service, method, payload, nil
 }
 
 // Call makes an RPC call with RPC element processing
@@ -140,15 +123,8 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Extract and encode headers
-	reqMD := metadata.FromOutgoingContext(ctx)
-	headerBytes, err := c.metadataCodec.EncodeHeaders(reqMD)
-	if err != nil {
-		return fmt.Errorf("failed to encode headers: %w", err)
-	}
-
 	// Frame the request into binary format
-	framedReq, err := frameRequest(rpcReq.ServiceName, rpcReq.Method, headerBytes, reqPayloadBytes)
+	framedReq, err := frameRequest(rpcReq.ServiceName, rpcReq.Method, reqPayloadBytes)
 	if err != nil {
 		return fmt.Errorf("failed to frame request: %w", err)
 	}
@@ -173,22 +149,10 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 			continue
 		}
 
-		// Parse framed response: extract service, method, headers, payload
-		_, _, respHeaderBytes, respPayloadBytes, err := parseFramedResponse(data)
+		// Parse framed response: extract service, method, payload
+		_, _, respPayloadBytes, err := parseFramedResponse(data)
 		if err != nil {
 			return fmt.Errorf("failed to parse framed response: %w", err)
-		}
-
-		// Decode headers
-		md, err := c.metadataCodec.DecodeHeaders(respHeaderBytes)
-		if err != nil {
-			return fmt.Errorf("failed to decode response headers: %w", err)
-		}
-
-		// Log the response headers
-		log.Printf("Response headers from %s.%s:", rpcReq.ServiceName, rpcReq.Method)
-		for k, v := range md {
-			log.Printf("  %s: %s", k, v)
 		}
 
 		// Deserialize the response into resp

@@ -15,7 +15,7 @@ This tool uses eBPF (via BCC) to trace and decode aRPC UDP packets sent from you
    You can use the provided script:
 
    ```bash
-   ./install.sh
+   . ./install.sh
    ```
 
    This will install all required packages and build BCC from source.
@@ -24,7 +24,7 @@ This tool uses eBPF (via BCC) to trace and decode aRPC UDP packets sent from you
 
 1. **Edit the UDP port if needed**
 
-   By default, the script traces UDP port `9000`. If your aRPC server uses a different port, edit the `UDP_PORT` variable at the top of `intercept_arpc.py`:
+   By default, the script traces UDP port `9000`. If your aRPC server uses a different port, edit the `UDP_PORT` variable at the top of `intercept_sendmsg.py`:
 
    ```python
    UDP_PORT = 9000  # change to match your aRPC server port
@@ -35,7 +35,7 @@ This tool uses eBPF (via BCC) to trace and decode aRPC UDP packets sent from you
    eBPF tracing requires root:
 
    ```bash
-   sudo python3 intercept_arpc.py
+   sudo python3.8 intercept_sendmsg.py
    ```
 
 3. **Send some aRPC UDP traffic**

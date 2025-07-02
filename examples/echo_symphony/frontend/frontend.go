@@ -7,7 +7,6 @@ import (
 	"net/http"
 
 	echo "github.com/appnet-org/arpc/examples/echo_symphony/symphony"
-	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/rpc"
 	"github.com/appnet-org/arpc/pkg/serializer"
 )
@@ -18,19 +17,13 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	message := r.URL.Query().Get("key")
 	log.Printf("Received HTTP request with key: %s\n", message)
 
-	// Create and attach metadata with the custom header
-	md := metadata.New(map[string]string{
-		"username": "Bob", // Here we're setting the custom header "key" to the requestBody
-	})
-	ctx := metadata.NewOutgoingContext(context.Background(), md)
-
 	req := &echo.EchoRequest{
 		Id:       42,
 		Score:    100,
 		Username: "alice",
 		Content:  "helloworld",
 	}
-	resp, err := echoClient.Echo(ctx, req)
+	resp, err := echoClient.Echo(context.Background(), req)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("RPC call failed: %v", err), http.StatusInternalServerError)
 		return
@@ -43,7 +36,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	// Create RPC client
 	serializer := &serializer.SymphonySerializer{}
-	client, err := rpc.NewClient(serializer, ":9000", nil, nil) // TODO: change to your server's address (currently retrived from k get endpoints)
+	client, err := rpc.NewClient(serializer, "130.127.134.14:9000", nil, nil) // TODO: change to your server's address (currently retrived from k get endpoints)
 	if err != nil {
 		log.Fatal("Failed to create RPC client:", err)
 	}
