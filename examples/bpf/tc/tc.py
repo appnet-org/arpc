@@ -4,13 +4,11 @@ from bcc import BPF
 from datetime import datetime
 import argparse
 from pyroute2 import IPRoute # python3.8 -m pip install "pyroute2<0.7.0"
-import time
 import socket
 import struct
 import ctypes
 
 # Compile and load BPF program
-b = BPF(src_file="tc.c", debug=0)
 ipr = IPRoute()
 
 def print_ip(ip):
@@ -143,14 +141,25 @@ class EventHandler:
 def main():
     parser = argparse.ArgumentParser(description="traffic monitor")
     parser.add_argument("-i", "--interface", default="enp24s0f0", help="network interface to monitor")
+    parser.add_argument("-p", "--program", default="tc_mutate.c", help="program to load")
     args = parser.parse_args()
+    b = BPF(src_file=f"{args.program}.c".encode(), debug=0)
 
     idx = None
     try:
         ingress_fn = b.load_func("tc_ingress", BPF.SCHED_CLS)
         egress_fn = b.load_func("tc_egress", BPF.SCHED_CLS)
-
-        idx = ipr.link_lookup(ifname=args.interface)[0]
+        
+        # Get the interface index
+        idx = ipr.link_lookup(ifname=args.interface)
+        if idx is None:
+            print(f"Interface {args.interface} not found")
+            exit(1)
+        idx = idx[0]
+        
+        # Delete existing filters
+        try: ipr.tc("del", "ingress", idx, "ffff:")
+        except: pass
 
         try: ipr.tc("del", "ingress", idx, "ffff:")
         except: pass
@@ -159,13 +168,13 @@ def main():
 
         ipr.tc("add", "ingress", idx, "ffff:")
         ipr.tc("add-filter", "bpf", idx, ":1",
-               fd=ingress_fn.fd, name=ingress_fn.name,
-               parent="ffff:", action="ok", classid=1)
+            fd=ingress_fn.fd, name=ingress_fn.name,
+            parent="ffff:", direct_action=True, classid=1)
 
         ipr.tc("add", "htb", idx, "1:")
         ipr.tc("add-filter", "bpf", idx, ":2",
-               fd=egress_fn.fd, name=egress_fn.name,
-               parent="1:", action="ok", classid=1)
+            fd=egress_fn.fd, name=egress_fn.name,
+            parent="1:", direct_action=True, classid=1)
 
         print(f"BPF attached to {args.interface}. Press Ctrl+C to exit.")
 
