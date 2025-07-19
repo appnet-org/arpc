@@ -24,6 +24,8 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		Content:  message,
 	}
 	resp, err := echoClient.Echo(context.Background(), req)
+
+	log.Printf("RPC response: %s\n", resp.Username)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("RPC call failed: %v", err), http.StatusInternalServerError)
 		return
@@ -36,7 +38,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	// Create RPC client
 	serializer := &serializer.SymphonySerializer{}
-	client, err := rpc.NewClient(serializer, ":9000", nil, nil) // TODO: change to your server's address (currently retrived from k get endpoints)
+	client, err := rpc.NewClient(serializer, "130.127.133.184:9000", nil, nil) // TODO: change to your server's address (currently retrived from k get endpoints)
 	if err != nil {
 		log.Fatal("Failed to create RPC client:", err)
 	}

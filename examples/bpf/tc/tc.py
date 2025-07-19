@@ -136,7 +136,7 @@ class EventHandler:
             except Exception as e:
                 print(f"Error decoding payload: {e}")
                 print(f"Raw Payload: {payload.hex()}")
-        print("-" * 80)
+        print("-" * 40)
 
 def main():
     parser = argparse.ArgumentParser(description="traffic monitor")
@@ -177,12 +177,10 @@ def main():
             parent="1:", direct_action=True, classid=1)
 
         print(f"BPF attached to {args.interface}. Press Ctrl+C to exit.")
-
-        handler = EventHandler()
-        b["events"].open_perf_buffer(handler.process_event)
-
+        
         while True:
-            b.perf_buffer_poll()
+            pass
+
     except KeyboardInterrupt:
         print("Detaching BPF program...")
     finally:

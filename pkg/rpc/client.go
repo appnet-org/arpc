@@ -119,12 +119,14 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 
 	// Serialize the request payload
 	reqPayloadBytes, err := c.serializer.Marshal(rpcReq.Payload)
+	log.Printf("Serialized request payload: %x", reqPayloadBytes)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	// Frame the request into binary format
 	framedReq, err := frameRequest(rpcReq.ServiceName, rpcReq.Method, reqPayloadBytes)
+	log.Printf("Framed request Message: %x", framedReq)
 	if err != nil {
 		return fmt.Errorf("failed to frame request: %w", err)
 	}

@@ -40,13 +40,10 @@ func SerializePacket(pkt *Packet, packetType PacketType) ([]byte, error) {
 	if err := writeToBuffer(buf, packetType, pkt.RPCID, pkt.TotalPackets, pkt.SeqNumber, pkt.Payload); err != nil {
 		return nil, err
 	}
+
 	b := make([]byte, 8)
 	binary.LittleEndian.PutUint64(b, pkt.RPCID)
 	log.Printf("RPC ID bytes: %x", b)
-
-	if _, err := buf.Write(pkt.Payload); err != nil {
-		return nil, err
-	}
 
 	return buf.Bytes(), nil
 }
