@@ -47,7 +47,6 @@ static __always_inline void to_uppercase(char *s, int len) {
 
 
 static __always_inline int handle_packet(struct __sk_buff *skb) {
-    
     void *data = (void *)(long)skb->data;
     void *data_end = (void *)(long)skb->data_end;
 
@@ -67,31 +66,59 @@ static __always_inline int handle_packet(struct __sk_buff *skb) {
     if ((void *)(udp + 1) > data_end)
         return TC_ACT_OK;
 
-    struct data_t new_data = {};
-    new_data.saddr = ip->saddr;
-    new_data.daddr = ip->daddr;
-    new_data.protocol = ip->protocol;
-
-    new_data.sport = ntohs(udp->source);
-    new_data.dport = ntohs(udp->dest);
-
-    if (new_data.sport != 9000 && new_data.dport != 9000)
-        return TC_ACT_OK;
-    bpf_trace_printk("handle_packet\n");
-
-    u16 udp_hdr_len = sizeof(*udp);
-    u16 payload_offset = sizeof(*eth) + ip_hdr_len + udp_hdr_len;
-
-    char buf[MAX_PAYLOAD_LEN] = {};
-    if (bpf_skb_load_bytes(skb, payload_offset, buf, MAX_PAYLOAD_LEN) < 0) 
+    if (ntohs(udp->dest) != 9000 && ntohs(udp->source) != 9000)
         return TC_ACT_OK;
 
-    // Try to mutate in place
-    to_uppercase(buf, MAX_PAYLOAD_LEN);
-    bpf_skb_store_bytes(skb, payload_offset, buf, MAX_PAYLOAD_LEN, 0);
+    // Ensure packet data is readable
+    if (bpf_skb_pull_data(skb, skb->len) < 0)
+        return TC_ACT_OK;
+
+    // Refresh data/data_end pointers
+    data = (void *)(long)skb->data;
+    data_end = (void *)(long)skb->data_end;
+    eth = data;
+    ip = (void *)(eth + 1);
+    udp = (void *)ip + ip_hdr_len;
+
+    void *payload = (void *)(udp + 1);
+    if (payload >= data_end)
+        return TC_ACT_OK;
+
+    // Dynamically calculate payload length
+    u64 payload_offset = (char *)payload - (char *)data;
+    u64 payload_len = (char *)data_end - (char *)payload;
+
+    if (payload_len == 0)
+        return TC_ACT_OK;
+
+    // Limit to MAX_SAFE_LEN for verifier safety
+    if (payload_len > MAX_PAYLOAD_LEN)
+        payload_len = MAX_PAYLOAD_LEN;
+
+    char buf[MAX_PAYLOAD_LEN + 1] = {};
+#pragma unroll
+    for (int i = 0; i < MAX_PAYLOAD_LEN; i++) {
+        if (i >= payload_len)
+            break;
+
+        void *p = (char *)payload + i;
+        if (p + 1 > data_end)
+            break;
+
+        char c = *(char *)p;
+
+        if (c == 'b') {
+            *(char *)p = 'B'; 
+        }
+
+        buf[i] = c;
+    }
+
+    buf[payload_len] = '\0';
 
     return TC_ACT_OK;
 }
+
 
 // Ingress hook: process incoming packets
 int tc_ingress(struct __sk_buff *skb) {
