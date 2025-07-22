@@ -40,7 +40,7 @@ metadata:
   labels:
     app: server
 spec:
-  clusterIP: 10.96.77.76
+  clusterIP: None
   ports:
   - name: server
     port: 9000

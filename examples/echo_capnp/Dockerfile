@@ -23,6 +23,6 @@ RUN go build -trimpath -ldflags="-s -w" -o server ./server
 FROM alpine:latest
 
 WORKDIR /app
-COPY --from=builder /app/examples/echo_symphony/frontend /app/frontend
-COPY --from=builder /app/examples/echo_symphony/server /app/server
+COPY --from=builder /app/examples/echo_capnp/frontend /app/frontend
+COPY --from=builder /app/examples/echo_capnp/server /app/server
 RUN chmod +x /app/frontend /app/server
