@@ -55,7 +55,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 			return
 		} else {
 			// New client → server
-			serverAddr, err := net.ResolveUDPAddr("udp", "130.127.133.67:9000")
+			serverAddr, err := net.ResolveUDPAddr("udp", "130.127.133.184:9000") // TODO: change to your server's address
 			if err != nil {
 				log.Printf("ResolveUDPAddr error: %v", err)
 				state.mu.Unlock()
