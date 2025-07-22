@@ -10,8 +10,8 @@ WORKDIR /app
 # Copy the entire repo, assuming your context is ~/arpc
 COPY . .
 
-# Go to echo_capnp subdir
-WORKDIR /app/examples/echo_capnp
+# Go to echo_symphony subdir
+WORKDIR /app/examples/echo_symphony
 
 RUN go mod tidy
 

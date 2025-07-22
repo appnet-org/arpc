@@ -10,8 +10,8 @@ WORKDIR /app
 # Copy the entire repo, assuming your context is ~/arpc
 COPY . .
 
-# Go to echo_capnp subdir
-WORKDIR /app/examples/echo_capnp
+# Go to echo_proto subdir
+WORKDIR /app/examples/echo_proto
 
 RUN go mod tidy
 
@@ -23,6 +23,6 @@ RUN go build -trimpath -ldflags="-s -w" -o server ./server
 FROM alpine:latest
 
 WORKDIR /app
-COPY --from=builder /app/examples/echo_symphony/frontend /app/frontend
-COPY --from=builder /app/examples/echo_symphony/server /app/server
+COPY --from=builder /app/examples/echo_proto/frontend /app/frontend
+COPY --from=builder /app/examples/echo_proto/server /app/server
 RUN chmod +x /app/frontend /app/server

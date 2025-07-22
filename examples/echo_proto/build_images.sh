@@ -4,12 +4,12 @@ set -ex
 # Get the absolute path to this script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Push to repo root (assumes script is in examples/echo_capnp/)
+# Push to repo root (assumes script is in examples/echo_proto/)
 pushd "${SCRIPT_DIR}/../../" > /dev/null
 
 # Build settings
 DOCKERFILE_PATH="${SCRIPT_DIR}/Dockerfile"
-IMAGE_NAME="echo-capnp"
+IMAGE_NAME="echo-proto"
 FULL_IMAGE="appnetorg/${IMAGE_NAME}:latest"
 
 # Build the Docker image from the repo root
