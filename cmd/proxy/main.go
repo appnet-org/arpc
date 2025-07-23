@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 	"net"
-	"os"
 	"sync"
 )
 
@@ -57,13 +56,13 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		} else {
 			// New client → server
 
-			destAddr := os.Getenv("DEST_ADDR")
-			if destAddr == "" {
-				log.Printf("DEST_ADDR is not set, using default: %v", destAddr)
-				panic("DEST_ADDR is not set")
-			}
+			// destAddr := os.Getenv("DEST_ADDR")
+			// if destAddr == "" {
+			// 	log.Printf("DEST_ADDR is not set, using default: %v", destAddr)
+			// 	panic("DEST_ADDR is not set")
+			// }
 
-			serverAddr, err := net.ResolveUDPAddr("udp", os.Getenv("DEST_ADDR"))
+			serverAddr, err := net.ResolveUDPAddr("udp", "10.244.0.33:9000")
 			if err != nil {
 				log.Printf("ResolveUDPAddr error: %v", err)
 				state.mu.Unlock()
