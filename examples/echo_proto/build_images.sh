@@ -13,7 +13,7 @@ IMAGE_NAME="echo-proto"
 FULL_IMAGE="appnetorg/${IMAGE_NAME}:latest"
 
 # Build the Docker image from the repo root
-sudo docker build -f "${DOCKERFILE_PATH}" -t "${IMAGE_NAME}:latest" .
+sudo docker build --network=host -f "${DOCKERFILE_PATH}" -t "${IMAGE_NAME}:latest" .
 
 # Tag and push
 sudo docker tag "${IMAGE_NAME}:latest" "${FULL_IMAGE}"

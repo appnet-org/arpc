@@ -11,10 +11,8 @@ COPY cmd/proxy/ ./
 RUN go build -o proxy main.go
 
 # Final image
-FROM alpine:latest
+FROM ubuntu:22.04
 
 WORKDIR /app
 COPY --from=builder /app/proxy /app/proxy
 RUN chmod +x /app/proxy
-
-USER proxyuser
