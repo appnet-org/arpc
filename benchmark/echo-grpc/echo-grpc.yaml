@@ -24,6 +24,7 @@ spec:
       name: frontend
       labels:
         app: frontend
+        # sidecar.istio.io/inject: "true"
     spec:
       containers:
       - image: appnetorg/echo-grpc-benchmark:latest
