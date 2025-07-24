@@ -62,7 +62,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 			// 	panic("DEST_ADDR is not set")
 			// }
 
-			serverAddr, err := net.ResolveUDPAddr("udp", "10.244.0.33:9000")
+			serverAddr, err := net.ResolveUDPAddr("udp", "130.127.133.184:9000")
 			if err != nil {
 				log.Printf("ResolveUDPAddr error: %v", err)
 				state.mu.Unlock()
@@ -76,6 +76,9 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	}
 	state.mu.Unlock()
 
+	// Process the packet
+	data = processPacket(data)
+
 	// Forward the packet
 	_, err := conn.WriteToUDP(data, peer)
 	if err != nil {
@@ -83,4 +86,16 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		return
 	}
 	log.Printf("Forwarded %d bytes: %v → %v", len(data), src, peer)
+}
+
+func processPacket(data []byte) []byte {
+	// Print the packet (in hex)
+	log.Printf("Received packet: %x", data)
+
+	// Check if the packet is a UDP packet
+	if len(data) < 8 {
+		return data
+	}
+
+	return data
 }
