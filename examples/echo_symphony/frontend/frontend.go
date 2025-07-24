@@ -38,7 +38,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	// Create RPC client
 	serializer := &serializer.SymphonySerializer{}
-	client, err := rpc.NewClient(serializer, "server.default.svc.cluster.local:9000", nil, nil) // TODO: change to your server's address fully qualified domain name
+	client, err := rpc.NewClient(serializer, "130.127.133.184:9000", nil, nil) // TODO: change to your server's address fully qualified domain name
 	if err != nil {
 		log.Fatal("Failed to create RPC client:", err)
 	}

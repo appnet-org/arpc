@@ -191,7 +191,7 @@ func (s *Server) Start() {
 			continue
 		}
 
-		err = s.transport.Send(addr.String(), rpcID, framedResp)
+		err = s.transport.Send(addr.String(), rpcID, framedResp, protocol.PacketTypeResponse)
 		if err != nil {
 			log.Printf("Error sending response: %v", err)
 		}

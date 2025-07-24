@@ -132,7 +132,7 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 	}
 
 	// Send the framed request
-	if err := c.transport.Send(c.defaultAddr, rpcReq.ID, framedReq); err != nil {
+	if err := c.transport.Send(c.defaultAddr, rpcReq.ID, framedReq, protocol.PacketTypeRequest); err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 

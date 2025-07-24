@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"log"
 	"net"
@@ -34,7 +35,7 @@ func main() {
 			continue
 		}
 		data := make([]byte, n)
-		copy(data, buf[:n])
+		copy(data, buf[:n]) // This incurs a full packet copy (TODO: optimize)
 
 		go handlePacket(conn, state, src, data)
 	}
@@ -116,9 +117,14 @@ func processPacket(data []byte) []byte {
 	log.Printf("Method: %s", method)
 
 	// Extract payload
+	log.Printf("15+serviceLen+2+methodLen: %d", 15+serviceLen+2+methodLen)
 	payload := data[15+serviceLen+2+methodLen:]
 	log.Printf("Payload length: %d", len(payload))
 	log.Printf("Payload: %x", payload)
+
+	// find the index of string "bob"
+	idx := bytes.Index(payload, []byte("Bob"))
+	log.Printf("Index of 'Bob': %d", idx)
 
 	return data
 }

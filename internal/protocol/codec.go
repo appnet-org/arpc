@@ -12,8 +12,10 @@ const MaxUDPPayloadSize = 1400 // Adjust based on MTU considerations
 type PacketType uint8
 
 const (
-	PacketTypeData PacketType = 1
-	PacketTypeAck  PacketType = 2
+	PacketTypeRequest  PacketType = 1
+	PacketTypeResponse PacketType = 2
+	PacketTypeAck      PacketType = 3
+	PacketTypeError    PacketType = 4
 )
 
 type Packet struct {

@@ -14,8 +14,10 @@ import (
 type PacketType uint8
 
 const (
-	PacketTypeData PacketType = 1
-	PacketTypeAck  PacketType = 2
+	PacketTypeRequest  PacketType = 1
+	PacketTypeResponse PacketType = 2
+	PacketTypeAck      PacketType = 3
+	PacketTypeError    PacketType = 4
 )
 
 // Role indicates whether this is a client (caller) or server (callee)
@@ -109,7 +111,7 @@ func NewUDPTransport(address string, elements ...TransportElement) (*UDPTranspor
 	}, nil
 }
 
-func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte) error {
+func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType protocol.PacketType) error {
 	// Process data through user-defined transport elements
 	processedData, err := t.elements.ProcessSend(addr, data, rpcID)
 	if err != nil {
@@ -130,7 +132,7 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte) error {
 	// Iterate through each fragment and send it via the UDP connection
 	for _, pkt := range packets {
 		// Serialize the packet into a byte slice for transmission
-		packetData, err := protocol.SerializePacket(pkt, protocol.PacketTypeData)
+		packetData, err := protocol.SerializePacket(pkt, packetType)
 		log.Printf("Serialized packet: %x", packetData)
 		if err != nil {
 			return err

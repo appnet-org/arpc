@@ -81,7 +81,7 @@ func (r *ReliabilityElement) ProcessReceive(data []byte, rpcID uint64, packetTyp
 	log.Printf("ReliabilityElement[%s]: Processing receive for RPC ID %d", r.role, rpcID)
 
 	// Only send ACK if we're the server (callee) and the packet type is data
-	if r.role == transport.RoleServer && packetType == protocol.PacketTypeData {
+	if r.role == transport.RoleServer && (packetType == protocol.PacketTypeRequest || packetType == protocol.PacketTypeResponse) {
 		buf := new(bytes.Buffer)
 
 		if err := binary.Write(buf, binary.LittleEndian, protocol.PacketTypeAck); err != nil {
@@ -143,7 +143,7 @@ func (r *ReliabilityElement) checkTimeouts() {
 			}
 
 			// Retry the message
-			if err := r.transport.Send(msg.addr, rpcID, msg.data); err != nil {
+			if err := r.transport.Send(msg.addr, rpcID, msg.data, protocol.PacketTypeRequest); err != nil {
 				log.Printf("ReliabilityElement[%s]: Failed to retry RPC ID %d: %v", r.role, rpcID, err)
 				toDelete = append(toDelete, rpcID)
 			} else {
