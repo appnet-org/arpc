@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"log"
 	"net"
 	"sync"
@@ -92,10 +93,32 @@ func processPacket(data []byte) []byte {
 	// Print the packet (in hex)
 	log.Printf("Received packet: %x", data)
 
-	// Check if the packet is a UDP packet
-	if len(data) < 8 {
-		return data
-	}
+	// Packet metadata format:
+	// [packet_type][rpc_id(8 bytes)][total_packets(2 bytes)][seq_number(2 bytes)][service_len(2 bytes)][service][method_len(2 bytes)][method]
+
+	// Extract metadata
+	packetType := data[0]
+	rpcId := data[1:9]
+	totalPackets := binary.LittleEndian.Uint16(data[9:11])
+	seqNumber := binary.LittleEndian.Uint16(data[11:13])
+	serviceLen := binary.LittleEndian.Uint16(data[13:15])
+	service := data[15 : 15+serviceLen]
+	methodLen := binary.LittleEndian.Uint16(data[15+serviceLen : 15+serviceLen+2])
+	method := data[15+serviceLen+2 : 15+serviceLen+2+methodLen]
+
+	log.Printf("Packet type: %d", packetType)
+	log.Printf("RPC ID: %x", rpcId)
+	log.Printf("Total packets: %d", totalPackets)
+	log.Printf("Sequence number: %d", seqNumber)
+	log.Printf("Service length: %d", serviceLen)
+	log.Printf("Service: %s", service)
+	log.Printf("Method length: %d", methodLen)
+	log.Printf("Method: %s", method)
+
+	// Extract payload
+	payload := data[15+serviceLen+2+methodLen:]
+	log.Printf("Payload length: %d", len(payload))
+	log.Printf("Payload: %x", payload)
 
 	return data
 }
