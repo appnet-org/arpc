@@ -19,30 +19,44 @@ metadata:
   name: frontend
 spec:
   replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
   template:
     metadata:
       name: frontend
       labels:
         app: frontend
     spec:
+      initContainers:
+      - name: set-iptables
+        image: appnetorg/symphony-proxy-init-container:latest
+        command:
+          - /bin/sh
+          - -c
+          - |
+            iptables -t nat -A PREROUTING -p udp --sport 9000 -j REDIRECT --to-ports 15002
+            iptables -t nat -A OUTPUT -p udp --dport 9000 -m owner ! --uid-owner 1337 -j REDIRECT --to-ports 15002
+        securityContext:
+          runAsUser: 0
+          capabilities:
+            add: ["NET_ADMIN"]
       containers:
-      - image: appnetorg/echo-symphony:latest
-        name: frontend-echo-symphony
+      - name: frontend-echo-symphony
+        image: appnetorg/echo-symphony:latest
         command: ["/app/frontend/frontend"]
         securityContext:
           runAsUser: 0
           capabilities:
             add: ["NET_ADMIN"]
-      - image: appnetorg/symphony-proxy:latest
-        name: symphony-proxy
+      - name: symphony-proxy
+        image: appnetorg/symphony-proxy:latest
         command: ["/app/proxy"]
         securityContext:
+          runAsUser: 1337
           capabilities:
             add: ["NET_ADMIN", "NET_RAW"]
-          runAsUser: 1337
-  selector:
-    matchLabels:
-      app: frontend
+
 ---
 apiVersion: v1
 kind: Service
