@@ -56,7 +56,9 @@ spec:
           runAsUser: 1337
           capabilities:
             add: ["NET_ADMIN", "NET_RAW"]
-
+        env:
+        - name: SYMPHONY_DEST_ADDR
+          value: "10.244.0.78:9000"
 ---
 apiVersion: v1
 kind: Service

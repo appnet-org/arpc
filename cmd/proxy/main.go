@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"log"
 	"net"
+	"os"
 	"sync"
 )
 
@@ -57,14 +58,15 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 			return
 		} else {
 			// New client → server
+			destAddr := os.Getenv("SYMPHONY_DEST_ADDR")
+			if destAddr == "" {
+				destAddr = "10.244.0.78:9000"
+				log.Printf("SYMPHONY_DEST_ADDR is not set, using default: %v", destAddr)
+			} else {
+				log.Printf("SYMPHONY_DEST_ADDR is set to %v", destAddr)
+			}
 
-			// destAddr := os.Getenv("DEST_ADDR")
-			// if destAddr == "" {
-			// 	log.Printf("DEST_ADDR is not set, using default: %v", destAddr)
-			// 	panic("DEST_ADDR is not set")
-			// }
-
-			serverAddr, err := net.ResolveUDPAddr("udp", "130.127.133.184:9000")
+			serverAddr, err := net.ResolveUDPAddr("udp", destAddr)
 			if err != nil {
 				log.Printf("ResolveUDPAddr error: %v", err)
 				state.mu.Unlock()
