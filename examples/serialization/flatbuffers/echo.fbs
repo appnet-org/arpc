@@ -1,0 +1,17 @@
+namespace echo;
+
+table EchoRequest {
+  id: int;
+  score: int;
+  username: string;
+  content: string;
+}
+
+table EchoResponse {
+  id: int;
+  score: int;
+  username: string;
+  content: string;
+}
+
+root_type EchoRequest;

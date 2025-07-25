@@ -28,7 +28,7 @@ func (c *arpcEchoServiceClient) Echo(ctx context.Context, req *EchoRequest) (*Ec
 }
 
 type EchoServiceServer interface {
-	Echo(ctx context.Context, req *EchoRequest) (*EchoResponse, context.Context, error)
+	Echo(ctx context.Context, req *EchoRequest) (*EchoResponse, error)
 }
 
 func RegisterEchoServiceServer(s *rpc.Server, srv EchoServiceServer) {
@@ -48,6 +48,6 @@ func _EchoService_Echo_Handler(srv any, ctx context.Context, dec func(any) error
 	if err := dec(in); err != nil {
 		return nil, ctx, err
 	}
-	out, newCtx, err := srv.(EchoServiceServer).Echo(ctx, in)
-	return out, newCtx, err
+	out, err := srv.(EchoServiceServer).Echo(ctx, in)
+	return out, ctx, err
 }

@@ -24,15 +24,20 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	})
 	ctx := metadata.NewOutgoingContext(context.Background(), md)
 
-	req := &echo.EchoRequest{Message: message}
+	req := &echo.EchoRequest{
+		Id:       42,
+		Score:    100,
+		Username: "alice",
+		Content:  message,
+	}
 	resp, err := echoClient.Echo(ctx, req)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("RPC call failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("RPC response: %s\n", resp.Message)
-	fmt.Fprintf(w, "Response from RPC: %s\n", resp.Message)
+	log.Printf("RPC response: %s\n", resp.Content)
+	fmt.Fprintf(w, "Response from RPC: %s\n", resp.Content)
 }
 
 func main() {

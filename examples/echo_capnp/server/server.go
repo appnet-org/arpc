@@ -29,9 +29,9 @@ func (s *echoServer) Echo(ctx context.Context, req *echo.EchoRequest_) (*echo.Ec
 
 	resp, err := echo.CreateEchoResponse(
 		3,                  // id
-		30.0,               // score
+		30,                 // score
+		"Bob",              // username
 		"Echo "+reqContent, // content
-		"latest",           // tag
 	)
 	if err != nil {
 		return nil, ctx, err

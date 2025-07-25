@@ -17,19 +17,19 @@ func (e *EchoRequest_) GetId() (int32, error) {
 	return e.CapnpStruct.Id(), nil
 }
 
-func (e *EchoRequest_) GetScore() (float32, error) {
+func (e *EchoRequest_) GetScore() (int32, error) {
 	return e.CapnpStruct.Score(), nil
+}
+
+func (e *EchoRequest_) GetUsername() (string, error) {
+	return e.CapnpStruct.Username()
 }
 
 func (e *EchoRequest_) GetContent() (string, error) {
 	return e.CapnpStruct.Content()
 }
 
-func (e *EchoRequest_) GetTag() (string, error) {
-	return e.CapnpStruct.Tag()
-}
-
-func CreateEchoRequest(id int32, score float32, content string, tag string) (*EchoRequest_, error) {
+func CreateEchoRequest(id int32, score int32, username string, content string) (*EchoRequest_, error) {
 	msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
 		return nil, err
@@ -38,11 +38,11 @@ func CreateEchoRequest(id int32, score float32, content string, tag string) (*Ec
 	if err != nil {
 		return nil, err
 	}
-	err = capnpStruct.SetContent(content)
+	err = capnpStruct.SetUsername(username)
 	if err != nil {
 		return nil, err
 	}
-	err = capnpStruct.SetTag(tag)
+	err = capnpStruct.SetContent(content)
 	if err != nil {
 		return nil, err
 	}
@@ -66,28 +66,32 @@ type EchoResponse_ struct {
 	CapnpStruct *EchoResponse
 }
 
-func (e *EchoResponse_) GetId() (int32, error) {
-	return e.CapnpStruct.Id(), nil
-}
-
-func (e *EchoResponse_) GetScore() (float32, error) {
-	return e.CapnpStruct.Score(), nil
-}
-
 func (e *EchoResponse_) GetContent() (string, error) {
 	return e.CapnpStruct.Content()
 }
 
-func (e *EchoResponse_) GetTag() (string, error) {
-	return e.CapnpStruct.Tag()
+func (e *EchoResponse_) GetId() (int32, error) {
+	return e.CapnpStruct.Id(), nil
 }
 
-func CreateEchoResponse(id int32, score float32, content string, tag string) (*EchoResponse_, error) {
+func (e *EchoResponse_) GetScore() (int32, error) {
+	return e.CapnpStruct.Score(), nil
+}
+
+func (e *EchoResponse_) GetUsername() (string, error) {
+	return e.CapnpStruct.Username()
+}
+
+func CreateEchoResponse(id int32, score int32, username string, content string) (*EchoResponse_, error) {
 	msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
 		return nil, err
 	}
 	capnpStruct, err := NewRootEchoResponse(seg)
+	if err != nil {
+		return nil, err
+	}
+	err = capnpStruct.SetContent(content)
 	if err != nil {
 		return nil, err
 	}
@@ -99,11 +103,7 @@ func CreateEchoResponse(id int32, score float32, content string, tag string) (*E
 	if err != nil {
 		return nil, err
 	}
-	err = capnpStruct.SetContent(content)
-	if err != nil {
-		return nil, err
-	}
-	err = capnpStruct.SetTag(tag)
+	err = capnpStruct.SetUsername(username)
 	if err != nil {
 		return nil, err
 	}

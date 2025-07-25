@@ -31,7 +31,7 @@ Run the following command to generate both Protobuf types and aRPC stubs:
 protoc \
   --go_out=paths=source_relative:. \
   --arpc_out=paths=source_relative:. \
-  echo/proto/echo.proto
+  proto/echo.proto
 ```
 
 This will generate:

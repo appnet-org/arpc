@@ -122,9 +122,17 @@ func processPacket(data []byte) []byte {
 	log.Printf("Payload length: %d", len(payload))
 	log.Printf("Payload: %x", payload)
 
-	// find the index of string "bob"
-	idx := bytes.Index(payload, []byte("Bob"))
-	log.Printf("Index of 'Bob': %d", idx)
+	if packetType == 1 {
+		// find the index of string "bob"
+		idx := bytes.Index(data, []byte("Bob"))
+		log.Printf("Index of 'Bob': %d", idx)
+
+		// replace string "Bob" with "Max" if found
+		if idx != -1 && idx+3 <= len(data) {
+			copy(data[idx:idx+3], []byte("Max"))
+		}
+
+	}
 
 	return data
 }

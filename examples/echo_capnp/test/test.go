@@ -25,12 +25,10 @@ func main() {
 
 	// Set fields
 	req.SetId(1)
-	req.SetScore(10.0)
+	req.SetScore(10)
+	req.SetUsername("Alice")
 	if err := req.SetContent("hello"); err != nil {
 		log.Fatalf("failed to set content: %v", err)
-	}
-	if err := req.SetTag("test"); err != nil {
-		log.Fatalf("failed to set tag: %v", err)
 	}
 
 	// Serialize the message to a buffer

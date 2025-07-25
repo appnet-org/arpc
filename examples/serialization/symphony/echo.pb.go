@@ -2,16 +2,17 @@
 // versions:
 // 	protoc-gen-go v1.36.6
 // 	protoc        v3.6.1
-// source: proto/echo.proto
+// source: symphony/echo.proto
 
-package pb
+package echo
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -33,7 +34,7 @@ type EchoRequest struct {
 
 func (x *EchoRequest) Reset() {
 	*x = EchoRequest{}
-	mi := &file_proto_echo_proto_msgTypes[0]
+	mi := &file_symphony_echo_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -45,7 +46,7 @@ func (x *EchoRequest) String() string {
 func (*EchoRequest) ProtoMessage() {}
 
 func (x *EchoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_echo_proto_msgTypes[0]
+	mi := &file_symphony_echo_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -58,7 +59,7 @@ func (x *EchoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EchoRequest.ProtoReflect.Descriptor instead.
 func (*EchoRequest) Descriptor() ([]byte, []int) {
-	return file_proto_echo_proto_rawDescGZIP(), []int{0}
+	return file_symphony_echo_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *EchoRequest) GetId() int32 {
@@ -101,7 +102,7 @@ type EchoResponse struct {
 
 func (x *EchoResponse) Reset() {
 	*x = EchoResponse{}
-	mi := &file_proto_echo_proto_msgTypes[1]
+	mi := &file_symphony_echo_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -113,7 +114,7 @@ func (x *EchoResponse) String() string {
 func (*EchoResponse) ProtoMessage() {}
 
 func (x *EchoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_echo_proto_msgTypes[1]
+	mi := &file_symphony_echo_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -126,7 +127,7 @@ func (x *EchoResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EchoResponse.ProtoReflect.Descriptor instead.
 func (*EchoResponse) Descriptor() ([]byte, []int) {
-	return file_proto_echo_proto_rawDescGZIP(), []int{1}
+	return file_symphony_echo_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *EchoResponse) GetId() int32 {
@@ -157,11 +158,11 @@ func (x *EchoResponse) GetContent() string {
 	return ""
 }
 
-var File_proto_echo_proto protoreflect.FileDescriptor
+var File_symphony_echo_proto protoreflect.FileDescriptor
 
-const file_proto_echo_proto_rawDesc = "" +
+const file_symphony_echo_proto_rawDesc = "" +
 	"\n" +
-	"\x10proto/echo.proto\x12\x02pb\"i\n" +
+	"\x13symphony/echo.proto\x12\x04echo\"i\n" +
 	"\vEchoRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x05R\x02id\x12\x14\n" +
 	"\x05score\x18\x02 \x01(\x05R\x05score\x12\x1a\n" +
@@ -171,30 +172,30 @@ const file_proto_echo_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\x05R\x02id\x12\x14\n" +
 	"\x05score\x18\x02 \x01(\x05R\x05score\x12\x1a\n" +
 	"\busername\x18\x03 \x01(\tR\busername\x12\x18\n" +
-	"\acontent\x18\x04 \x01(\tR\acontent28\n" +
-	"\vEchoService\x12)\n" +
-	"\x04echo\x12\x0f.pb.EchoRequest\x1a\x10.pb.EchoResponseB\x06Z\x04./pbb\x06proto3"
+	"\acontent\x18\x04 \x01(\tR\acontent2<\n" +
+	"\vEchoService\x12-\n" +
+	"\x04echo\x12\x11.echo.EchoRequest\x1a\x12.echo.EchoResponseB\bZ\x06./echob\x06proto3"
 
 var (
-	file_proto_echo_proto_rawDescOnce sync.Once
-	file_proto_echo_proto_rawDescData []byte
+	file_symphony_echo_proto_rawDescOnce sync.Once
+	file_symphony_echo_proto_rawDescData []byte
 )
 
-func file_proto_echo_proto_rawDescGZIP() []byte {
-	file_proto_echo_proto_rawDescOnce.Do(func() {
-		file_proto_echo_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_echo_proto_rawDesc), len(file_proto_echo_proto_rawDesc)))
+func file_symphony_echo_proto_rawDescGZIP() []byte {
+	file_symphony_echo_proto_rawDescOnce.Do(func() {
+		file_symphony_echo_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_symphony_echo_proto_rawDesc), len(file_symphony_echo_proto_rawDesc)))
 	})
-	return file_proto_echo_proto_rawDescData
+	return file_symphony_echo_proto_rawDescData
 }
 
-var file_proto_echo_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
-var file_proto_echo_proto_goTypes = []any{
-	(*EchoRequest)(nil),  // 0: pb.EchoRequest
-	(*EchoResponse)(nil), // 1: pb.EchoResponse
+var file_symphony_echo_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_symphony_echo_proto_goTypes = []any{
+	(*EchoRequest)(nil),  // 0: echo.EchoRequest
+	(*EchoResponse)(nil), // 1: echo.EchoResponse
 }
-var file_proto_echo_proto_depIdxs = []int32{
-	0, // 0: pb.EchoService.echo:input_type -> pb.EchoRequest
-	1, // 1: pb.EchoService.echo:output_type -> pb.EchoResponse
+var file_symphony_echo_proto_depIdxs = []int32{
+	0, // 0: echo.EchoService.echo:input_type -> echo.EchoRequest
+	1, // 1: echo.EchoService.echo:output_type -> echo.EchoResponse
 	1, // [1:2] is the sub-list for method output_type
 	0, // [0:1] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -202,26 +203,26 @@ var file_proto_echo_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for field type_name
 }
 
-func init() { file_proto_echo_proto_init() }
-func file_proto_echo_proto_init() {
-	if File_proto_echo_proto != nil {
+func init() { file_symphony_echo_proto_init() }
+func file_symphony_echo_proto_init() {
+	if File_symphony_echo_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_echo_proto_rawDesc), len(file_proto_echo_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_symphony_echo_proto_rawDesc), len(file_symphony_echo_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_proto_echo_proto_goTypes,
-		DependencyIndexes: file_proto_echo_proto_depIdxs,
-		MessageInfos:      file_proto_echo_proto_msgTypes,
+		GoTypes:           file_symphony_echo_proto_goTypes,
+		DependencyIndexes: file_symphony_echo_proto_depIdxs,
+		MessageInfos:      file_symphony_echo_proto_msgTypes,
 	}.Build()
-	File_proto_echo_proto = out.File
-	file_proto_echo_proto_goTypes = nil
-	file_proto_echo_proto_depIdxs = nil
+	File_symphony_echo_proto = out.File
+	file_symphony_echo_proto_goTypes = nil
+	file_symphony_echo_proto_depIdxs = nil
 }
