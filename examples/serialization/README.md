@@ -190,3 +190,6 @@ Each pointer gives:
 * `"alice"` = `61 6c 69 63 65 00` padded to 8 bytes → `616c6963 65000000`
 * `"hello world"` = `68656c6c 6f20776f 726c6400` padded to 16 bytes
 
+## Symphony
+
+See [wire-format.md](../../docs/wire-format.md)

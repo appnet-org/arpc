@@ -1,4 +1,4 @@
-module github.com/appnet-org/arpc/symphony-gen
+module github.com/appnet-org/arpc/cmd/symphony-gen-arpc
 
 go 1.23.9
 
