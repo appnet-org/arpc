@@ -16,7 +16,7 @@ import (
 
 func main() {
 	id := int32(42)
-	score := int32(100)
+	score := int32(300)
 	content := "hello world"
 	username := "alice"
 
