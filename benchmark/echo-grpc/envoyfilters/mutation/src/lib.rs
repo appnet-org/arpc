@@ -1,5 +1,6 @@
 use proxy_wasm::traits::{Context, HttpContext};
 use proxy_wasm::types::{Action, LogLevel};
+use proxy_wasm::traits::RootContext;
 
 use prost::Message;
 pub mod echo {
@@ -20,6 +21,13 @@ struct Mutation {
 }
 
 impl Context for Mutation {}
+
+impl RootContext for Mutation {
+    fn on_vm_start(&mut self, _: usize) -> bool {
+        log::warn!("executing on_vm_start");
+        true
+    }
+}
 
 impl HttpContext for Mutation {
     fn on_http_request_headers(&mut self, _num_of_headers: usize, end_of_stream: bool) -> Action {
@@ -47,7 +55,7 @@ impl HttpContext for Mutation {
                 log::warn!("gRPC message length: {}", message_length);
                 if let Ok(mut req) = echo::EchoRequest::decode(&body[5..message_length]) {
                     // Modify the body here
-                    req.message = req.message.replace("secret", "modified");
+                    req.message = req.message.replace("Bob", "Alice");
 
                     // Re-encode the modified message
                     let mut new_body = Vec::new();

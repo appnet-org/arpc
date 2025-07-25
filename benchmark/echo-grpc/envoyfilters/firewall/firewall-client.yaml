@@ -1,17 +1,17 @@
 apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
-  name: acl-client
+  name: firewall-client
 spec:
   workloadSelector:
     labels:
-      app: frontend #
+      app: frontend 
   configPatches:
   - applyTo: HTTP_FILTER
     match:
       context: SIDECAR_OUTBOUND # 
       listener:
-        portNumber: 8081 # port number of ping
+        portNumber: 9000 # port number of echo server
         filterChain:
           filter:
             name: envoy.filters.network.http_connection_manager
@@ -24,12 +24,12 @@ spec:
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.http.wasm.v3.Wasm
           config:
-            name: acl-block-client
-            root_id: acl-block-client
+            name: firewall-client
+            root_id: firewall-client
             vm_config:
-              vm_id: vm.sentinel.acl-block-client
+              vm_id: vm.sentinel.firewall-client
               runtime: envoy.wasm.runtime.v8
               code:
                 local:
-                  filename: /etc/acl.wasm
+                  filename: /etc/firewall.wasm
               allow_precompiled: false
