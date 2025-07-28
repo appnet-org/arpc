@@ -15,31 +15,39 @@ type ProxyState struct {
 }
 
 func main() {
-	log.Println("Starting bidirectional UDP proxy on :15002...")
+	log.Println("Starting bidirectional UDP proxy on :15002 and :15006...")
 
-	listenAddr := &net.UDPAddr{Port: 15002}
-	conn, err := net.ListenUDP("udp", listenAddr)
-	if err != nil {
-		log.Fatalf("ListenUDP error: %v", err)
-	}
-	defer conn.Close()
-
+	ports := []int{15002, 15006}
 	state := &ProxyState{
 		connections: make(map[string]*net.UDPAddr),
 	}
 
-	buf := make([]byte, 2048)
-	for {
-		n, src, err := conn.ReadFromUDP(buf)
-		if err != nil {
-			log.Printf("ReadFromUDP error: %v", err)
-			continue
-		}
-		data := make([]byte, n)
-		copy(data, buf[:n]) // This incurs a full packet copy (TODO: optimize)
+	for _, port := range ports {
+		go func(p int) {
+			listenAddr := &net.UDPAddr{Port: p}
+			conn, err := net.ListenUDP("udp", listenAddr)
+			if err != nil {
+				log.Fatalf("ListenUDP error on port %d: %v", p, err)
+			}
+			defer conn.Close()
 
-		go handlePacket(conn, state, src, data)
+			log.Printf("Listening on UDP port %d", p)
+			buf := make([]byte, 2048)
+			for {
+				n, src, err := conn.ReadFromUDP(buf)
+				if err != nil {
+					log.Printf("ReadFromUDP error on port %d: %v", p, err)
+					continue
+				}
+				data := make([]byte, n)
+				copy(data, buf[:n]) // This incurs a full packet copy (TODO: optimize)
+
+				go handlePacket(conn, state, src, data)
+			}
+		}(port)
 	}
+
+	select {} // block forever
 }
 
 func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte) {
@@ -60,7 +68,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 			// New client → server
 			destAddr := os.Getenv("SYMPHONY_DEST_ADDR")
 			if destAddr == "" {
-				destAddr = "10.244.0.78:9000"
+				destAddr = "130.127.133.184:11000"
 				log.Printf("SYMPHONY_DEST_ADDR is not set, using default: %v", destAddr)
 			} else {
 				log.Printf("SYMPHONY_DEST_ADDR is set to %v", destAddr)
@@ -100,13 +108,25 @@ func processPacket(data []byte) []byte {
 	// [packet_type][rpc_id(8 bytes)][total_packets(2 bytes)][seq_number(2 bytes)][service_len(2 bytes)][service][method_len(2 bytes)][method]
 
 	// Extract metadata
+	if len(data) < 15 {
+		log.Printf("Invalid packet: length %d is too short", len(data))
+		return data
+	}
 	packetType := data[0]
 	rpcId := data[1:9]
 	totalPackets := binary.LittleEndian.Uint16(data[9:11])
 	seqNumber := binary.LittleEndian.Uint16(data[11:13])
 	serviceLen := binary.LittleEndian.Uint16(data[13:15])
+	if 15+serviceLen+2 > uint16(len(data)) {
+		log.Printf("Invalid packet: service length %d is too large", serviceLen)
+		return data
+	}
 	service := data[15 : 15+serviceLen]
 	methodLen := binary.LittleEndian.Uint16(data[15+serviceLen : 15+serviceLen+2])
+	if 15+serviceLen+2+methodLen > uint16(len(data)) {
+		log.Printf("Invalid packet: method length %d is too large", methodLen)
+		return data
+	}
 	method := data[15+serviceLen+2 : 15+serviceLen+2+methodLen]
 
 	log.Printf("Packet type: %d", packetType)
@@ -119,7 +139,6 @@ func processPacket(data []byte) []byte {
 	log.Printf("Method: %s", method)
 
 	// Extract payload
-	log.Printf("15+serviceLen+2+methodLen: %d", 15+serviceLen+2+methodLen)
 	payload := data[15+serviceLen+2+methodLen:]
 	log.Printf("Payload length: %d", len(payload))
 	log.Printf("Payload: %x", payload)
@@ -133,7 +152,6 @@ func processPacket(data []byte) []byte {
 		if idx != -1 && idx+3 <= len(data) {
 			copy(data[idx:idx+3], []byte("Max"))
 		}
-
 	}
 
 	return data

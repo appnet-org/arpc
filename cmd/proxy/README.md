@@ -25,10 +25,10 @@ To transparently intercept both directions of UDP communication:
 
 ```bash
 # Intercept server → client responses (PREROUTING for incoming packets)
-sudo iptables -t nat -A PREROUTING -p udp --sport 9000 -j REDIRECT --to-ports 15002
+sudo iptables -t nat -A PREROUTING -p udp --sport 10000:65535 -j REDIRECT --to-ports 15002
 
 # Intercept client → server requests (OUTPUT for local packets)
-sudo iptables -t nat -A OUTPUT -p udp --dport 9000 -m owner ! --uid-owner proxyuser -j REDIRECT --to-ports 15002
+sudo iptables -t nat -A OUTPUT -p udp --dport 10000:65535 -m owner ! --uid-owner proxyuser -j REDIRECT --to-ports 15002
 ```
 
 These rules ensure:
@@ -58,3 +58,19 @@ To remove the rules if needed:
 sudo iptables -t nat -D PREROUTING -p udp --sport 9000 -j REDIRECT --to-ports 15002
 sudo iptables -t nat -D OUTPUT -p udp --dport 9000 -m owner ! --uid-owner proxyuser -j REDIRECT --to-ports 15002
 ```
+
+
+
+# Flush old rules
+sudo iptables -t nat -F
+sudo iptables -t mangle -F
+sudo iptables -t nat -L -n -v
+sudo iptables -t mangle -L -n -v
+
+# -- MANGLE TABLE: MARK outbound requests --
+# Mark all outgoing traffic to server:11000
+sudo iptables -t mangle -A OUTPUT -p udp --dport 10000:65535 -j CONNMARK --set-mark 0x1
+sudo iptables -t mangle -A PREROUTING -p udp -j CONNMARK --restore-mark
+sudo iptables -t nat -A PREROUTING -p udp -m connmark --mark 0x1 -j REDIRECT --to-port 15002
+sudo iptables -t nat -A OUTPUT -p udp --dport 10000:65535 -m owner ! --uid-owner proxyuser -j REDIRECT --to-ports 15002
+iptables -t nat -A PREROUTING -p udp --dport 15006 -j REDIRECT --to-port 15006
