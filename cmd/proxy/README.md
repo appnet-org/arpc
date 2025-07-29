@@ -73,4 +73,26 @@ sudo iptables -t mangle -A OUTPUT -p udp --dport 10000:65535 -j CONNMARK --set-m
 sudo iptables -t mangle -A PREROUTING -p udp -j CONNMARK --restore-mark
 sudo iptables -t nat -A PREROUTING -p udp -m connmark --mark 0x1 -j REDIRECT --to-port 15002
 sudo iptables -t nat -A OUTPUT -p udp --dport 10000:65535 -m owner ! --uid-owner proxyuser -j REDIRECT --to-ports 15002
-iptables -t nat -A PREROUTING -p udp --dport 15006 -j REDIRECT --to-port 15006
+
+
+# 1. Mark inbound UDP traffic in PREROUTING (except from proxy itself)
+sudo iptables -t mangle -A PREROUTING -p udp --dport 10000:65535 -j CONNMARK --set-mark 0x2
+
+# 2. Restore connmark (for use in NAT PREROUTING)
+sudo iptables -t mangle -A PREROUTING -p udp -j CONNMARK --restore-mark
+
+# 3. NAT PREROUTING: Redirect marked traffic to 15006
+sudo iptables -t nat -A PREROUTING -p udp -m connmark --mark 0x2 -j REDIRECT --to-port 15006
+
+# 4. NAT OUTPUT: Redirect responses from app back through 15006 (unless it's the proxy itself)
+sudo iptables -t nat -A OUTPUT -p udp -m connmark --mark 0x2 -m owner ! --uid-owner proxyuser -j REDIRECT --to-port 15006
+
+
+Debugging Tips
+Dump conntrack marks:
+
+
+sudo conntrack -L -p udp
+Monitor proxy ports:
+
+sudo tcpdump -n -i any udp port 15002 or port 15006
