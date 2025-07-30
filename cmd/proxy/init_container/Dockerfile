@@ -6,3 +6,5 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+COPY proxy/init_container/apply_symphony_iptables.sh /apply_symphony_iptables.sh
+
