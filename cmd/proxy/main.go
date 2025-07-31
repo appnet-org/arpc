@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"log"
 	"net"
-	"os"
 	"sync"
 )
 
@@ -51,56 +50,38 @@ func main() {
 }
 
 func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte) {
-	key := src.String()
+	// Process the packet and possibly extract the peer (original sender)
+	data, peer := processPacket(data)
 
-	state.mu.Lock()
-	peer, known := state.connections[key]
-	if !known {
-		// Determine direction based on source port
-		if src.Port == 9000 {
-			log.Printf("New server connection: %v", src)
-			// Lookup reverse mapping (from earlier connection)
-			// Not yet known, drop unless reverse entry exists
-			state.mu.Unlock()
+	if peer != nil {
+		// It's a request: map src <-> peer
+		state.mu.Lock()
+		state.connections[src.String()] = peer
+		state.connections[peer.String()] = src // reverse mapping
+		state.mu.Unlock()
+	} else {
+		// It's a response: look up the reverse mapping
+		state.mu.Lock()
+		var ok bool
+		peer, ok = state.connections[src.String()]
+		state.mu.Unlock()
+
+		if !ok {
 			log.Printf("Unknown client for server response %v — dropping", src)
 			return
-		} else {
-			// New client → server
-			destAddr := os.Getenv("SYMPHONY_DEST_ADDR")
-			if destAddr == "" {
-				destAddr = "130.127.133.184:11000"
-				log.Printf("SYMPHONY_DEST_ADDR is not set, using default: %v", destAddr)
-			} else {
-				log.Printf("SYMPHONY_DEST_ADDR is set to %v", destAddr)
-			}
-
-			serverAddr, err := net.ResolveUDPAddr("udp", destAddr)
-			if err != nil {
-				log.Printf("ResolveUDPAddr error: %v", err)
-				state.mu.Unlock()
-				return
-			}
-			log.Printf("New client connection: %v → %v", src, serverAddr)
-			state.connections[key] = serverAddr
-			state.connections[serverAddr.String()] = src // reverse mapping
-			peer = serverAddr
 		}
 	}
-	state.mu.Unlock()
 
-	// Process the packet
-	data = processPacket(data)
-
-	// Forward the packet
+	// Send the processed packet to the peer
 	_, err := conn.WriteToUDP(data, peer)
 	if err != nil {
-		log.Printf("Forwarding error (%v → %v): %v", src, peer, err)
-		return
+		log.Printf("WriteToUDP error: %v", err)
 	}
+
 	log.Printf("Forwarded %d bytes: %v → %v", len(data), src, peer)
 }
 
-func processPacket(data []byte) []byte {
+func processPacket(data []byte) ([]byte, *net.UDPAddr) {
 	// Print the packet (in hex)
 	log.Printf("Received packet: %x", data)
 
@@ -110,7 +91,7 @@ func processPacket(data []byte) []byte {
 	// Extract metadata
 	if len(data) < 15 {
 		log.Printf("Invalid packet: length %d is too short", len(data))
-		return data
+		return data, nil
 	}
 
 	var offset uint16 = 0
@@ -129,17 +110,21 @@ func processPacket(data []byte) []byte {
 	log.Printf("Total packets: %d", totalPackets)
 	log.Printf("Sequence number: %d", seqNumber)
 
+	var peer *net.UDPAddr = nil
 	if packetType == 1 {
 		ip := data[offset : offset+4]
-		log.Printf("Original IP: %s", net.IP(ip))
 		offset += 4
+		port := binary.LittleEndian.Uint16(data[offset : offset+2])
+		offset += 2
+		peer = &net.UDPAddr{IP: net.IP(ip), Port: int(port)}
+		log.Printf("Original IP and port: %s:%d", net.IP(ip), port)
 	}
 
 	serviceLen := binary.LittleEndian.Uint16(data[offset : offset+2])
 	offset += 2
 	if offset+serviceLen > uint16(len(data)) {
 		log.Printf("Invalid packet: service length %d is too large", serviceLen)
-		return data
+		return data, nil
 	}
 	service := data[offset : offset+serviceLen]
 	offset += serviceLen
@@ -147,7 +132,7 @@ func processPacket(data []byte) []byte {
 	offset += 2
 	if offset+methodLen > uint16(len(data)) {
 		log.Printf("Invalid packet: method length %d is too large", methodLen)
-		return data
+		return data, nil
 	}
 	method := data[offset : offset+methodLen]
 	offset += methodLen
@@ -168,9 +153,9 @@ func processPacket(data []byte) []byte {
 
 		// replace string "Bob" with "Max" if found
 		if idx != -1 && idx+3 <= len(data) {
-			copy(data[idx:idx+3], []byte("Bob"))
+			copy(data[idx:idx+3], []byte("Max"))
 		}
 	}
 
-	return data
+	return data, peer
 }

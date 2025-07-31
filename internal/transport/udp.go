@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"encoding/binary"
 	"fmt"
 	"log"
 	"math/rand"
@@ -183,10 +184,12 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 	// TODO(XZ): this is a temporary solution fix issue #5
 	if packetType == protocol.PacketTypeRequest {
 		if ip4 := udpAddr.IP.To4(); ip4 != nil {
-			if len(processedData) < 4 {
-				return fmt.Errorf("processedData too short to embed IP")
+			if len(processedData) < 6 {
+				return fmt.Errorf("processedData too short to embed IP and port")
 			}
 			copy(processedData[0:4], ip4)
+			binary.LittleEndian.PutUint16(processedData[4:6], uint16(udpAddr.Port))
+			log.Printf("Embedded IP and port: %s:%d", ip4, udpAddr.Port)
 		} else {
 			return fmt.Errorf("destination IP is not IPv4")
 		}

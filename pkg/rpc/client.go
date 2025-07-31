@@ -44,10 +44,15 @@ func NewClient(serializer serializer.Serializer, addr string, transportElements 
 func frameRequest(service, method string, payload []byte) ([]byte, error) {
 	buf := new(bytes.Buffer)
 
-	// TODO(XZ): this is a temporary solution fix issue #5
-	// when intercepting the packet.
+	// TODO(XZ): this is a temporary solution fix issue #5.
+	// The first 6 bytes are the original IP address and port. The actual values are added in the transport layer.
 	ip := net.ParseIP("0.0.0.0").To4()
 	if _, err := buf.Write(ip); err != nil {
+		return nil, err
+	}
+
+	port := uint16(0)
+	if err := binary.Write(buf, binary.LittleEndian, port); err != nil {
 		return nil, err
 	}
 
@@ -158,8 +163,6 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 			log.Printf("Ignoring response with mismatched RPC ID: %d (expected %d)", respID, rpcReq.ID)
 			continue
 		}
-
-		log.Printf("Received response: %x", data)
 
 		// Parse framed response: extract service, method, payload
 		_, _, respPayloadBytes, err := parseFramedResponse(data)

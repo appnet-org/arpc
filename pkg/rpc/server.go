@@ -58,8 +58,8 @@ func (s *Server) RegisterService(desc *ServiceDesc, impl any) {
 
 // parseFramedRequest extracts service, method, header, and payload segments from a request frame.
 func parseFramedRequest(data []byte) (string, string, []byte, error) {
-	// TODO(XZ): this is a temporary solution fix issue #5 (the first 4 bytes are the original IP address)
-	offset := 4
+	// TODO(XZ): this is a temporary solution fix issue #5 (the first 6 bytes are the original IP address and port)
+	offset := 6
 
 	// Service
 	serviceLen := int(binary.LittleEndian.Uint16(data[offset:]))
