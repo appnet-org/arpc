@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
+	"net"
 	"time"
 
 	"github.com/appnet-org/arpc/internal/protocol"
@@ -43,6 +44,13 @@ func NewClient(serializer serializer.Serializer, addr string, transportElements 
 func frameRequest(service, method string, payload []byte) ([]byte, error) {
 	buf := new(bytes.Buffer)
 
+	// TODO(XZ): this is a temporary solution fix issue #5
+	// when intercepting the packet.
+	ip := net.ParseIP("0.0.0.0").To4()
+	if _, err := buf.Write(ip); err != nil {
+		return nil, err
+	}
+
 	// Write service name
 	if err := binary.Write(buf, binary.LittleEndian, uint16(len(service))); err != nil {
 		return nil, err
@@ -68,7 +76,8 @@ func frameRequest(service, method string, payload []byte) ([]byte, error) {
 }
 
 func parseFramedResponse(data []byte) (service string, method string, payload []byte, err error) {
-	offset := 0
+	// TODO(XZ): this is a temporary solution fix issue #5
+	offset := 4
 
 	// Parse service name
 	if len(data) < 2 {

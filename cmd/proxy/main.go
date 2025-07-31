@@ -116,18 +116,20 @@ func processPacket(data []byte) []byte {
 	rpcId := data[1:9]
 	totalPackets := binary.LittleEndian.Uint16(data[9:11])
 	seqNumber := binary.LittleEndian.Uint16(data[11:13])
-	serviceLen := binary.LittleEndian.Uint16(data[13:15])
+	ip := data[13:17]
+	log.Printf("Original IP: %s", ip)
+	serviceLen := binary.LittleEndian.Uint16(data[17:19])
 	if 15+serviceLen+2 > uint16(len(data)) {
 		log.Printf("Invalid packet: service length %d is too large", serviceLen)
 		return data
 	}
-	service := data[15 : 15+serviceLen]
-	methodLen := binary.LittleEndian.Uint16(data[15+serviceLen : 15+serviceLen+2])
+	service := data[19 : 19+serviceLen]
+	methodLen := binary.LittleEndian.Uint16(data[19+serviceLen : 19+serviceLen+2])
 	if 15+serviceLen+2+methodLen > uint16(len(data)) {
 		log.Printf("Invalid packet: method length %d is too large", methodLen)
 		return data
 	}
-	method := data[15+serviceLen+2 : 15+serviceLen+2+methodLen]
+	method := data[19+serviceLen+2 : 19+serviceLen+2+methodLen]
 
 	log.Printf("Packet type: %d", packetType)
 	log.Printf("RPC ID: %x", rpcId)
@@ -139,7 +141,7 @@ func processPacket(data []byte) []byte {
 	log.Printf("Method: %s", method)
 
 	// Extract payload
-	payload := data[15+serviceLen+2+methodLen:]
+	payload := data[19+serviceLen+2+methodLen:]
 	log.Printf("Payload length: %d", len(payload))
 	log.Printf("Payload: %x", payload)
 

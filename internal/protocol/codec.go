@@ -88,15 +88,15 @@ func FragmentData(rpcID uint64, data []byte) ([]*Packet, error) {
 	totalPackets := uint16((len(data) + chunkSize - 1) / chunkSize) // Compute number of packets
 	var packets []*Packet
 
-	for i := uint16(0); i < totalPackets; i++ {
-		start := int(i) * chunkSize
+	for i := range int(totalPackets) {
+		start := i * chunkSize
 		end := min(start+chunkSize, len(data))
 
 		// Create a packet for the current chunk
 		pkt := &Packet{
 			RPCID:        rpcID,
 			TotalPackets: totalPackets,
-			SeqNumber:    i,
+			SeqNumber:    uint16(i),
 			Payload:      data[start:end],
 		}
 		packets = append(packets, pkt)
