@@ -43,9 +43,9 @@ spec:
   clusterIP: None
   ports:
   - name: server
-    port: 9000
+    port: 11000
     protocol: UDP
-    targetPort: 9000
+    targetPort: 11000
   selector:
     app: server
 ---

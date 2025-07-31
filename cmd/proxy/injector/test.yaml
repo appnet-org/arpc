@@ -19,42 +19,42 @@ metadata:
   name: frontend
 spec:
   replicas: 1
-  selector:
-    matchLabels:
-      app: frontend
   template:
     metadata:
       name: frontend
       labels:
         app: frontend
     spec:
+      containers:
+      - image: appnetorg/echo-symphony:latest
+        name: frontend-echo-symphony
+        command:
+        - /app/frontend/frontend
+      - name: symphony-proxy
+        image: appnetorg/symphony-proxy:latest
+        command:
+        - /app/proxy
+        securityContext:
+          runAsUser: 1337
+          capabilities:
+            add:
+            - NET_ADMIN
+            - NET_RAW
       initContainers:
       - name: set-iptables
         image: appnetorg/symphony-proxy-init-container:latest
         command:
-          - /bin/sh
-          - -c
-          - |
-            bash /apply_symphony_iptables.sh
+        - /bin/sh
+        - -c
+        - bash /apply_symphony_iptables.sh
         securityContext:
           runAsUser: 0
           capabilities:
-            add: ["NET_ADMIN"]
-      containers:
-      - name: frontend-echo-symphony
-        image: appnetorg/echo-symphony:latest
-        command: ["/app/frontend/frontend"]
-        securityContext:
-          runAsUser: 0
-          capabilities:
-            add: ["NET_ADMIN"]
-      - name: symphony-proxy
-        image: appnetorg/symphony-proxy:latest
-        command: ["/app/proxy"]
-        securityContext:
-          runAsUser: 1337
-          capabilities:
-            add: ["NET_ADMIN", "NET_RAW"]
+            add:
+            - NET_ADMIN
+  selector:
+    matchLabels:
+      app: frontend
 ---
 apiVersion: v1
 kind: Service
@@ -77,36 +77,40 @@ kind: Deployment
 metadata:
   name: server
 spec:
-  replicas: 1
+  replicas: 2
   template:
     metadata:
       name: server
       labels:
         app: server
     spec:
+      containers:
+      - image: appnetorg/echo-symphony:latest
+        name: server-echo-symphony
+        command:
+        - /app/server/server
+      - name: symphony-proxy
+        image: appnetorg/symphony-proxy:latest
+        command:
+        - /app/proxy
+        securityContext:
+          runAsUser: 1337
+          capabilities:
+            add:
+            - NET_ADMIN
+            - NET_RAW
       initContainers:
       - name: set-iptables
         image: appnetorg/symphony-proxy-init-container:latest
         command:
-          - /bin/sh
-          - -c
-          - |
-            bash /apply_symphony_iptables.sh
+        - /bin/sh
+        - -c
+        - bash /apply_symphony_iptables.sh
         securityContext:
           runAsUser: 0
           capabilities:
-            add: ["NET_ADMIN"]
-      containers:
-      - image: appnetorg/echo-symphony:latest
-        name: server-echo-symphony
-        command: ["/app/server/server"]
-      - name: symphony-proxy
-        image: appnetorg/symphony-proxy:latest
-        command: ["/app/proxy"]
-        securityContext:
-          runAsUser: 1337
-          capabilities:
-            add: ["NET_ADMIN", "NET_RAW"]
+            add:
+            - NET_ADMIN
   selector:
     matchLabels:
       app: server
