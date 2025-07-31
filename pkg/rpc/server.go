@@ -58,7 +58,7 @@ func (s *Server) RegisterService(desc *ServiceDesc, impl any) {
 
 // parseFramedRequest extracts service, method, header, and payload segments from a request frame.
 func parseFramedRequest(data []byte) (string, string, []byte, error) {
-	offset := 0
+	offset := 4
 
 	// Service
 	serviceLen := int(binary.LittleEndian.Uint16(data[offset:]))
