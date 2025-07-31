@@ -181,13 +181,15 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 	}
 
 	// TODO(XZ): this is a temporary solution fix issue #5
-	if ip4 := udpAddr.IP.To4(); ip4 != nil {
-		if len(processedData) < 4 {
-			return fmt.Errorf("processedData too short to embed IP")
+	if packetType == protocol.PacketTypeRequest {
+		if ip4 := udpAddr.IP.To4(); ip4 != nil {
+			if len(processedData) < 4 {
+				return fmt.Errorf("processedData too short to embed IP")
+			}
+			copy(processedData[0:4], ip4)
+		} else {
+			return fmt.Errorf("destination IP is not IPv4")
 		}
-		copy(processedData[0:4], ip4)
-	} else {
-		return fmt.Errorf("destination IP is not IPv4")
 	}
 
 	// Fragment the data into multiple packets if it exceeds the UDP payload limit

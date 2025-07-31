@@ -76,8 +76,7 @@ func frameRequest(service, method string, payload []byte) ([]byte, error) {
 }
 
 func parseFramedResponse(data []byte) (service string, method string, payload []byte, err error) {
-	// TODO(XZ): this is a temporary solution fix issue #5
-	offset := 4
+	offset := 0
 
 	// Parse service name
 	if len(data) < 2 {
@@ -159,6 +158,8 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 			log.Printf("Ignoring response with mismatched RPC ID: %d (expected %d)", respID, rpcReq.ID)
 			continue
 		}
+
+		log.Printf("Received response: %x", data)
 
 		// Parse framed response: extract service, method, payload
 		_, _, respPayloadBytes, err := parseFramedResponse(data)

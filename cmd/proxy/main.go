@@ -112,36 +112,52 @@ func processPacket(data []byte) []byte {
 		log.Printf("Invalid packet: length %d is too short", len(data))
 		return data
 	}
-	packetType := data[0]
-	rpcId := data[1:9]
-	totalPackets := binary.LittleEndian.Uint16(data[9:11])
-	seqNumber := binary.LittleEndian.Uint16(data[11:13])
-	ip := data[13:17]
-	log.Printf("Original IP: %s", ip)
-	serviceLen := binary.LittleEndian.Uint16(data[17:19])
-	if 15+serviceLen+2 > uint16(len(data)) {
-		log.Printf("Invalid packet: service length %d is too large", serviceLen)
-		return data
-	}
-	service := data[19 : 19+serviceLen]
-	methodLen := binary.LittleEndian.Uint16(data[19+serviceLen : 19+serviceLen+2])
-	if 15+serviceLen+2+methodLen > uint16(len(data)) {
-		log.Printf("Invalid packet: method length %d is too large", methodLen)
-		return data
-	}
-	method := data[19+serviceLen+2 : 19+serviceLen+2+methodLen]
+
+	var offset uint16 = 0
+
+	packetType := data[offset]
+	offset += 1
+	rpcId := data[offset : offset+8]
+	offset += 8
+	totalPackets := binary.LittleEndian.Uint16(data[offset : offset+2])
+	offset += 2
+	seqNumber := binary.LittleEndian.Uint16(data[offset : offset+2])
+	offset += 2
 
 	log.Printf("Packet type: %d", packetType)
 	log.Printf("RPC ID: %x", rpcId)
 	log.Printf("Total packets: %d", totalPackets)
 	log.Printf("Sequence number: %d", seqNumber)
+
+	if packetType == 1 {
+		ip := data[offset : offset+4]
+		log.Printf("Original IP: %s", net.IP(ip))
+		offset += 4
+	}
+
+	serviceLen := binary.LittleEndian.Uint16(data[offset : offset+2])
+	offset += 2
+	if offset+serviceLen > uint16(len(data)) {
+		log.Printf("Invalid packet: service length %d is too large", serviceLen)
+		return data
+	}
+	service := data[offset : offset+serviceLen]
+	offset += serviceLen
+	methodLen := binary.LittleEndian.Uint16(data[offset : offset+2])
+	offset += 2
+	if offset+methodLen > uint16(len(data)) {
+		log.Printf("Invalid packet: method length %d is too large", methodLen)
+		return data
+	}
+	method := data[offset : offset+methodLen]
+	offset += methodLen
 	log.Printf("Service length: %d", serviceLen)
 	log.Printf("Service: %s", service)
 	log.Printf("Method length: %d", methodLen)
 	log.Printf("Method: %s", method)
 
 	// Extract payload
-	payload := data[19+serviceLen+2+methodLen:]
+	payload := data[offset:]
 	log.Printf("Payload length: %d", len(payload))
 	log.Printf("Payload: %x", payload)
 
@@ -152,7 +168,7 @@ func processPacket(data []byte) []byte {
 
 		// replace string "Bob" with "Max" if found
 		if idx != -1 && idx+3 <= len(data) {
-			copy(data[idx:idx+3], []byte("Max"))
+			copy(data[idx:idx+3], []byte("Bob"))
 		}
 	}
 
