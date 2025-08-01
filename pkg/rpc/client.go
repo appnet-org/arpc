@@ -27,7 +27,8 @@ type Client struct {
 
 // NewClient creates a new Client using the given serializer and target address.
 func NewClient(serializer serializer.Serializer, addr string, transportElements []transport.TransportElement, rpcElements []element.RPCElement) (*Client, error) {
-	t, err := transport.NewUDPTransport("", transportElements...)
+	// Make sure the client uses the same port for each call
+	t, err := transport.NewUDPTransport(":53357", transportElements...)
 	if err != nil {
 		return nil, err
 	}

@@ -56,6 +56,12 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	if peer != nil {
 		// It's a request: map src <-> peer
 		state.mu.Lock()
+
+		// TODO(XZ): temp solution for issue #6. We only rewrite the port for client-side proxy.
+		if src.Port != 15002 {
+			src.Port = 53357 // hack
+		}
+
 		state.connections[src.String()] = peer
 		state.connections[peer.String()] = src // reverse mapping
 		state.mu.Unlock()

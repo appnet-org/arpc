@@ -126,8 +126,8 @@ func ResolveUDPTarget(addr string) (*net.UDPAddr, error) {
 	host, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
 		// Handle addr like ":11000"
-		if strings.HasPrefix(addr, ":") {
-			portStr = strings.TrimPrefix(addr, ":")
+		if after, ok := strings.CutPrefix(addr, ":"); ok {
+			portStr = after
 			host = ""
 		} else {
 			return nil, fmt.Errorf("invalid addr %q: %w", addr, err)
