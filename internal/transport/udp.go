@@ -6,12 +6,11 @@ import (
 	"log"
 	"math/rand"
 	"net"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/appnet-org/arpc/internal/protocol"
+	"github.com/appnet-org/arpc/internal/transport/balancer"
 )
 
 // PacketType is the type of packet. 0 is reserved for errors.
@@ -95,9 +94,15 @@ type UDPTransport struct {
 	incoming map[uint64]map[uint16][]byte // Buffer for reassembling messages
 	mu       sync.Mutex                   // Ensures thread safety
 	elements *TransportElementChain
+	resolver *balancer.Resolver // Add resolver field
 }
 
 func NewUDPTransport(address string, elements ...TransportElement) (*UDPTransport, error) {
+	return NewUDPTransportWithBalancer(address, balancer.DefaultResolver(), elements...)
+}
+
+// NewUDPTransportWithBalancer creates a new UDP transport with a custom balancer
+func NewUDPTransportWithBalancer(address string, resolver *balancer.Resolver, elements ...TransportElement) (*UDPTransport, error) {
 	udpAddr, err := net.ResolveUDPAddr("udp", address)
 	if err != nil {
 		return nil, err
@@ -112,61 +117,16 @@ func NewUDPTransport(address string, elements ...TransportElement) (*UDPTranspor
 		conn:     conn,
 		incoming: make(map[uint64]map[uint16][]byte),
 		elements: NewTransportElementChain(elements...),
+		resolver: resolver,
 	}, nil
 }
 
 // ResolveUDPTarget resolves a UDP address string that may be an IP, FQDN, or empty.
-// If it's empty or ":port", it binds to 0.0.0.0:<port>. For FQDNs, it logs all resolved IPs
-// and picks one at random.
+// If it's empty or ":port", it binds to 0.0.0.0:<port>. For FQDNs, it uses the configured balancer
+// to select an IP from the resolved addresses.
 func ResolveUDPTarget(addr string) (*net.UDPAddr, error) {
-	if addr == "" {
-		return &net.UDPAddr{IP: net.IPv4zero, Port: 0}, nil
-	}
-
-	host, portStr, err := net.SplitHostPort(addr)
-	if err != nil {
-		// Handle addr like ":11000"
-		if after, ok := strings.CutPrefix(addr, ":"); ok {
-			portStr = after
-			host = ""
-		} else {
-			return nil, fmt.Errorf("invalid addr %q: %w", addr, err)
-		}
-	}
-
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		return nil, fmt.Errorf("invalid port in %q: %w", addr, err)
-	}
-
-	if host == "" {
-		return &net.UDPAddr{IP: net.IPv4zero, Port: port}, nil
-	}
-
-	ip := net.ParseIP(host)
-	if ip != nil {
-		return &net.UDPAddr{IP: ip, Port: port}, nil
-	}
-
-	// FQDN case: resolve all IPs
-	ips, err := net.LookupIP(host)
-	if err != nil || len(ips) == 0 {
-		return nil, fmt.Errorf("DNS lookup failed for %q: %w", host, err)
-	}
-
-	// Log all resolved IPs
-	log.Printf("DNS lookup for %s returned IPs:", host)
-	for i, resolvedIP := range ips {
-		log.Printf("  [%d] %s", i, resolvedIP.String())
-	}
-
-	// Pick one randomly
-	// TODO: Make load balancing configurable (similar to gRPC balancers)
-	index := rand.Intn(len(ips))
-	chosen := ips[index]
-
-	log.Printf("Selected %s → %s:%d", addr, chosen, port)
-	return &net.UDPAddr{IP: chosen, Port: port}, nil
+	// Use default resolver for backward compatibility
+	return balancer.DefaultResolver().ResolveUDPTarget(addr)
 }
 
 func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType protocol.PacketType) error {
@@ -176,7 +136,8 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 		return err
 	}
 
-	udpAddr, err := ResolveUDPTarget(addr)
+	// Use the transport's resolver instead of the global function
+	udpAddr, err := t.resolver.ResolveUDPTarget(addr)
 	if err != nil {
 		return err
 	}
