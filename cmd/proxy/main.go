@@ -1,23 +1,33 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"log"
 	"net"
 	"sync"
+
+	"github.com/appnet-org/proxy/element"
 )
 
 type ProxyState struct {
-	mu          sync.Mutex
-	connections map[string]*net.UDPAddr // key: sender IP:port, value: peer
+	mu           sync.Mutex
+	connections  map[string]*net.UDPAddr // key: sender IP:port, value: peer
+	elementChain *element.RPCElementChain
 }
 
 func main() {
 	log.Println("Starting bidirectional UDP proxy on :15002 and :15006...")
 
+	// Create element chain - you can add your custom elements here
+	elementChain := element.NewRPCElementChain(
+		element.NewLoggingElement(true), // Enable verbose logging
+	)
+
 	ports := []int{15002, 15006}
 	state := &ProxyState{
-		connections: make(map[string]*net.UDPAddr),
+		connections:  make(map[string]*net.UDPAddr),
+		elementChain: elementChain,
 	}
 
 	for _, port := range ports {
@@ -48,9 +58,22 @@ func main() {
 	select {} // block forever
 }
 
+func extractPeer(data []byte) *net.UDPAddr {
+	packetType := data[0]
+
+	var peer *net.UDPAddr = nil
+	if packetType == 1 {
+		ip := data[13:17]
+		port := binary.LittleEndian.Uint16(data[17:19])
+		peer = &net.UDPAddr{IP: net.IP(ip), Port: int(port)}
+	}
+
+	return peer
+}
+
 func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte) {
-	// Process the packet and possibly extract the peer (original sender)
-	data, peer := processPacket(data)
+	ctx := context.Background()
+	peer := extractPeer(data)
 
 	if peer != nil {
 		// It's a request: map src <-> peer
@@ -77,6 +100,8 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		}
 	}
 
+	data = processPacket(ctx, state, data, peer != nil)
+
 	// Send the processed packet to the peer
 	_, err := conn.WriteToUDP(data, peer)
 	if err != nil {
@@ -86,81 +111,23 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	log.Printf("Forwarded %d bytes: %v → %v", len(data), src, peer)
 }
 
-func processPacket(data []byte) ([]byte, *net.UDPAddr) {
+func processPacket(ctx context.Context, state *ProxyState, data []byte, isRequest bool) []byte {
 	// Print the packet (in hex)
 	log.Printf("Received packet: %x", data)
 
-	// Packet metadata format:
-	// [packet_type][rpc_id(8 bytes)][total_packets(2 bytes)][seq_number(2 bytes)][service_len(2 bytes)][service][method_len(2 bytes)][method]
-
-	// Extract metadata
-	if len(data) < 15 {
-		log.Printf("Invalid packet: length %d is too short", len(data))
-		return data, nil
+	var err error
+	if isRequest {
+		// Process request through element chain
+		data, err = state.elementChain.ProcessRequest(ctx, data)
+	} else {
+		// Process response through element chain (in reverse order)
+		data, err = state.elementChain.ProcessResponse(ctx, data) // TODO: fix this
 	}
 
-	var offset uint16 = 0
-
-	packetType := data[offset]
-	offset += 1
-	// rpcId := data[offset : offset+8]
-	offset += 8
-	// totalPackets := binary.LittleEndian.Uint16(data[offset : offset+2])
-	offset += 2
-	// seqNumber := binary.LittleEndian.Uint16(data[offset : offset+2])
-	offset += 2
-
-	// log.Printf("Packet type: %d", packetType)
-	// log.Printf("RPC ID: %x", rpcId)
-	// log.Printf("Total packets: %d", totalPackets)
-	// log.Printf("Sequence number: %d", seqNumber)
-
-	var peer *net.UDPAddr = nil
-	if packetType == 1 {
-		ip := data[offset : offset+4]
-		offset += 4
-		port := binary.LittleEndian.Uint16(data[offset : offset+2])
-		offset += 2
-		peer = &net.UDPAddr{IP: net.IP(ip), Port: int(port)}
-		log.Printf("Original IP and port: %s:%d", net.IP(ip), port)
+	if err != nil {
+		log.Printf("Error processing response through element chain: %v", err)
+		return data // Return original data on error
 	}
 
-	// serviceLen := binary.LittleEndian.Uint16(data[offset : offset+2])
-	// offset += 2
-	// if offset+serviceLen > uint16(len(data)) {
-	// 	log.Printf("Invalid packet: service length %d is too large", serviceLen)
-	// 	return data, nil
-	// }
-	// service := data[offset : offset+serviceLen]
-	// offset += serviceLen
-	// methodLen := binary.LittleEndian.Uint16(data[offset : offset+2])
-	// offset += 2
-	// if offset+methodLen > uint16(len(data)) {
-	// 	log.Printf("Invalid packet: method length %d is too large", methodLen)
-	// 	return data, nil
-	// }
-	// method := data[offset : offset+methodLen]
-	// offset += methodLen
-	// log.Printf("Service length: %d", serviceLen)
-	// log.Printf("Service: %s", service)
-	// log.Printf("Method length: %d", methodLen)
-	// log.Printf("Method: %s", method)
-
-	// // Extract payload
-	// payload := data[offset:]
-	// log.Printf("Payload length: %d", len(payload))
-	// log.Printf("Payload: %x", payload)
-
-	// if packetType == 1 {
-	// 	// find the index of string "bob"
-	// 	idx := bytes.Index(data, []byte("Bob"))
-	// 	log.Printf("Index of 'Bob': %d", idx)
-
-	// 	// replace string "Bob" with "Max" if found
-	// 	if idx != -1 && idx+3 <= len(data) {
-	// 		copy(data[idx:idx+3], []byte("Max"))
-	// 	}
-	// }
-
-	return data, peer
+	return data
 }
