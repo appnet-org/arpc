@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/binary"
 	"log"
 	"net"
@@ -104,17 +103,17 @@ func processPacket(data []byte) ([]byte, *net.UDPAddr) {
 
 	packetType := data[offset]
 	offset += 1
-	rpcId := data[offset : offset+8]
+	// rpcId := data[offset : offset+8]
 	offset += 8
-	totalPackets := binary.LittleEndian.Uint16(data[offset : offset+2])
+	// totalPackets := binary.LittleEndian.Uint16(data[offset : offset+2])
 	offset += 2
-	seqNumber := binary.LittleEndian.Uint16(data[offset : offset+2])
+	// seqNumber := binary.LittleEndian.Uint16(data[offset : offset+2])
 	offset += 2
 
-	log.Printf("Packet type: %d", packetType)
-	log.Printf("RPC ID: %x", rpcId)
-	log.Printf("Total packets: %d", totalPackets)
-	log.Printf("Sequence number: %d", seqNumber)
+	// log.Printf("Packet type: %d", packetType)
+	// log.Printf("RPC ID: %x", rpcId)
+	// log.Printf("Total packets: %d", totalPackets)
+	// log.Printf("Sequence number: %d", seqNumber)
 
 	var peer *net.UDPAddr = nil
 	if packetType == 1 {
@@ -126,42 +125,42 @@ func processPacket(data []byte) ([]byte, *net.UDPAddr) {
 		log.Printf("Original IP and port: %s:%d", net.IP(ip), port)
 	}
 
-	serviceLen := binary.LittleEndian.Uint16(data[offset : offset+2])
-	offset += 2
-	if offset+serviceLen > uint16(len(data)) {
-		log.Printf("Invalid packet: service length %d is too large", serviceLen)
-		return data, nil
-	}
-	service := data[offset : offset+serviceLen]
-	offset += serviceLen
-	methodLen := binary.LittleEndian.Uint16(data[offset : offset+2])
-	offset += 2
-	if offset+methodLen > uint16(len(data)) {
-		log.Printf("Invalid packet: method length %d is too large", methodLen)
-		return data, nil
-	}
-	method := data[offset : offset+methodLen]
-	offset += methodLen
-	log.Printf("Service length: %d", serviceLen)
-	log.Printf("Service: %s", service)
-	log.Printf("Method length: %d", methodLen)
-	log.Printf("Method: %s", method)
+	// serviceLen := binary.LittleEndian.Uint16(data[offset : offset+2])
+	// offset += 2
+	// if offset+serviceLen > uint16(len(data)) {
+	// 	log.Printf("Invalid packet: service length %d is too large", serviceLen)
+	// 	return data, nil
+	// }
+	// service := data[offset : offset+serviceLen]
+	// offset += serviceLen
+	// methodLen := binary.LittleEndian.Uint16(data[offset : offset+2])
+	// offset += 2
+	// if offset+methodLen > uint16(len(data)) {
+	// 	log.Printf("Invalid packet: method length %d is too large", methodLen)
+	// 	return data, nil
+	// }
+	// method := data[offset : offset+methodLen]
+	// offset += methodLen
+	// log.Printf("Service length: %d", serviceLen)
+	// log.Printf("Service: %s", service)
+	// log.Printf("Method length: %d", methodLen)
+	// log.Printf("Method: %s", method)
 
-	// Extract payload
-	payload := data[offset:]
-	log.Printf("Payload length: %d", len(payload))
-	log.Printf("Payload: %x", payload)
+	// // Extract payload
+	// payload := data[offset:]
+	// log.Printf("Payload length: %d", len(payload))
+	// log.Printf("Payload: %x", payload)
 
-	if packetType == 1 {
-		// find the index of string "bob"
-		idx := bytes.Index(data, []byte("Bob"))
-		log.Printf("Index of 'Bob': %d", idx)
+	// if packetType == 1 {
+	// 	// find the index of string "bob"
+	// 	idx := bytes.Index(data, []byte("Bob"))
+	// 	log.Printf("Index of 'Bob': %d", idx)
 
-		// replace string "Bob" with "Max" if found
-		if idx != -1 && idx+3 <= len(data) {
-			copy(data[idx:idx+3], []byte("Max"))
-		}
-	}
+	// 	// replace string "Bob" with "Max" if found
+	// 	if idx != -1 && idx+3 <= len(data) {
+	// 		copy(data[idx:idx+3], []byte("Max"))
+	// 	}
+	// }
 
 	return data, peer
 }
