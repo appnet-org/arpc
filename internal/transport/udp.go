@@ -13,16 +13,6 @@ import (
 	"github.com/appnet-org/arpc/internal/transport/balancer"
 )
 
-// PacketType is the type of packet. 0 is reserved for errors.
-type PacketType uint8
-
-const (
-	PacketTypeRequest  PacketType = 1
-	PacketTypeResponse PacketType = 2
-	PacketTypeAck      PacketType = 3
-	PacketTypeError    PacketType = 4
-)
-
 // Role indicates whether this is a client (caller) or server (callee)
 type Role string
 
@@ -157,7 +147,7 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 	}
 
 	// Fragment the data into multiple packets if it exceeds the UDP payload limit
-	packets, err := protocol.FragmentData(rpcID, processedData)
+	packets, err := protocol.FragmentData(processedData, rpcID, packetType)
 	if err != nil {
 		return err
 	}
@@ -190,42 +180,46 @@ func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, er
 	}
 
 	// Deserialize the received data into a structured packet format
-	pkt, packetType, err := protocol.DeserializePacket(buffer[:n])
+	pkt, packetType, err := protocol.DeserializePacketAny(buffer[:n])
 	if err != nil {
 		return nil, nil, 0, err
 	}
 
 	if packetType == protocol.PacketTypeAck {
-		t.elements.ProcessReceive(buffer[:n], pkt.RPCID, packetType, addr, t.conn)
-		return nil, addr, pkt.RPCID, nil
+		ackPkt := pkt.(*protocol.AckPacket)
+		t.elements.ProcessReceive(buffer[:n], ackPkt.RPCID, packetType, addr, t.conn)
+		return nil, addr, ackPkt.RPCID, nil
 	}
+
+	// Type assert to DataPacket for Request/Response packets
+	dataPkt := pkt.(*protocol.DataPacket)
 
 	// Lock to ensure thread-safe access to the incoming packet storage
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if _, exists := t.incoming[pkt.RPCID]; !exists {
-		t.incoming[pkt.RPCID] = make(map[uint16][]byte)
+	if _, exists := t.incoming[dataPkt.RPCID]; !exists {
+		t.incoming[dataPkt.RPCID] = make(map[uint16][]byte)
 	}
 
-	t.incoming[pkt.RPCID][pkt.SeqNumber] = pkt.Payload
+	t.incoming[dataPkt.RPCID][dataPkt.SeqNumber] = dataPkt.Payload
 
 	// If all fragments for this RPCID have been received, reassemble the full message
-	if len(t.incoming[pkt.RPCID]) == int(pkt.TotalPackets) {
+	if len(t.incoming[dataPkt.RPCID]) == int(dataPkt.TotalPackets) {
 		var fullMessage []byte
-		for i := uint16(0); i < pkt.TotalPackets; i++ {
-			fullMessage = append(fullMessage, t.incoming[pkt.RPCID][i]...)
+		for i := uint16(0); i < dataPkt.TotalPackets; i++ {
+			fullMessage = append(fullMessage, t.incoming[dataPkt.RPCID][i]...)
 		}
 
-		delete(t.incoming, pkt.RPCID)
+		delete(t.incoming, dataPkt.RPCID)
 
 		// Process received data through user-defined transport elements
-		processedData, err := t.elements.ProcessReceive(fullMessage, pkt.RPCID, packetType, addr, t.conn)
+		processedData, err := t.elements.ProcessReceive(fullMessage, dataPkt.RPCID, packetType, addr, t.conn)
 		if err != nil {
 			return nil, nil, 0, err
 		}
 
-		return processedData, addr, pkt.RPCID, nil
+		return processedData, addr, dataPkt.RPCID, nil
 	}
 
 	// If the message is incomplete, return nil to indicate more packets are needed

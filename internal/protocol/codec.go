@@ -3,97 +3,233 @@ package protocol
 import (
 	"bytes"
 	"encoding/binary"
-	"log"
+	"errors"
 )
 
 const MaxUDPPayloadSize = 1400 // Adjust based on MTU considerations
 
-// PacketType is the type of packet. 0 is reserved for errors.
-type PacketType uint8
+// DataPacketCodec implements DataPacket serialization for both Request and Response packets
+type DataPacketCodec struct{}
 
-const (
-	PacketTypeRequest  PacketType = 1
-	PacketTypeResponse PacketType = 2
-	PacketTypeAck      PacketType = 3
-	PacketTypeError    PacketType = 4
-)
-
-type Packet struct {
-	PacketType   PacketType
-	RPCID        uint64 // Unique RPC ID
-	TotalPackets uint16 // Total number of packets in this RPC
-	SeqNumber    uint16 // Sequence number of this packet
-	Payload      []byte // Partial application data
-}
-
-func writeToBuffer(buf *bytes.Buffer, data ...any) error {
-	for _, d := range data {
-		if err := binary.Write(buf, binary.LittleEndian, d); err != nil {
-			return err
-		}
+func (c *DataPacketCodec) Serialize(packet any) ([]byte, error) {
+	p, ok := packet.(*DataPacket)
+	if !ok {
+		return nil, errors.New("invalid packet type for DataPacket codec")
 	}
-	return nil
-}
 
-// SerializePacket encodes a RPC Packet into bytes
-func SerializePacket(pkt *Packet, packetType PacketType) ([]byte, error) {
 	buf := new(bytes.Buffer)
 
-	if err := writeToBuffer(buf, packetType, pkt.RPCID, pkt.TotalPackets, pkt.SeqNumber, pkt.Payload); err != nil {
+	// Write standard fields
+	if err := binary.Write(buf, binary.LittleEndian, p.PacketType); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(buf, binary.LittleEndian, p.RPCID); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(buf, binary.LittleEndian, p.TotalPackets); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(buf, binary.LittleEndian, p.SeqNumber); err != nil {
 		return nil, err
 	}
 
-	b := make([]byte, 8)
-	binary.LittleEndian.PutUint64(b, pkt.RPCID)
-	log.Printf("RPC ID bytes: %x", b)
+	// Write payload length and data
+	if err := binary.Write(buf, binary.LittleEndian, uint32(len(p.Payload))); err != nil {
+		return nil, err
+	}
+	if _, err := buf.Write(p.Payload); err != nil {
+		return nil, err
+	}
 
 	return buf.Bytes(), nil
 }
 
-// DeserializePacket decodes bytes into a Packet struct
-func DeserializePacket(data []byte) (*Packet, PacketType, error) {
+func (c *DataPacketCodec) Deserialize(data []byte) (any, error) {
 	buf := bytes.NewReader(data)
-	pkt := &Packet{}
 
-	if err := binary.Read(buf, binary.LittleEndian, &pkt.PacketType); err != nil {
-		return nil, 0, err
-	}
+	// Read into the DataPacket fields
+	p := DataPacket{}
 
-	// If the packet is an ACK, return it immediately
-	if pkt.PacketType == PacketTypeAck {
-		return pkt, pkt.PacketType, nil
+	// Read standard fields
+	if err := binary.Read(buf, binary.LittleEndian, &p.PacketType); err != nil {
+		return nil, err
 	}
-
-	if err := binary.Read(buf, binary.LittleEndian, &pkt.RPCID); err != nil {
-		return nil, 0, err
+	if err := binary.Read(buf, binary.LittleEndian, &p.RPCID); err != nil {
+		return nil, err
 	}
-	if err := binary.Read(buf, binary.LittleEndian, &pkt.TotalPackets); err != nil {
-		return nil, 0, err
+	if err := binary.Read(buf, binary.LittleEndian, &p.TotalPackets); err != nil {
+		return nil, err
 	}
-	if err := binary.Read(buf, binary.LittleEndian, &pkt.SeqNumber); err != nil {
-		return nil, 0, err
+	if err := binary.Read(buf, binary.LittleEndian, &p.SeqNumber); err != nil {
+		return nil, err
 	}
 
-	pkt.Payload = make([]byte, buf.Len())
-	if _, err := buf.Read(pkt.Payload); err != nil {
-		return nil, 0, err
+	// Read payload length and data
+	var payloadLen uint32
+	if err := binary.Read(buf, binary.LittleEndian, &payloadLen); err != nil {
+		return nil, err
 	}
 
-	return pkt, pkt.PacketType, nil
+	p.Payload = make([]byte, payloadLen)
+	if _, err := buf.Read(p.Payload); err != nil {
+		return nil, err
+	}
+
+	return p, nil
 }
 
-// FragmentData splits data into multiple UDP packets
-func FragmentData(rpcID uint64, data []byte) ([]*Packet, error) {
-	chunkSize := MaxUDPPayloadSize - 12                             // Subtract header size
-	totalPackets := uint16((len(data) + chunkSize - 1) / chunkSize) // Compute number of packets
-	var packets []*Packet
+func (c *DataPacketCodec) NewPacket() any {
+	// This method can't determine which type to create without context
+	// It's better to use the specific codecs for this purpose
+	panic("DataPacketCodec.NewPacket() should not be called directly")
+}
+
+// AckPacketCodec implements ACK packet serialization
+type AckPacketCodec struct{}
+
+func (c *AckPacketCodec) Serialize(packet any) ([]byte, error) {
+	p, ok := packet.(*AckPacket)
+	if !ok {
+		return nil, errors.New("invalid packet type for ACK codec")
+	}
+
+	buf := new(bytes.Buffer)
+
+	// Write only the two ACK fields
+	if err := binary.Write(buf, binary.LittleEndian, p.RPCID); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(buf, binary.LittleEndian, p.BytesAcked); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+func (c *AckPacketCodec) Deserialize(data []byte) (any, error) {
+	buf := bytes.NewReader(data)
+	pkt := &AckPacket{}
+
+	if err := binary.Read(buf, binary.LittleEndian, &pkt.RPCID); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &pkt.BytesAcked); err != nil {
+		return nil, err
+	}
+
+	return pkt, nil
+}
+
+func (c *AckPacketCodec) NewPacket() any {
+	return &AckPacket{}
+}
+
+// ErrorPacketCodec implements Error packet serialization
+type ErrorPacketCodec struct{}
+
+func (c *ErrorPacketCodec) Serialize(packet any) ([]byte, error) {
+	p, ok := packet.(*ErrorPacket)
+	if !ok {
+		return nil, errors.New("invalid packet type for Error codec")
+	}
+
+	buf := new(bytes.Buffer)
+
+	// Write RPC ID
+	if err := binary.Write(buf, binary.LittleEndian, p.RPCID); err != nil {
+		return nil, err
+	}
+
+	// Write error message length and string
+	msgBytes := []byte(p.ErrorMsg)
+	if err := binary.Write(buf, binary.LittleEndian, uint32(len(msgBytes))); err != nil {
+		return nil, err
+	}
+	if _, err := buf.Write(msgBytes); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+func (c *ErrorPacketCodec) Deserialize(data []byte) (any, error) {
+	buf := bytes.NewReader(data)
+	pkt := &ErrorPacket{}
+
+	// Read RPC ID
+	if err := binary.Read(buf, binary.LittleEndian, &pkt.RPCID); err != nil {
+		return nil, err
+	}
+
+	// Read error message length and string
+	var msgLen uint32
+	if err := binary.Read(buf, binary.LittleEndian, &msgLen); err != nil {
+		return nil, err
+	}
+
+	msgBytes := make([]byte, msgLen)
+	if _, err := buf.Read(msgBytes); err != nil {
+		return nil, err
+	}
+	pkt.ErrorMsg = string(msgBytes)
+
+	return pkt, nil
+}
+
+func (c *ErrorPacketCodec) NewPacket() any {
+	return &ErrorPacket{}
+}
+
+// Generic packet serialization/deserialization functions
+func SerializePacket(packet any, packetType PacketType) ([]byte, error) {
+	registry := DefaultRegistry
+	codec, exists := registry.GetCodec(packetType)
+	if !exists {
+		return nil, ErrCodecNotFound
+	}
+
+	return codec.Serialize(packet)
+}
+
+// DeserializePacketAny deserializes a packet by first reading its type from the data
+// and then using the appropriate codec
+func DeserializePacketAny(data []byte) (any, PacketType, error) {
+	if len(data) < 1 {
+		return nil, 0, errors.New("data too short to read packet type")
+	}
+
+	// Packet type (uint8) is the first byte of the data
+	packetType := PacketType(data[0])
+
+	// Get the appropriate codec for this packet type
+	registry := DefaultRegistry
+	codec, exists := registry.GetCodec(packetType)
+	if !exists {
+		return nil, packetType, ErrCodecNotFound
+	}
+
+	// Deserialize using the codec
+	packet, err := codec.Deserialize(data)
+	if err != nil {
+		return nil, packetType, err
+	}
+
+	return packet, packetType, nil
+}
+
+// FragmentData splits data into multiple packets for Data (Request/Response) packets
+func FragmentData(data []byte, rpcID uint64, packetType PacketType) ([]*DataPacket, error) {
+	chunkSize := MaxUDPPayloadSize - 20 // Subtract header size (4+8+2+2+4)
+	totalPackets := uint16((len(data) + chunkSize - 1) / chunkSize)
+	var packets []*DataPacket
 
 	for i := range int(totalPackets) {
 		start := i * chunkSize
 		end := min(start+chunkSize, len(data))
 
 		// Create a packet for the current chunk
-		pkt := &Packet{
+		pkt := &DataPacket{
+			PacketType:   packetType,
 			RPCID:        rpcID,
 			TotalPackets: totalPackets,
 			SeqNumber:    uint16(i),

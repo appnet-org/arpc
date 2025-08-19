@@ -1,6 +1,6 @@
 # Transport Elements
 
-The ARPC transport layer uses a modular element-based architecture that allows for flexible composition of transport functionality. Transport elements can be chained together to add features like logging, reliability, encryption, or custom processing to the underlying UDP transport.
+The aRPC transport layer uses a modular element-based architecture that allows for flexible composition of transport functionality. Transport elements can be chained together to add features like logging, reliability, encryption, or custom processing to the underlying UDP transport.
 
 ## Overview
 
