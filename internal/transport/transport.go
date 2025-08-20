@@ -20,9 +20,10 @@ func GenerateRPCID() uint64 {
 
 type UDPTransport struct {
 	conn     *net.UDPConn
-	incoming map[uint64]map[uint16][]byte // Buffer for reassembling messages
-	mu       sync.Mutex                   // Ensures thread safety
-	resolver *balancer.Resolver           // Add resolver field
+	incoming map[uint64]map[uint16][]byte
+	mu       sync.Mutex
+	resolver *balancer.Resolver
+	handlers *HandlerRegistry // Add handler registry
 }
 
 func NewUDPTransport(address string) (*UDPTransport, error) {
@@ -41,11 +42,17 @@ func NewUDPTransportWithBalancer(address string, resolver *balancer.Resolver) (*
 		return nil, err
 	}
 
-	return &UDPTransport{
+	transport := &UDPTransport{
 		conn:     conn,
 		incoming: make(map[uint64]map[uint16][]byte),
 		resolver: resolver,
-	}, nil
+		handlers: nil, // Will be set after transport is created
+	}
+
+	// Set handlers after transport is fully constructed
+	transport.handlers = NewHandlerRegistry(transport)
+
+	return transport, nil
 }
 
 // ResolveUDPTarget resolves a UDP address string that may be an IP, FQDN, or empty.
@@ -115,73 +122,13 @@ func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, er
 		return nil, nil, 0, err
 	}
 
-	// Handle different packet types with their specific handlers
-	switch packetType {
-	case protocol.PacketTypeAck:
-		return t.handleAckPacket(pkt, addr)
-	case protocol.PacketTypeRequest:
-		return t.handleRequestPacket(pkt, addr)
-	case protocol.PacketTypeResponse:
-		return t.handleResponsePacket(pkt, addr)
-	case protocol.PacketTypeError:
-		return t.handleErrorPacket(pkt, addr)
-	default:
-		return nil, nil, 0, fmt.Errorf("unknown packet type: %d", packetType)
-	}
-}
-
-// handleAckPacket handles acknowledgment packets
-func (t *UDPTransport) handleAckPacket(pkt any, addr *net.UDPAddr) ([]byte, *net.UDPAddr, uint64, error) {
-	ackPkt := pkt.(*protocol.AckPacket)
-	return nil, addr, ackPkt.RPCID, nil
-}
-
-// handleRequestPacket handles request packets
-func (t *UDPTransport) handleRequestPacket(pkt any, addr *net.UDPAddr) ([]byte, *net.UDPAddr, uint64, error) {
-	return t.handleDataPacket(pkt, addr)
-}
-
-// handleResponsePacket handles response packets
-func (t *UDPTransport) handleResponsePacket(pkt any, addr *net.UDPAddr) ([]byte, *net.UDPAddr, uint64, error) {
-	return t.handleDataPacket(pkt, addr)
-}
-
-// handleErrorPacket handles error packets
-func (t *UDPTransport) handleErrorPacket(pkt any, addr *net.UDPAddr) ([]byte, *net.UDPAddr, uint64, error) {
-	errorPkt := pkt.(*protocol.ErrorPacket)
-	log.Printf("Received error packet for RPC %d: %s", errorPkt.RPCID, errorPkt.ErrorMsg)
-	return nil, addr, errorPkt.RPCID, nil
-}
-
-// handleDataPacket handles both request and response data packets
-func (t *UDPTransport) handleDataPacket(pkt any, addr *net.UDPAddr) ([]byte, *net.UDPAddr, uint64, error) {
-	// Type assert to DataPacket for Request/Response packets
-	dataPkt := pkt.(protocol.DataPacket)
-
-	// Lock to ensure thread-safe access to the incoming packet storage
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if _, exists := t.incoming[dataPkt.RPCID]; !exists {
-		t.incoming[dataPkt.RPCID] = make(map[uint16][]byte)
+	// Use the handler registry instead of hardcoded switch
+	handler, exists := t.handlers.GetHandler(packetType)
+	if !exists {
+		return nil, nil, 0, fmt.Errorf("no handler found for packet type: %d", packetType)
 	}
 
-	t.incoming[dataPkt.RPCID][dataPkt.SeqNumber] = dataPkt.Payload
-
-	// If all fragments for this RPCID have been received, reassemble the full message
-	if len(t.incoming[dataPkt.RPCID]) == int(dataPkt.TotalPackets) {
-		var fullMessage []byte
-		for i := uint16(0); i < dataPkt.TotalPackets; i++ {
-			fullMessage = append(fullMessage, t.incoming[dataPkt.RPCID][i]...)
-		}
-
-		delete(t.incoming, dataPkt.RPCID)
-
-		return fullMessage, addr, dataPkt.RPCID, nil
-	}
-
-	// If the message is incomplete, return nil to indicate more packets are needed
-	return nil, nil, 0, nil
+	return handler.Handle(pkt, addr)
 }
 
 func (t *UDPTransport) Close() error {

@@ -84,46 +84,6 @@ func (c *DataPacketCodec) NewPacket() any {
 	panic("DataPacketCodec.NewPacket() should not be called directly")
 }
 
-// AckPacketCodec implements ACK packet serialization
-type AckPacketCodec struct{}
-
-func (c *AckPacketCodec) Serialize(packet any) ([]byte, error) {
-	p, ok := packet.(*AckPacket)
-	if !ok {
-		return nil, errors.New("invalid packet type for ACK codec")
-	}
-
-	buf := new(bytes.Buffer)
-
-	// Write only the two ACK fields
-	if err := binary.Write(buf, binary.LittleEndian, p.RPCID); err != nil {
-		return nil, err
-	}
-	if err := binary.Write(buf, binary.LittleEndian, p.BytesAcked); err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
-}
-
-func (c *AckPacketCodec) Deserialize(data []byte) (any, error) {
-	buf := bytes.NewReader(data)
-	pkt := &AckPacket{}
-
-	if err := binary.Read(buf, binary.LittleEndian, &pkt.RPCID); err != nil {
-		return nil, err
-	}
-	if err := binary.Read(buf, binary.LittleEndian, &pkt.BytesAcked); err != nil {
-		return nil, err
-	}
-
-	return pkt, nil
-}
-
-func (c *AckPacketCodec) NewPacket() any {
-	return &AckPacket{}
-}
-
 // ErrorPacketCodec implements Error packet serialization
 type ErrorPacketCodec struct{}
 

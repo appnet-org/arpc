@@ -10,8 +10,7 @@ type PacketType uint8
 const (
 	PacketTypeRequest  PacketType = 1
 	PacketTypeResponse PacketType = 2
-	PacketTypeAck      PacketType = 3
-	PacketTypeError    PacketType = 4
+	PacketTypeError    PacketType = 3
 )
 
 // DataPacket represents the common structure for Request and Response packets
@@ -100,7 +99,6 @@ var DefaultRegistry = func() *PacketRegistry {
 	// Register default packet types with their codecs
 	pr.RegisterPacketType(PacketTypeRequest, &DataPacketCodec{})
 	pr.RegisterPacketType(PacketTypeResponse, &DataPacketCodec{})
-	pr.RegisterPacketType(PacketTypeAck, &AckPacketCodec{})
 	pr.RegisterPacketType(PacketTypeError, &ErrorPacketCodec{})
 
 	return pr
