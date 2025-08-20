@@ -111,7 +111,7 @@ func (s *Server) Start() {
 	log.Println("Server started... Waiting for messages.")
 
 	for {
-		// Receive a message from a client
+		// Receive a packet from a client
 		data, addr, rpcID, err := s.transport.Receive(protocol.MaxUDPPayloadSize)
 		if err != nil {
 			log.Println("Error receiving data:", err)
@@ -119,7 +119,7 @@ func (s *Server) Start() {
 		}
 
 		if data == nil {
-			continue // Still waiting for fragments
+			continue // Either still waiting for fragments or we received an non-data packet
 		}
 
 		// Parse request payload

@@ -8,35 +8,41 @@ import (
 
 // PacketHandler defines the interface for handling specific packet types
 type PacketHandler interface {
-	Handle(pkt any, addr *net.UDPAddr) ([]byte, *net.UDPAddr, uint64, error)
+	OnReceive(pkt any, addr *net.UDPAddr) error
+	OnSend(pkt any, addr *net.UDPAddr) error
 }
 
 // HandlerRegistry manages packet handlers for different packet types
 type HandlerRegistry struct {
-	handlers map[protocol.PacketType]PacketHandler
+	handlers map[protocol.PacketType]*HandlerChain
 }
 
 // NewHandlerRegistry creates a new handler registry with default handlers
 func NewHandlerRegistry(transport *UDPTransport) *HandlerRegistry {
 	registry := &HandlerRegistry{
-		handlers: make(map[protocol.PacketType]PacketHandler),
+		handlers: make(map[protocol.PacketType]*HandlerChain),
 	}
 
-	// Register default handlers with the transport
-	registry.RegisterHandler(protocol.PacketTypeRequest, NewDefaultRequestHandler(NewDefaultDataHandler(transport)))
-	registry.RegisterHandler(protocol.PacketTypeResponse, NewDefaultResponseHandler(NewDefaultDataHandler(transport)))
-	registry.RegisterHandler(protocol.PacketTypeError, &DefaultErrorHandler{})
+	// Create default handler chains (by default, we don't have any handlers registered.)
+	requestChain := NewHandlerChain("RequestHandlerChain")
+	responseChain := NewHandlerChain("ResponseHandlerChain")
+	errorChain := NewHandlerChain("ErrorHandlerChain")
+
+	// Register default handler chains
+	registry.RegisterHandlerChain(protocol.PacketTypeRequest, requestChain)
+	registry.RegisterHandlerChain(protocol.PacketTypeResponse, responseChain)
+	registry.RegisterHandlerChain(protocol.PacketTypeError, errorChain)
 
 	return registry
 }
 
-// RegisterHandler registers a new packet handler
-func (hr *HandlerRegistry) RegisterHandler(packetType protocol.PacketType, handler PacketHandler) {
-	hr.handlers[packetType] = handler
+// RegisterHandlerChain registers a handler chain for a packet type
+func (hr *HandlerRegistry) RegisterHandlerChain(packetType protocol.PacketType, chain *HandlerChain) {
+	hr.handlers[packetType] = chain
 }
 
-// GetHandler retrieves the handler for a specific packet type
-func (hr *HandlerRegistry) GetHandler(packetType protocol.PacketType) (PacketHandler, bool) {
-	handler, exists := hr.handlers[packetType]
-	return handler, exists
+// GetHandlerChain is an alias for GetHandler for clarity
+func (hr *HandlerRegistry) GetHandlerChain(packetType protocol.PacketType) (*HandlerChain, bool) {
+	chain, exists := hr.handlers[packetType]
+	return chain, exists
 }

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"time"
 
 	"github.com/appnet-org/arpc/internal/protocol"
 	"github.com/appnet-org/arpc/internal/transport"
@@ -156,10 +155,12 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		if err != nil {
 			return fmt.Errorf("failed to receive response: %w", err)
 		}
+
+		// TODO(XZ): Handler error packets
 		if data == nil {
-			time.Sleep(10 * time.Millisecond)
-			continue // waiting for complete response
+			continue // Either still waiting for fragments or we received an non-data packet
 		}
+
 		if respID != rpcReq.ID {
 			log.Printf("Ignoring response with mismatched RPC ID: %d (expected %d)", respID, rpcReq.ID)
 			continue

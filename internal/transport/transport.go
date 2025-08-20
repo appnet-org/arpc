@@ -6,7 +6,6 @@ import (
 	"log"
 	"math/rand"
 	"net"
-	"sync"
 	"time"
 
 	"github.com/appnet-org/arpc/internal/protocol"
@@ -19,11 +18,10 @@ func GenerateRPCID() uint64 {
 }
 
 type UDPTransport struct {
-	conn     *net.UDPConn
-	incoming map[uint64]map[uint16][]byte
-	mu       sync.Mutex
-	resolver *balancer.Resolver
-	handlers *HandlerRegistry // Add handler registry
+	conn        *net.UDPConn
+	reassembler *DataReassembler
+	resolver    *balancer.Resolver
+	handlers    *HandlerRegistry
 }
 
 func NewUDPTransport(address string) (*UDPTransport, error) {
@@ -43,10 +41,10 @@ func NewUDPTransportWithBalancer(address string, resolver *balancer.Resolver) (*
 	}
 
 	transport := &UDPTransport{
-		conn:     conn,
-		incoming: make(map[uint64]map[uint16][]byte),
-		resolver: resolver,
-		handlers: nil, // Will be set after transport is created
+		conn:        conn,
+		reassembler: NewDataReassembler(),
+		resolver:    resolver,
+		handlers:    nil, // Will be set after transport is created
 	}
 
 	// Set handlers after transport is fully constructed
@@ -85,7 +83,7 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 	}
 
 	// Fragment the data into multiple packets if it exceeds the UDP payload limit
-	packets, err := protocol.FragmentData(data, rpcID, packetType)
+	packets, err := t.reassembler.FragmentData(data, rpcID, packetType)
 	if err != nil {
 		return err
 	}
@@ -122,13 +120,34 @@ func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, er
 		return nil, nil, 0, err
 	}
 
-	// Use the handler registry instead of hardcoded switch
-	handler, exists := t.handlers.GetHandler(packetType)
+	// Use the handler registry to process the packet
+	handler, exists := t.handlers.GetHandlerChain(packetType)
 	if !exists {
-		return nil, nil, 0, fmt.Errorf("no handler found for packet type: %d", packetType)
+		return nil, nil, 0, fmt.Errorf("no handler chain found for packet type: %d", packetType)
 	}
 
-	return handler.Handle(pkt, addr)
+	// Process the packet through handlers first (handlers don't return data anymore)
+	if err := handler.OnReceive(pkt, addr); err != nil {
+		return nil, nil, 0, fmt.Errorf("handler processing failed: %w", err)
+	}
+
+	// After handler processing, handle packet reassembly if this is a data packet
+	if _, ok := pkt.(protocol.DataPacket); ok {
+		// Process fragment through reassembly layer
+		fullMessage, reassembledAddr, reassembledRPCID, isComplete := t.reassembler.ProcessFragment(pkt, addr)
+
+		if isComplete {
+			// Message is complete, return the reassembled data
+			return fullMessage, reassembledAddr, reassembledRPCID, nil
+		} else {
+			// Still waiting for more fragments
+			return nil, nil, 0, nil
+		}
+	}
+
+	// If we get here, it's either anon-data packet or an unknown packet type
+	// TODO: Signal error on unknown packet type
+	return nil, nil, 0, nil
 }
 
 func (t *UDPTransport) Close() error {

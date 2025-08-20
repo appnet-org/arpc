@@ -176,27 +176,3 @@ func DeserializePacketAny(data []byte) (any, PacketType, error) {
 
 	return packet, packetType, nil
 }
-
-// FragmentData splits data into multiple packets for Data (Request/Response) packets
-func FragmentData(data []byte, rpcID uint64, packetType PacketType) ([]*DataPacket, error) {
-	chunkSize := MaxUDPPayloadSize - 20 // Subtract header size (4+8+2+2+4)
-	totalPackets := uint16((len(data) + chunkSize - 1) / chunkSize)
-	var packets []*DataPacket
-
-	for i := range int(totalPackets) {
-		start := i * chunkSize
-		end := min(start+chunkSize, len(data))
-
-		// Create a packet for the current chunk
-		pkt := &DataPacket{
-			PacketType:   packetType,
-			RPCID:        rpcID,
-			TotalPackets: totalPackets,
-			SeqNumber:    uint16(i),
-			Payload:      data[start:end],
-		}
-		packets = append(packets, pkt)
-	}
-
-	return packets, nil
-}
