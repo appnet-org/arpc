@@ -102,7 +102,6 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 }
 
 func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, error) {
-
 	// Read data from the UDP connection into the buffer
 	buffer := make([]byte, bufferSize)
 	n, addr, err := t.conn.ReadFromUDP(buffer)
@@ -116,11 +115,46 @@ func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, er
 		return nil, nil, 0, err
 	}
 
-	if packetType == protocol.PacketTypeAck {
-		ackPkt := pkt.(*protocol.AckPacket)
-		return nil, addr, ackPkt.RPCID, nil
+	// Handle different packet types with their specific handlers
+	switch packetType {
+	case protocol.PacketTypeAck:
+		return t.handleAckPacket(pkt, addr)
+	case protocol.PacketTypeRequest:
+		return t.handleRequestPacket(pkt, addr)
+	case protocol.PacketTypeResponse:
+		return t.handleResponsePacket(pkt, addr)
+	case protocol.PacketTypeError:
+		return t.handleErrorPacket(pkt, addr)
+	default:
+		return nil, nil, 0, fmt.Errorf("unknown packet type: %d", packetType)
 	}
+}
 
+// handleAckPacket handles acknowledgment packets
+func (t *UDPTransport) handleAckPacket(pkt any, addr *net.UDPAddr) ([]byte, *net.UDPAddr, uint64, error) {
+	ackPkt := pkt.(*protocol.AckPacket)
+	return nil, addr, ackPkt.RPCID, nil
+}
+
+// handleRequestPacket handles request packets
+func (t *UDPTransport) handleRequestPacket(pkt any, addr *net.UDPAddr) ([]byte, *net.UDPAddr, uint64, error) {
+	return t.handleDataPacket(pkt, addr)
+}
+
+// handleResponsePacket handles response packets
+func (t *UDPTransport) handleResponsePacket(pkt any, addr *net.UDPAddr) ([]byte, *net.UDPAddr, uint64, error) {
+	return t.handleDataPacket(pkt, addr)
+}
+
+// handleErrorPacket handles error packets
+func (t *UDPTransport) handleErrorPacket(pkt any, addr *net.UDPAddr) ([]byte, *net.UDPAddr, uint64, error) {
+	errorPkt := pkt.(*protocol.ErrorPacket)
+	log.Printf("Received error packet for RPC %d: %s", errorPkt.RPCID, errorPkt.ErrorMsg)
+	return nil, addr, errorPkt.RPCID, nil
+}
+
+// handleDataPacket handles both request and response data packets
+func (t *UDPTransport) handleDataPacket(pkt any, addr *net.UDPAddr) ([]byte, *net.UDPAddr, uint64, error) {
 	// Type assert to DataPacket for Request/Response packets
 	dataPkt := pkt.(protocol.DataPacket)
 
