@@ -37,8 +37,8 @@ type Server struct {
 }
 
 // NewServer initializes a new Server instance with the given address and serializer.
-func NewServer(addr string, serializer serializer.Serializer, transportElements []transport.TransportElement, rpcElements []element.RPCElement) (*Server, error) {
-	udpTransport, err := transport.NewUDPTransport(addr, transportElements...)
+func NewServer(addr string, serializer serializer.Serializer, rpcElements []element.RPCElement) (*Server, error) {
+	udpTransport, err := transport.NewUDPTransport(addr)
 	if err != nil {
 		return nil, err
 	}

@@ -28,7 +28,7 @@ func (s *echoServer) Echo(ctx context.Context, req *echo.EchoRequest) (*echo.Ech
 
 func main() {
 	serializer := &serializer.SymphonySerializer{}
-	server, err := rpc.NewServer(":11000", serializer, nil, nil)
+	server, err := rpc.NewServer(":11000", serializer, nil)
 	if err != nil {
 		log.Fatal("Failed to start server:", err)
 	}

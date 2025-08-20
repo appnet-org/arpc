@@ -5,11 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 
 	echo "github.com/appnet-org/arpc/examples/echo_capnp/capnp"
-	"github.com/appnet-org/arpc/internal/transport"
-	"github.com/appnet-org/arpc/internal/transport/elements"
 	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/rpc"
 	"github.com/appnet-org/arpc/pkg/rpc/element"
@@ -57,12 +54,6 @@ func main() {
 	// Create RPC client with capnp serializer
 	serializer := &serializer.CapnpSerializer{}
 
-	// Create transport elements
-	transportElements := []transport.TransportElement{
-		elements.NewLoggingElement(transport.RoleClient, log.New(os.Stdout, "aRPC: ", log.LstdFlags)),
-		// elements.NewReliabilityElement(transport.RoleClient, 3, 10*time.Second),
-	}
-
 	// Create metrics element
 	metrics := NewMetricsElement()
 
@@ -73,7 +64,7 @@ func main() {
 
 	// Create client with both transport and RPC elements
 	// TODO (user): change to your server's address fully qualified domain name
-	client, err := rpc.NewClient(serializer, "server.default.svc.cluster.local:9000", transportElements, rpcElements)
+	client, err := rpc.NewClient(serializer, "server.default.svc.cluster.local:9000", rpcElements)
 	if err != nil {
 		log.Fatal("Failed to create RPC client:", err)
 	}

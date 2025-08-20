@@ -25,20 +25,19 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := echoClient.Echo(context.Background(), req)
 
-	log.Printf("RPC response: %s\n", resp.Username)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("RPC call failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("RPC response: %s\n", resp.Content)
+	log.Printf("Got RPC response: %s\n", resp.Content)
 	fmt.Fprintf(w, "Response from RPC: %s\n", resp.Content)
 }
 
 func main() {
 	// Create RPC client
 	serializer := &serializer.SymphonySerializer{}
-	client, err := rpc.NewClient(serializer, "128.110.219.38:11000", nil, nil) // TODO: change to your server's address fully qualified domain name
+	client, err := rpc.NewClient(serializer, "server.default.svc.cluster.local:11000", nil) // TODO: change to your server's address fully qualified domain name
 	if err != nil {
 		log.Fatal("Failed to create RPC client:", err)
 	}
