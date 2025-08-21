@@ -111,6 +111,52 @@ func parseFramedResponse(data []byte) (service string, method string, payload []
 	return service, method, payload, nil
 }
 
+func (c *Client) handleErrorPacket(ctx context.Context, errorMsg string) error {
+	// Create error response for RPC element processing
+	rpcResp := &element.RPCResponse{
+		Result: nil,
+		Error:  fmt.Errorf("server error: %s", errorMsg),
+	}
+
+	// Process error response through RPC elements
+	rpcResp, err := c.rpcElementChain.ProcessResponse(ctx, rpcResp)
+	if err != nil {
+		return err
+	}
+
+	// Return the processed error
+	return rpcResp.Error
+}
+
+func (c *Client) handleResponsePacket(ctx context.Context, data []byte, rpcID uint64, resp any) error {
+	// Parse framed response: extract service, method, payload
+	_, _, respPayloadBytes, err := parseFramedResponse(data)
+	if err != nil {
+		return fmt.Errorf("failed to parse framed response: %w", err)
+	}
+
+	// Deserialize the response into resp
+	if err := c.serializer.Unmarshal(respPayloadBytes, resp); err != nil {
+		return fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	log.Printf("Successfully received response for RPC ID %d\n", rpcID)
+
+	// Create response for RPC element processing
+	rpcResp := &element.RPCResponse{
+		Result: resp,
+		Error:  nil,
+	}
+
+	// Process response through RPC elements
+	rpcResp, err = c.rpcElementChain.ProcessResponse(ctx, rpcResp)
+	if err != nil {
+		return err
+	}
+
+	return rpcResp.Error
+}
+
 // Call makes an RPC call with RPC element processing
 func (c *Client) Call(ctx context.Context, service, method string, req any, resp any) error {
 
@@ -151,14 +197,13 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 
 	// Wait and process the response
 	for {
-		data, _, respID, err := c.transport.Receive(protocol.MaxUDPPayloadSize)
+		data, _, respID, packetType, err := c.transport.Receive(protocol.MaxUDPPayloadSize)
 		if err != nil {
 			return fmt.Errorf("failed to receive response: %w", err)
 		}
 
-		// TODO(XZ): Handler error packets
 		if data == nil {
-			continue // Either still waiting for fragments or we received an non-data packet
+			continue // Either still waiting for fragments or we received an non-data/error packet
 		}
 
 		if respID != rpcReq.ID {
@@ -166,31 +211,15 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 			continue
 		}
 
-		// Parse framed response: extract service, method, payload
-		_, _, respPayloadBytes, err := parseFramedResponse(data)
-		if err != nil {
-			return fmt.Errorf("failed to parse framed response: %w", err)
+		// Process the packet based on its type
+		switch packetType {
+		case protocol.PacketTypeResponse:
+			return c.handleResponsePacket(ctx, data, respID, resp)
+		case protocol.PacketTypeError:
+			return c.handleErrorPacket(ctx, string(data))
+		default:
+			log.Printf("Ignoring packet with unknown type: %d", packetType)
+			continue
 		}
-
-		// Deserialize the response into resp
-		if err := c.serializer.Unmarshal(respPayloadBytes, resp); err != nil {
-			return fmt.Errorf("failed to unmarshal response: %w", err)
-		}
-
-		log.Printf("Successfully received response for RPC ID %d\n", rpcReq.ID)
-
-		// Create response for RPC element processing
-		rpcResp := &element.RPCResponse{
-			Result: resp,
-			Error:  nil,
-		}
-
-		// Process response through RPC elements
-		rpcResp, err = c.rpcElementChain.ProcessResponse(ctx, rpcResp)
-		if err != nil {
-			return err
-		}
-
-		return rpcResp.Error
 	}
 }

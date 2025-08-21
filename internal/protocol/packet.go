@@ -8,6 +8,7 @@ import (
 type PacketType uint8
 
 const (
+	PacketTypeUnknown  PacketType = 0
 	PacketTypeRequest  PacketType = 1
 	PacketTypeResponse PacketType = 2
 	PacketTypeError    PacketType = 3

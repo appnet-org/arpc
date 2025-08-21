@@ -112,7 +112,7 @@ func (s *Server) Start() {
 
 	for {
 		// Receive a packet from a client
-		data, addr, rpcID, err := s.transport.Receive(protocol.MaxUDPPayloadSize)
+		data, addr, rpcID, _, err := s.transport.Receive(protocol.MaxUDPPayloadSize)
 		if err != nil {
 			log.Println("Error receiving data:", err)
 			continue
