@@ -22,7 +22,7 @@ func NewDataReassembler() *DataReassembler {
 
 // ProcessFragment processes a single data packet fragment and returns the reassembled message if complete
 func (r *DataReassembler) ProcessFragment(pkt any, addr *net.UDPAddr) ([]byte, *net.UDPAddr, uint64, bool) {
-	dataPkt := pkt.(protocol.DataPacket)
+	dataPkt := pkt.(*protocol.DataPacket)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -65,7 +65,7 @@ func (r *DataReassembler) FragmentData(data []byte, rpcID uint64, packetType pro
 
 		// Create a packet for the current chunk
 		pkt := &protocol.DataPacket{
-			PacketType:   packetType,
+			PacketTypeID: packetType.ID,
 			RPCID:        rpcID,
 			TotalPackets: totalPackets,
 			SeqNumber:    uint16(i),

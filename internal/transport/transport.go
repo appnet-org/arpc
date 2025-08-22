@@ -121,30 +121,31 @@ func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, pr
 	}
 
 	// Use the handler registry to process the packet
-	handler, exists := t.handlers.GetHandlerChain(packetType)
+	handler, exists := t.handlers.GetHandlerChain(packetType.ID)
 	if !exists {
-		return nil, nil, 0, packetType, fmt.Errorf("no handler chain found for packet type: %d", packetType)
+		return nil, nil, 0, packetType, fmt.Errorf("no handler chain found for packet type: %s", packetType.Name)
 	}
 
-	// Process the packet through handlers first (handlers don't return data anymore)
+	// Process the packet through its handlers first
 	if err := handler.OnReceive(pkt, addr); err != nil {
 		return nil, nil, 0, packetType, fmt.Errorf("handler processing failed: %w", err)
 	}
 
 	// Handle different packet types based on their nature
 	switch p := pkt.(type) {
-	case protocol.DataPacket:
+	case *protocol.DataPacket:
 		return t.ReassembleDataPacket(p, addr, packetType)
 	case *protocol.ErrorPacket:
 		return []byte(p.ErrorMsg), addr, p.RPCID, packetType, nil
 	default:
 		// Unknown packet type - return early with no data
+		log.Printf("Unknown packet type: %s", packetType.Name)
 		return nil, nil, 0, packetType, nil
 	}
 }
 
 // ReassembleDataPacket processes data packets through the reassembly layer
-func (t *UDPTransport) ReassembleDataPacket(pkt protocol.DataPacket, addr *net.UDPAddr, packetType protocol.PacketType) ([]byte, *net.UDPAddr, uint64, protocol.PacketType, error) {
+func (t *UDPTransport) ReassembleDataPacket(pkt *protocol.DataPacket, addr *net.UDPAddr, packetType protocol.PacketType) ([]byte, *net.UDPAddr, uint64, protocol.PacketType, error) {
 	// Process fragment through reassembly layer
 	fullMessage, reassembledAddr, reassembledRPCID, isComplete := t.reassembler.ProcessFragment(pkt, addr)
 

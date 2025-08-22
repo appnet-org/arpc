@@ -67,7 +67,7 @@ func (hc *HandlerChain) Name() string {
 
 // OnReceive executes all handlers in the chain in sequence for receiving packets
 func (hc *HandlerChain) OnReceive(pkt any, addr *net.UDPAddr) error {
-	log.Printf("Executing receive handler chain %s", hc.name)
+	log.Printf("Executing on_receive handler chain %s", hc.name)
 
 	// Execute handlers in sequence
 	for i, handler := range hc.handlers {
@@ -81,7 +81,7 @@ func (hc *HandlerChain) OnReceive(pkt any, addr *net.UDPAddr) error {
 
 // OnSend executes all handlers in the chain in sequence for sending packets
 func (hc *HandlerChain) OnSend(pkt any, addr *net.UDPAddr) error {
-	log.Printf("Executing send handler chain %s", hc.name)
+	log.Printf("Executing on_send handler chain %s", hc.name)
 
 	// Execute handlers in sequence
 	for i, handler := range hc.handlers {
