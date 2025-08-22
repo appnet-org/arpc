@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 
-	"github.com/appnet-org/arpc/internal/protocol"
+	"github.com/appnet-org/arpc/internal/packet"
 )
 
 // ACKPacket represents an acknowledgment packet
@@ -88,4 +88,4 @@ func (c *ACKPacketCodec) Deserialize(data []byte) (any, error) {
 	return pkt, nil
 }
 
-var _ protocol.PacketCodec = (*ACKPacketCodec)(nil)
+var _ packet.PacketCodec = (*ACKPacketCodec)(nil)

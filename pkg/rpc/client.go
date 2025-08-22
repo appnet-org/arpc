@@ -8,7 +8,7 @@ import (
 	"log"
 	"net"
 
-	"github.com/appnet-org/arpc/internal/protocol"
+	"github.com/appnet-org/arpc/internal/packet"
 	"github.com/appnet-org/arpc/internal/transport"
 	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/rpc/element"
@@ -191,13 +191,13 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 	}
 
 	// Send the framed request
-	if err := c.transport.Send(c.defaultAddr, rpcReq.ID, framedReq, protocol.PacketTypeRequest); err != nil {
+	if err := c.transport.Send(c.defaultAddr, rpcReq.ID, framedReq, packet.PacketTypeRequest); err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 
 	// Wait and process the response
 	for {
-		data, _, respID, packetType, err := c.transport.Receive(protocol.MaxUDPPayloadSize)
+		data, _, respID, packetType, err := c.transport.Receive(packet.MaxUDPPayloadSize)
 		if err != nil {
 			return fmt.Errorf("failed to receive response: %w", err)
 		}
@@ -213,9 +213,9 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 
 		// Process the packet based on its type
 		switch packetType {
-		case protocol.PacketTypeResponse:
+		case packet.PacketTypeResponse:
 			return c.handleResponsePacket(ctx, data, respID, resp)
-		case protocol.PacketTypeError:
+		case packet.PacketTypeError:
 			return c.handleErrorPacket(ctx, string(data))
 		default:
 			log.Printf("Ignoring packet with unknown type: %d", packetType)

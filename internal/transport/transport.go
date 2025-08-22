@@ -8,7 +8,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/appnet-org/arpc/internal/protocol"
+	"github.com/appnet-org/arpc/internal/packet"
 	"github.com/appnet-org/arpc/internal/transport/balancer"
 )
 
@@ -61,7 +61,7 @@ func ResolveUDPTarget(addr string) (*net.UDPAddr, error) {
 	return balancer.DefaultResolver().ResolveUDPTarget(addr)
 }
 
-func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType protocol.PacketType) error {
+func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType packet.PacketType) error {
 	// Use the transport's resolver instead of the global function
 	udpAddr, err := t.resolver.ResolveUDPTarget(addr)
 	if err != nil {
@@ -69,7 +69,7 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 	}
 
 	// TODO(XZ): this is a temporary solution fix issue #5
-	if packetType == protocol.PacketTypeRequest {
+	if packetType == packet.PacketTypeRequest {
 		if ip4 := udpAddr.IP.To4(); ip4 != nil {
 			if len(data) < 6 {
 				return fmt.Errorf("data too short to embed IP and port")
@@ -91,7 +91,7 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 	// Iterate through each fragment and send it via the UDP connection
 	for _, pkt := range packets {
 		// Serialize the packet into a byte slice for transmission
-		packetData, err := protocol.SerializePacket(pkt, packetType)
+		packetData, err := packet.SerializePacket(pkt, packetType)
 		log.Printf("Serialized packet: %x", packetData)
 		if err != nil {
 			return err
@@ -106,16 +106,16 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 	return nil
 }
 
-func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, protocol.PacketType, error) {
+func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, packet.PacketType, error) {
 	// Read data from the UDP connection into the buffer
 	buffer := make([]byte, bufferSize)
 	n, addr, err := t.conn.ReadFromUDP(buffer)
 	if err != nil {
-		return nil, nil, 0, protocol.PacketTypeUnknown, err
+		return nil, nil, 0, packet.PacketTypeUnknown, err
 	}
 
 	// Deserialize the received data into a structured packet format
-	pkt, packetType, err := protocol.DeserializePacketAny(buffer[:n])
+	pkt, packetType, err := packet.DeserializePacketAny(buffer[:n])
 	if err != nil {
 		return nil, nil, 0, packetType, err
 	}
@@ -133,9 +133,9 @@ func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, pr
 
 	// Handle different packet types based on their nature
 	switch p := pkt.(type) {
-	case *protocol.DataPacket:
+	case *packet.DataPacket:
 		return t.ReassembleDataPacket(p, addr, packetType)
-	case *protocol.ErrorPacket:
+	case *packet.ErrorPacket:
 		return []byte(p.ErrorMsg), addr, p.RPCID, packetType, nil
 	default:
 		// Unknown packet type - return early with no data
@@ -145,7 +145,7 @@ func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, pr
 }
 
 // ReassembleDataPacket processes data packets through the reassembly layer
-func (t *UDPTransport) ReassembleDataPacket(pkt *protocol.DataPacket, addr *net.UDPAddr, packetType protocol.PacketType) ([]byte, *net.UDPAddr, uint64, protocol.PacketType, error) {
+func (t *UDPTransport) ReassembleDataPacket(pkt *packet.DataPacket, addr *net.UDPAddr, packetType packet.PacketType) ([]byte, *net.UDPAddr, uint64, packet.PacketType, error) {
 	// Process fragment through reassembly layer
 	fullMessage, reassembledAddr, reassembledRPCID, isComplete := t.reassembler.ProcessFragment(pkt, addr)
 

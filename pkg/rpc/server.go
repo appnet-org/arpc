@@ -6,7 +6,7 @@ import (
 	"encoding/binary"
 	"log"
 
-	"github.com/appnet-org/arpc/internal/protocol"
+	"github.com/appnet-org/arpc/internal/packet"
 	"github.com/appnet-org/arpc/internal/transport"
 	"github.com/appnet-org/arpc/pkg/rpc/element"
 	"github.com/appnet-org/arpc/pkg/serializer"
@@ -112,7 +112,7 @@ func (s *Server) Start() {
 
 	for {
 		// Receive a packet from a client
-		data, addr, rpcID, _, err := s.transport.Receive(protocol.MaxUDPPayloadSize)
+		data, addr, rpcID, _, err := s.transport.Receive(packet.MaxUDPPayloadSize)
 		if err != nil {
 			log.Println("Error receiving data:", err)
 			continue
@@ -193,7 +193,7 @@ func (s *Server) Start() {
 		}
 
 		// Send the response
-		err = s.transport.Send(addr.String(), rpcID, framedResp, protocol.PacketTypeResponse)
+		err = s.transport.Send(addr.String(), rpcID, framedResp, packet.PacketTypeResponse)
 		if err != nil {
 			log.Printf("Error sending response: %v", err)
 		}

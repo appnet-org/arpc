@@ -1,6 +1,6 @@
 // This file defines the builtin packets (Request, Response, Error) and their corresponding
 // serialization/deserialization codecs.
-package protocol
+package packet
 
 import (
 	"bytes"

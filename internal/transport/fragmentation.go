@@ -4,7 +4,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/appnet-org/arpc/internal/protocol"
+	protocol "github.com/appnet-org/arpc/internal/packet"
 )
 
 // DataReassembler handles the reassembly of fragmented data (request/response) packets
