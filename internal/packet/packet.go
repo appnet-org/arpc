@@ -31,7 +31,7 @@ func NewPacketRegistry() *PacketRegistry {
 // RegisterPacketType registers a custom packet type with its codec and returns the assigned packet type ID
 func (pr *PacketRegistry) RegisterPacketType(packetType string, codec PacketCodec) (PacketType, error) {
 	if pr.nextID == 255 {
-		return PacketType{}, errors.New("no more available packet type IDs")
+		return PacketTypeUnknown, errors.New("no more available packet type IDs")
 	}
 
 	pt := PacketType{
@@ -46,7 +46,7 @@ func (pr *PacketRegistry) RegisterPacketType(packetType string, codec PacketCode
 }
 func (pr *PacketRegistry) RegisterPacketTypeWithID(packetType string, id PacketTypeID, codec PacketCodec) (PacketType, error) {
 	if _, exists := pr.types[id]; exists {
-		return PacketType{}, errors.New("packet type with this ID already exists")
+		return PacketTypeUnknown, errors.New("packet type with this ID already exists")
 	}
 
 	pt := PacketType{

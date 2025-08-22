@@ -218,7 +218,7 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		case packet.PacketTypeError:
 			return c.handleErrorPacket(ctx, string(data))
 		default:
-			log.Printf("Ignoring packet with unknown type: %d", packetType)
+			log.Printf("Ignoring packet with unknown type: %s", packetType.Name)
 			continue
 		}
 	}

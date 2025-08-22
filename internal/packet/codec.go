@@ -31,7 +31,7 @@ func SerializePacket(packet any, packetType PacketType) ([]byte, error) {
 // and then using the appropriate codec
 func DeserializePacketAny(data []byte) (any, PacketType, error) {
 	if len(data) < 1 {
-		return nil, PacketType{}, errors.New("data too short to read packet type")
+		return nil, PacketTypeUnknown, errors.New("data too short to read packet type")
 	}
 
 	// Packet type (uint8) is the first byte of the data
@@ -41,13 +41,13 @@ func DeserializePacketAny(data []byte) (any, PacketType, error) {
 	registry := DefaultRegistry
 	codec, exists := registry.GetCodec(PacketTypeID(packetType))
 	if !exists {
-		return nil, PacketType{}, errors.New("codec not found for packet type " + strconv.Itoa(int(packetType)))
+		return nil, PacketTypeUnknown, errors.New("codec not found for packet type " + strconv.Itoa(int(packetType)))
 	}
 
 	// Deserialize using the codec
 	packet, err := codec.Deserialize(data)
 	if err != nil {
-		return nil, PacketType{}, err
+		return nil, PacketTypeUnknown, err
 	}
 
 	return packet, PacketType{ID: PacketTypeID(packetType), Name: registry.types[PacketTypeID(packetType)].Name}, nil
