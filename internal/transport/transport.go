@@ -18,10 +18,11 @@ func GenerateRPCID() uint64 {
 }
 
 type UDPTransport struct {
-	conn        *net.UDPConn
-	reassembler *DataReassembler
-	resolver    *balancer.Resolver
-	handlers    *HandlerRegistry
+	conn         *net.UDPConn
+	reassembler  *DataReassembler
+	resolver     *balancer.Resolver
+	handlers     *HandlerRegistry
+	timerManager *TimerManager
 }
 
 func NewUDPTransport(address string) (*UDPTransport, error) {
@@ -41,10 +42,11 @@ func NewUDPTransportWithBalancer(address string, resolver *balancer.Resolver) (*
 	}
 
 	transport := &UDPTransport{
-		conn:        conn,
-		reassembler: NewDataReassembler(),
-		resolver:    resolver,
-		handlers:    nil, // Will be set after transport is created
+		conn:         conn,
+		reassembler:  NewDataReassembler(),
+		resolver:     resolver,
+		handlers:     nil, // Will be set after transport is created
+		timerManager: NewTimerManager(),
 	}
 
 	// Set handlers after transport is fully constructed
@@ -159,5 +161,7 @@ func (t *UDPTransport) ReassembleDataPacket(pkt *packet.DataPacket, addr *net.UD
 }
 
 func (t *UDPTransport) Close() error {
+	// Stop the timer manager before closing the connection
+	t.timerManager.Stop()
 	return t.conn.Close()
 }
