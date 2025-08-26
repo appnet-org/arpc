@@ -1,12 +1,4 @@
 // Package transport provides timer management functionality for aRPC transport layer operations.
-// This file implements a TimerManager that handles both scheduled one-time timers and periodic
-// recurring timers, designed specifically for transport layer needs such as:
-//
-//   - Retransmission timeouts for reliable packet delivery
-//   - Congestion control intervals for bandwidth management
-//   - General timeout handling for transport operations
-//
-// The TimerManager is thread-safe and provides automatic cleanup of completed timers.
 package transport
 
 import (
@@ -47,73 +39,102 @@ func NewTimerManager() *TimerManager {
 	return tm
 }
 
-// Schedule creates a one-time timer that executes after the given duration
+// Schedule creates a one-time timer that executes after the given duration.
 func (tm *TimerManager) Schedule(id TimerKey, duration time.Duration, callback TimerCallback) {
 	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
-	// Stop existing timer if it exists
+	// Replace safely: delete-before-close to avoid races with StopTimer.
 	if existing, exists := tm.timers[id]; exists {
+		delete(tm.timers, id)
 		close(existing.Stop)
 	}
 
-	timer := &Timer{
+	t := &Timer{
 		ID:       id,
 		Duration: duration,
 		Callback: callback,
 		Stop:     make(chan struct{}),
 	}
-
-	tm.timers[id] = timer
+	tm.timers[id] = t
+	tm.mu.Unlock()
 
 	tm.wg.Add(1)
-	go func() {
+	go func(t *Timer) {
 		defer tm.wg.Done()
+
+		tt := time.NewTimer(t.Duration)
+		defer tt.Stop()
+
 		select {
-		case <-time.After(duration):
-			tm.executeCallback(id, false)
-		case <-timer.Stop:
-			// Timer was stopped
+		case <-tt.C:
+			// Fired normally
+			tm.executeCallback(t.ID, false)
+
+		case <-t.Stop:
+			// Canceled: stop the underlying timer and drain if it already fired
+			if !tt.Stop() {
+				<-tt.C
+			}
+
+		case <-tm.stopAll:
+			// Global shutdown: stop and drain if necessary
+			if !tt.Stop() {
+				<-tt.C
+			}
 		}
-	}()
+
+		// Single source of truth for one-shot removal: do it here.
+		tm.mu.Lock()
+		delete(tm.timers, t.ID)
+		tm.mu.Unlock()
+	}(t)
 }
 
-// SchedulePeriodic creates a timer that executes repeatedly at the given interval
+// SchedulePeriodic creates a timer that executes repeatedly at the given interval.
 func (tm *TimerManager) SchedulePeriodic(id TimerKey, interval time.Duration, callback TimerCallback) {
 	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
-	// Stop existing periodic timer if it exists
+	// Replace safely: delete-before-close to avoid races with StopTimer.
 	if existing, exists := tm.periodic[id]; exists {
+		delete(tm.periodic, id)
 		close(existing.Stop)
 	}
 
-	timer := &Timer{
+	t := &Timer{
 		ID:       id,
 		Duration: interval,
 		Callback: callback,
 		Stop:     make(chan struct{}),
 	}
-
-	tm.periodic[id] = timer
+	tm.periodic[id] = t
+	tm.mu.Unlock()
 
 	tm.wg.Add(1)
-	go func() {
+	go func(t *Timer) {
 		defer tm.wg.Done()
-		ticker := time.NewTicker(interval)
+
+		ticker := time.NewTicker(t.Duration)
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-ticker.C:
-				tm.executeCallback(id, true)
-			case <-timer.Stop:
+				tm.executeCallback(t.ID, true)
+
+			case <-t.Stop:
+				// Remove entry before exit
+				tm.mu.Lock()
+				delete(tm.periodic, t.ID)
+				tm.mu.Unlock()
 				return
+
 			case <-tm.stopAll:
+				// Remove entry before exit
+				tm.mu.Lock()
+				delete(tm.periodic, t.ID)
+				tm.mu.Unlock()
 				return
 			}
 		}
-	}()
+	}(t)
 }
 
 // StopTimer stops a specific timer
@@ -148,27 +169,33 @@ func (tm *TimerManager) HasTimer(id TimerKey) bool {
 	return hasScheduled || hasPeriodic
 }
 
-// executeCallback safely executes a timer callback
+// executeCallback safely executes a timer callback (no locks held during user code)
 func (tm *TimerManager) executeCallback(id TimerKey, isPeriodic bool) {
+	// Snapshot the callback under read lock
 	tm.mu.RLock()
-	var timer *Timer
+	var cb TimerCallback
 	if isPeriodic {
-		timer = tm.periodic[id]
+		if t := tm.periodic[id]; t != nil {
+			cb = t.Callback
+		}
 	} else {
-		timer = tm.timers[id]
+		if t := tm.timers[id]; t != nil {
+			cb = t.Callback
+		}
 	}
 	tm.mu.RUnlock()
 
-	if timer != nil && timer.Callback != nil {
-		timer.Callback()
-
-		// Remove one-time timers after execution
-		if !isPeriodic {
-			tm.mu.Lock()
-			delete(tm.timers, id)
-			tm.mu.Unlock()
-		}
+	if cb == nil {
+		return
 	}
+
+	// Panic safety so a bad callback doesn't break the scheduler.
+	// TODO: add logging
+	defer func() {
+		_ = recover()
+	}()
+
+	cb()
 }
 
 // start initializes the timer manager
@@ -178,16 +205,7 @@ func (tm *TimerManager) start() {
 
 // Stop stops all timers and shuts down the manager
 func (tm *TimerManager) Stop() {
+	// Broadcast shutdown
 	close(tm.stopAll)
-
-	tm.mu.Lock()
-	for _, timer := range tm.timers {
-		close(timer.Stop)
-	}
-	for _, timer := range tm.periodic {
-		close(timer.Stop)
-	}
-	tm.mu.Unlock()
-
 	tm.wg.Wait()
 }
