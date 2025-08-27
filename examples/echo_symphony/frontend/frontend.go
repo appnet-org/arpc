@@ -8,6 +8,7 @@ import (
 
 	echo "github.com/appnet-org/arpc/examples/echo_symphony/symphony"
 	"github.com/appnet-org/arpc/pkg/rpc"
+	"github.com/appnet-org/arpc/pkg/rpc/element"
 	"github.com/appnet-org/arpc/pkg/serializer"
 )
 
@@ -37,7 +38,16 @@ func handler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	// Create RPC client
 	serializer := &serializer.SymphonySerializer{}
-	client, err := rpc.NewClient(serializer, ":11000", nil) // TODO: change to your server's address fully qualified domain name
+
+	// Create metrics element
+	metrics := NewMetricsElement()
+
+	// Create RPC elements
+	rpcElements := []element.RPCElement{
+		metrics,
+	}
+
+	client, err := rpc.NewClient(serializer, ":11000", rpcElements) // TODO: change to your server's address fully qualified domain name
 	if err != nil {
 		log.Fatal("Failed to create RPC client:", err)
 	}
