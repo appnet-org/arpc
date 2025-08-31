@@ -242,11 +242,6 @@ func fieldOrdering(msg *protogen.Message) string {
 }
 
 func isVariableLength(field *protogen.Field) bool {
-	// Handle repeated fields - only variable-length ones need offset table
-	if field.Desc.IsList() {
-		// Check if the repeated field contains variable-length elements
-		return field.Desc.Kind().String() == "string" || field.Desc.Kind().String() == "bytes"
-	}
 	return field.Desc.Kind().String() == "string" || field.Desc.Kind().String() == "bytes"
 }
 

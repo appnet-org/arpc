@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package Test;
+option go_package = "./Test";
+
+service TestService {
+    rpc Test(TestRequest) returns(TestResponse);
+}
+
+message TestRequest {
+  int32 id = 1;
+  int32 score = 2;
+  string username = 3;
+  repeated string content = 4;
+  repeated int32 numbers = 5;
+}
+
+message TestResponse {
+  string resp = 1;
+}
