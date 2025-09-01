@@ -42,14 +42,7 @@ func generateMarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
 	g.P()
 
 	// === OFFSET TABLE SECTION ===
-	g.P("    // Calculate offsets for variable-length fields")
-	// Start offset after all fixed-size fields
 	g.P("    offset := 0")
-	for _, field := range msg.Fields {
-		if !isVariableLength(field) && !isRepeatedFixedSize(field) {
-			g.P(fmt.Sprintf("    offset += %d // %s", getFieldSize(field), field.GoName))
-		}
-	}
 	g.P()
 
 	for _, field := range msg.Fields {
@@ -83,6 +76,9 @@ func generateMarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
 			g.P(fmt.Sprintf("    binary.Write(&buf, binary.LittleEndian, uint16(offset)) // offset of %s", goName))
 			g.P(fmt.Sprintf("    binary.Write(&buf, binary.LittleEndian, uint16(len(m.%s))) // count of %s", goName, goName))
 			g.P(fmt.Sprintf("    offset += %d * len(m.%s)", getFieldSize(field), goName))
+		} else {
+			// Write single fixed-size field data
+			g.P(fmt.Sprintf("    offset += %d // %s", getFieldSize(field), field.GoName))
 		}
 	}
 	g.P()

@@ -24,8 +24,8 @@ const (
 type TestRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int32                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	Score         int32                  `protobuf:"varint,2,opt,name=score,proto3" json:"score,omitempty"`
-	Username      string                 `protobuf:"bytes,3,opt,name=username,proto3" json:"username,omitempty"`
+	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	Score         int32                  `protobuf:"varint,3,opt,name=score,proto3" json:"score,omitempty"`
 	Content       []string               `protobuf:"bytes,4,rep,name=content,proto3" json:"content,omitempty"`
 	Numbers       []int32                `protobuf:"varint,5,rep,packed,name=numbers,proto3" json:"numbers,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -69,18 +69,18 @@ func (x *TestRequest) GetId() int32 {
 	return 0
 }
 
-func (x *TestRequest) GetScore() int32 {
-	if x != nil {
-		return x.Score
-	}
-	return 0
-}
-
 func (x *TestRequest) GetUsername() string {
 	if x != nil {
 		return x.Username
 	}
 	return ""
+}
+
+func (x *TestRequest) GetScore() int32 {
+	if x != nil {
+		return x.Score
+	}
+	return 0
 }
 
 func (x *TestRequest) GetContent() []string {
@@ -148,9 +148,9 @@ const file_test_proto_rawDesc = "" +
 	"\n" +
 	"test.proto\x12\x04Test\"\x83\x01\n" +
 	"\vTestRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x05R\x02id\x12\x14\n" +
-	"\x05score\x18\x02 \x01(\x05R\x05score\x12\x1a\n" +
-	"\busername\x18\x03 \x01(\tR\busername\x12\x18\n" +
+	"\x02id\x18\x01 \x01(\x05R\x02id\x12\x1a\n" +
+	"\busername\x18\x02 \x01(\tR\busername\x12\x14\n" +
+	"\x05score\x18\x03 \x01(\x05R\x05score\x12\x18\n" +
 	"\acontent\x18\x04 \x03(\tR\acontent\x12\x18\n" +
 	"\anumbers\x18\x05 \x03(\x05R\anumbers\"\"\n" +
 	"\fTestResponse\x12\x12\n" +

@@ -9,8 +9,8 @@ service TestService {
 
 message TestRequest {
   int32 id = 1;
-  int32 score = 2;
-  string username = 3;
+  string username = 2;
+  int32 score = 3;
   repeated string content = 4;
   repeated int32 numbers = 5;
 }
