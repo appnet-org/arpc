@@ -32,22 +32,30 @@ func main() {
 }
 
 func generateMarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
+	// Get the canonical field order. For now, it returns the numbers in their original definition order.
+	fieldOrder, strOrder := fieldOrdering(msg)
+
+	// Create a map of fields by their number for easy lookup during code generation.
+	fieldsMap := make(map[byte]*protogen.Field)
+	for _, field := range msg.Fields {
+		fieldsMap[byte(field.Desc.Number())] = field
+	}
+
 	g.P("func (m *", msg.GoIdent.GoName, ") MarshalSymphony() ([]byte, error) {")
 	g.P("    var buf bytes.Buffer")
 
 	// === HEADER SECTION ===
 	g.P("    // Layout header and field ordering")
 	g.P("    buf.WriteByte(0x00) // layout header")
-	g.P("    buf.Write([]byte{", fieldOrdering(msg), "})")
+	g.P("    buf.Write([]byte{", strOrder, "})")
 	g.P()
 
 	// === OFFSET TABLE SECTION ===
 	g.P("    offset := 0")
-	g.P()
-
-	for _, field := range msg.Fields {
+	for _, fieldNum := range fieldOrder {
+		g.P()
+		field := fieldsMap[fieldNum]
 		goName := field.GoName
-		fieldNum := field.Desc.Number()
 		if isVariableLength(field) {
 			if field.Desc.IsList() {
 				// Handle repeated variable-length fields (strings, bytes)
@@ -74,6 +82,7 @@ func generateMarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
 			g.P(fmt.Sprintf("    // Field %d (%s): repeated fixed-size (%d bytes per element)", fieldNum, goName, getFieldSize(field)))
 			g.P(fmt.Sprintf("    binary.Write(&buf, binary.LittleEndian, byte(%d))", fieldNum))
 			g.P(fmt.Sprintf("    binary.Write(&buf, binary.LittleEndian, uint16(offset)) // offset of %s", goName))
+			// Note: we store the count of elements for repeated fixed-length fields, not the byte length.
 			g.P(fmt.Sprintf("    binary.Write(&buf, binary.LittleEndian, uint16(len(m.%s))) // count of %s", goName, goName))
 			g.P(fmt.Sprintf("    offset += %d * len(m.%s)", getFieldSize(field), goName))
 		} else {
@@ -85,31 +94,33 @@ func generateMarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
 
 	// === DATA REGION SECTION ===
 	g.P("    // Write actual field data")
-	for _, field := range msg.Fields {
+	for _, fieldNum := range fieldOrder {
+		g.P()
+		field := fieldsMap[fieldNum]
 		goName := field.GoName
 		if isVariableLength(field) {
 			if field.Desc.IsList() {
 				// Write repeated variable-length field data
 				// TODO: we should have a second layer of offset table for the repeated field for easier access
-				g.P(fmt.Sprintf("    // Write repeated variable-length field %s data", goName))
+				g.P(fmt.Sprintf("    // Write repeated variable-length field (%s)", goName))
 				g.P(fmt.Sprintf("    for _, item := range m.%s {", goName))
 				g.P("        binary.Write(&buf, binary.LittleEndian, uint32(len(item)))")
 				g.P("        buf.Write([]byte(item))")
 				g.P("    }")
 			} else {
 				// Write single variable-length field data
-				g.P(fmt.Sprintf("    // Write string field %s", goName))
+				g.P(fmt.Sprintf("    // Write string field (%s)", goName))
 				g.P(fmt.Sprintf("    buf.Write([]byte(m.%s))", goName))
 			}
 		} else if isRepeatedFixedSize(field) {
 			// Write repeated fixed-size field data
-			g.P(fmt.Sprintf("    // Write repeated fixed-size field %s data", goName))
+			g.P(fmt.Sprintf("    // Write repeated fixed-size field (%s)", goName))
 			g.P(fmt.Sprintf("    for _, item := range m.%s {", goName))
 			g.P("        binary.Write(&buf, binary.LittleEndian, item)")
 			g.P("    }")
 		} else {
 			// Write single fixed-size field data
-			g.P(fmt.Sprintf("    // Write fixed field %s", goName))
+			g.P(fmt.Sprintf("    // Write fixed field (%s)", goName))
 			g.P(fmt.Sprintf("    binary.Write(&buf, binary.LittleEndian, m.%s)", goName))
 		}
 	}
@@ -150,78 +161,90 @@ func generateUnmarshalStub(g *protogen.GeneratedFile, msg *protogen.Message) {
 	// === DATA REGION EXTRACTION SECTION ===
 	g.P("    // Extract data region (everything after the offset table)")
 	g.P("    dataRegion := data[len(data)-reader.Len():]")
+	g.P("    offset := 0")
 	g.P()
 
 	// === FIELD UNMARSHALING SECTION ===
 	g.P("    // Unmarshal individual fields")
-	offset := 0
+	g.P("    for _, fieldNum := range fieldOrder {")
+
+	// --- Start of generated switch statement ---
+	g.P("        switch fieldNum {")
 	for _, field := range msg.Fields {
 		goName := field.GoName
 		fieldNum := field.Desc.Number()
+
+		g.P(fmt.Sprintf("        case %d: // %s", fieldNum, goName))
 		if isVariableLength(field) {
 			if field.Desc.IsList() {
 				// Handle repeated variable-length fields
-				g.P(fmt.Sprintf("    // Unmarshal repeated variable-length field %s (field %d)", goName, fieldNum))
-				g.P(fmt.Sprintf("    if entry, ok := offsets[%d]; ok {", fieldNum))
-				g.P("        // Initialize slice")
-				g.P(fmt.Sprintf("        m.%s = make([]string, 0)", goName))
-				g.P("        // Read repeated field data")
-				g.P("        dataStart := entry.offset")
-				g.P("        dataEnd := entry.offset + entry.length")
+				g.P(fmt.Sprintf("            // Unmarshal repeated variable-length field (%s)", goName))
+				g.P(fmt.Sprintf("            if entry, ok := offsets[%d]; ok {", fieldNum))
+				g.P("                // Initialize slice")
+				g.P(fmt.Sprintf("                m.%s = make([]string, 0)", goName))
+				g.P("                // Read repeated field data")
+				g.P("                dataStart := entry.offset")
+				g.P("                dataEnd := entry.offset + entry.length")
 				g.P()
 
 				// Handle empty repeated field case
-				g.P("        // Handle empty repeated field case")
-				g.P("        if dataEnd > dataStart {")
-				g.P("            itemReader := bytes.NewReader(dataRegion[dataStart:dataEnd])")
-				g.P("            bytesRead := uint16(0)")
-				g.P("            for bytesRead < entry.length {")
-				g.P("                var itemLen uint32")
-				g.P("                if err := binary.Read(itemReader, binary.LittleEndian, &itemLen); err != nil { return err }")
-				g.P("                bytesRead += 4 // length of uint32")
+				g.P("                // Handle empty repeated field case")
+				g.P("                if dataEnd > dataStart {")
+				g.P("                    itemReader := bytes.NewReader(dataRegion[dataStart:dataEnd])")
+				g.P("                    bytesRead := uint16(0)")
+				g.P("                    for bytesRead < entry.length {")
+				g.P("                        var itemLen uint32")
+				g.P("                        if err := binary.Read(itemReader, binary.LittleEndian, &itemLen); err != nil { return err }")
+				g.P("                        bytesRead += 4 // length of uint32")
 				g.P()
 
-				g.P("                // Handle empty string case")
-				g.P("                if itemLen == 0 {")
-				g.P(fmt.Sprintf("                    m.%s = append(m.%s, \"\")", goName, goName))
-				g.P("                    continue")
+				g.P("                        // Handle empty string case")
+				g.P("                        if itemLen == 0 {")
+				g.P(fmt.Sprintf("                            m.%s = append(m.%s, \"\")", goName, goName))
+				g.P("                            continue")
+				g.P("                        }")
+				g.P()
+
+				g.P("                        itemData := make([]byte, itemLen)")
+				g.P("                        if _, err := itemReader.Read(itemData); err != nil { return err }")
+				g.P("                        bytesRead += uint16(itemLen)")
+				g.P(fmt.Sprintf("                        m.%s = append(m.%s, string(itemData))", goName, goName))
+				g.P("                    }")
 				g.P("                }")
-				g.P()
-
-				g.P("                itemData := make([]byte, itemLen)")
-				g.P("                if _, err := itemReader.Read(itemData); err != nil { return err }")
-				g.P("                bytesRead += uint16(itemLen)")
-				g.P(fmt.Sprintf("                m.%s = append(m.%s, string(itemData))", goName, goName))
+				g.P("                offset += int(entry.length)")
 				g.P("            }")
-				g.P("        }")
-				g.P("    }")
 			} else {
 				// Handle single variable-length fields
-				g.P(fmt.Sprintf("    // Unmarshal string field %s (field %d)", goName, fieldNum))
-				g.P(fmt.Sprintf("    if entry, ok := offsets[%d]; ok {", fieldNum))
-				g.P(fmt.Sprintf("        m.%s = string(dataRegion[entry.offset:entry.offset+entry.length])", goName))
-				g.P("    }")
+				g.P(fmt.Sprintf("            // Unmarshal string field (%s)", goName))
+				g.P(fmt.Sprintf("            if entry, ok := offsets[%d]; ok {", fieldNum))
+				g.P(fmt.Sprintf("                m.%s = string(dataRegion[entry.offset:entry.offset+entry.length])", goName))
+				g.P("                offset += int(entry.length)")
+				g.P("            }")
 			}
 		} else if isRepeatedFixedSize(field) {
 			// Handle repeated fixed-size fields
-			g.P(fmt.Sprintf("    // Unmarshal repeated fixed-size field %s (field %d)", goName, fieldNum))
-			g.P(fmt.Sprintf("    if entry, ok := offsets[%d]; ok {", fieldNum))
-			g.P(fmt.Sprintf("        count := int(entry.length) // count of %s", goName))
-			g.P(fmt.Sprintf("        m.%s = make([]%s, count)", goName, getGoType(field)))
-			g.P("        // Read repeated field data")
-			g.P("        dataStart := entry.offset")
-			g.P("        for i := 0; i < count; i++ {")
-			g.P(fmt.Sprintf("            if err := binary.Read(bytes.NewReader(dataRegion[dataStart:dataStart+%d]), binary.LittleEndian, &m.%s[i]); err != nil { return err }", getFieldSize(field), goName))
-			g.P(fmt.Sprintf("            dataStart += %d", getFieldSize(field)))
-			g.P("        }")
-			g.P("    }")
+			g.P(fmt.Sprintf("            // Unmarshal repeated fixed-size field (%s)", goName))
+			g.P(fmt.Sprintf("            if entry, ok := offsets[%d]; ok {", fieldNum))
+			g.P(fmt.Sprintf("                count := int(entry.length) // count of %s", goName))
+			g.P(fmt.Sprintf("                m.%s = make([]%s, count)", goName, getGoType(field)))
+			g.P("                // Read repeated field data")
+			g.P("                dataStart := entry.offset")
+			g.P("                for i := 0; i < count; i++ {")
+			g.P(fmt.Sprintf("                    if err := binary.Read(bytes.NewReader(dataRegion[dataStart:dataStart+%d]), binary.LittleEndian, &m.%s[i]); err != nil { return err }", getFieldSize(field), goName))
+			g.P(fmt.Sprintf("                    dataStart += %d", getFieldSize(field)))
+			g.P("                }")
+			g.P(fmt.Sprintf("                offset += int(entry.length) * %d", getFieldSize(field)))
+			g.P("            }")
 		} else {
 			// Handle single fixed-size fields
-			g.P(fmt.Sprintf("    // Unmarshal fixed field %s (field %d)", goName, fieldNum))
-			g.P(fmt.Sprintf("    if err := binary.Read(bytes.NewReader(dataRegion[%d:%d]), binary.LittleEndian, &m.%s); err != nil { return err }", offset, offset+getFieldSize(field), goName))
-			offset += getFieldSize(field)
+			g.P(fmt.Sprintf("            // Unmarshal fixed field (%s)", goName))
+			g.P(fmt.Sprintf("            if err := binary.Read(bytes.NewReader(dataRegion[offset:offset+%d]), binary.LittleEndian, &m.%s); err != nil { return err }", getFieldSize(field), goName))
+			g.P(fmt.Sprintf("            offset += %d", getFieldSize(field)))
 		}
 	}
+	g.P("        }") // End switch
+	// --- End of generated switch statement ---
+	g.P("    }") // End for loop
 	g.P()
 
 	g.P("    return nil")
@@ -229,12 +252,27 @@ func generateUnmarshalStub(g *protogen.GeneratedFile, msg *protogen.Message) {
 	g.P()
 }
 
-func fieldOrdering(msg *protogen.Message) string {
-	ids := make([]string, 0, len(msg.Fields))
-	for _, f := range msg.Fields {
-		ids = append(ids, fmt.Sprintf("%d", f.Desc.Number()))
+// fieldOrdering returns a slice of Protobuf field numbers that defines the
+// canonical layout for fields in the marshaled byte array.
+//
+// The order of numbers in the slice dictates the final memory layout. For
+// example, a returned slice of [3, 1, 2] means the field with Protobuf number 3
+// will be written first, followed by the field with number 1, and then 2.
+// This allows for reordering, such as placing all fixed-size fields first.
+//
+// For now, it returns the numbers in their original definition order.
+func fieldOrdering(msg *protogen.Message) ([]byte, string) {
+	fieldOrder := make([]byte, 0, len(msg.Fields))
+	strOrder := make([]string, len(fieldOrder))
+	for _, field := range msg.Fields {
+		fieldNum := field.Desc.Number()
+		if fieldNum < 0 || fieldNum > 255 {
+			panic(fmt.Sprintf("field %d (%s): number out of range (0-255)", fieldNum, field.GoName))
+		}
+		fieldOrder = append(fieldOrder, byte(fieldNum))
+		strOrder = append(strOrder, fmt.Sprintf("%d", fieldNum))
 	}
-	return strings.Join(ids, ", ")
+	return fieldOrder, strings.Join(strOrder, ", ")
 }
 
 func isVariableLength(field *protogen.Field) bool {

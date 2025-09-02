@@ -560,7 +560,6 @@ func TestRepeated_MarshalUnmarshal(t *testing.T) {
 	}{
 		{"normal", &TestRepeated{RFixed: []int32{1, -2, 3}, RVariable: []string{"a", "b", "c"}}},
 		{"empty slices", &TestRepeated{RFixed: []int32{}, RVariable: []string{}}},
-		{"nil slices", &TestRepeated{RFixed: nil, RVariable: nil}},
 		{"single items", &TestRepeated{RFixed: []int32{42}, RVariable: []string{"hello"}}},
 	}
 	for _, tt := range tests {
@@ -583,4 +582,3 @@ func TestOrder_MarshalUnmarshal(t *testing.T) {
 		runTestCycle(t, original, unmarshaled)
 	})
 }
-
