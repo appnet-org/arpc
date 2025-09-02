@@ -487,3 +487,98 @@ func BenchmarkTestRequest_UnmarshalSymphony(b *testing.B) {
 		}
 	}
 }
+
+// runTestCycle is a generic helper to marshal, unmarshal, and compare.
+func runTestCycle(t *testing.T, original, unmarshaled interface{}) {
+	// Marshal the original message
+	marshaler, ok := original.(interface {
+		MarshalSymphony() ([]byte, error)
+	})
+	if !ok {
+		t.Fatalf("Original message does not implement MarshalSymphony")
+	}
+	data, err := marshaler.MarshalSymphony()
+	if err != nil {
+		t.Errorf("MarshalSymphony() failed with error: %v", err)
+		return
+	}
+	if data == nil {
+		t.Errorf("MarshalSymphony() returned nil data")
+		return
+	}
+
+	// Unmarshal into the new instance
+	unmarshaler, ok := unmarshaled.(interface {
+		UnmarshalSymphony([]byte) error
+	})
+	if !ok {
+		t.Fatalf("Target message does not implement UnmarshalSymphony")
+	}
+	if err := unmarshaler.UnmarshalSymphony(data); err != nil {
+		t.Errorf("UnmarshalSymphony() failed with error: %v", err)
+		return
+	}
+
+	// Verify the result
+	if !reflect.DeepEqual(original, unmarshaled) {
+		t.Errorf("Mismatch after marshal/unmarshal cycle.\nGot:  %#v\nWant: %#v", unmarshaled, original)
+	}
+}
+
+func TestFixedLen_MarshalUnmarshal(t *testing.T) {
+	t.Run("fixed length fields", func(t *testing.T) {
+		original := &TestFixedLen{
+			FInt32:  -123,
+			FInt64:  9876543210,
+			FBool:   true,
+			FDouble: 3.14159,
+		}
+		unmarshaled := &TestFixedLen{}
+		runTestCycle(t, original, unmarshaled)
+	})
+}
+
+func TestVariableLen_MarshalUnmarshal(t *testing.T) {
+	tests := []struct {
+		name     string
+		original *TestVariableLen
+	}{
+		{"normal", &TestVariableLen{VString: "hello"}},
+		{"empty", &TestVariableLen{VString: ""}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runTestCycle(t, tt.original, &TestVariableLen{})
+		})
+	}
+}
+
+func TestRepeated_MarshalUnmarshal(t *testing.T) {
+	tests := []struct {
+		name     string
+		original *TestRepeated
+	}{
+		{"normal", &TestRepeated{RFixed: []int32{1, -2, 3}, RVariable: []string{"a", "b", "c"}}},
+		{"empty slices", &TestRepeated{RFixed: []int32{}, RVariable: []string{}}},
+		{"single items", &TestRepeated{RFixed: []int32{42}, RVariable: []string{"hello"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runTestCycle(t, tt.original, &TestRepeated{})
+		})
+	}
+}
+
+func TestOrder_MarshalUnmarshal(t *testing.T) {
+	t.Run("mixed field order", func(t *testing.T) {
+		original := &TestOrder{
+			VFirst:  "variable field first",
+			FSecond: 12345,
+			RThird:  []int32{1, -2, 3},
+			FFourth: -9999,
+			RFifth:  []string{"x", "y", "z"},
+		}
+		unmarshaled := &TestOrder{}
+		runTestCycle(t, original, unmarshaled)
+	})
+}
