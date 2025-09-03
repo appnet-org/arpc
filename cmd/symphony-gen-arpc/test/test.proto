@@ -40,12 +40,39 @@ message TestRepeated {
   repeated string r_variable = 2;
 }
 
-// Tests that the generator correctly reorders mixed fields into the
-// canonical "fixed-first" layout.
+// Tests that the generator correctly deal with mixed-ordered fields
 message TestOrder {
   string v_first = 1;           // Variable
   int32 f_second = 2;           // Fixed
-  repeated int32 r_third = 3;     // Variable
+  repeated int32 r_third = 3;   // Variable
   int64 f_fourth = 4;           // Fixed
-  repeated string r_fifth = 5;      // Variable
+  repeated string r_fifth = 5;  // Variable
+}
+
+
+// Inner message to be used for nesting.
+message InnerMessage {
+  int32 inner_id = 1;
+  string inner_text = 2;
+}
+
+// Tests a message containing nested message fields (singular and repeated).
+message TestNested {
+  int64 outer_id = 1;
+  InnerMessage singular_nested = 2;
+  repeated InnerMessage repeated_nested = 3;
+}
+
+// Messages for demonstrating multi-level nesting.
+message Level3Message {
+  string final_text = 1;
+}
+
+message Level2Message {
+  Level3Message nested_level3 = 1;
+}
+
+message TestDeepNested {
+  int32 top_level_id = 1;
+  Level2Message nested_level2 = 2;
 }
