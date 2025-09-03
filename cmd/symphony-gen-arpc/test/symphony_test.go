@@ -582,3 +582,90 @@ func TestOrder_MarshalUnmarshal(t *testing.T) {
 		runTestCycle(t, original, unmarshaled)
 	})
 }
+
+func TestNested_MarshalUnmarshal(t *testing.T) {
+	tests := []struct {
+		name     string
+		original *TestNested
+	}{
+		{
+			name: "fully populated",
+			original: &TestNested{
+				OuterId: 12345,
+				SingularNested: &InnerMessage{
+					InnerId:   1,
+					InnerText: "singular",
+				},
+				RepeatedNested: []*InnerMessage{
+					{InnerId: 10, InnerText: "repeated_one"},
+					{InnerId: 20, InnerText: "repeated_two"},
+				},
+			},
+		},
+		{
+			name: "nil and empty nested fields",
+			original: &TestNested{
+				OuterId:        67890,
+				SingularNested: nil,
+				RepeatedNested: []*InnerMessage{},
+			},
+		},
+		{
+			name: "empty but not-nil nested message",
+			original: &TestNested{
+				OuterId:        111,
+				SingularNested: &InnerMessage{}, // Empty inner message
+				RepeatedNested: []*InnerMessage{
+					{}, // List with one empty inner message
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runTestCycle(t, tt.original, &TestNested{})
+		})
+	}
+}
+
+func TestDeepNested_MarshalUnmarshal(t *testing.T) {
+	tests := []struct {
+		name     string
+		original *TestDeepNested
+	}{
+		{
+			name: "fully populated deep nesting",
+			original: &TestDeepNested{
+				TopLevelId: 500,
+				NestedLevel2: &Level2Message{
+					NestedLevel3: &Level3Message{
+						FinalText: "deepest message",
+					},
+				},
+			},
+		},
+		{
+			name: "partially nil deep nesting",
+			original: &TestDeepNested{
+				TopLevelId: 501,
+				NestedLevel2: &Level2Message{
+					NestedLevel3: nil, // Innermost is nil
+				},
+			},
+		},
+		{
+			name: "fully nil deep nesting",
+			original: &TestDeepNested{
+				TopLevelId:   502,
+				NestedLevel2: nil, // Middle level is nil
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runTestCycle(t, tt.original, &TestDeepNested{})
+		})
+	}
+}
