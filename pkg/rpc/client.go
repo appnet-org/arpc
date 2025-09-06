@@ -25,9 +25,11 @@ type Client struct {
 }
 
 // NewClient creates a new Client using the given serializer and target address.
+// The client will bind to any available local UDP port to avoid port conflicts
+// when creating multiple clients in the same process.
 func NewClient(serializer serializer.Serializer, addr string, rpcElements []element.RPCElement) (*Client, error) {
-	// Make sure the client uses the same port for each call
-	t, err := transport.NewUDPTransport(":53357")
+	// Use port 0 to let the OS assign an available port
+	t, err := transport.NewUDPTransport(":0")
 	if err != nil {
 		return nil, err
 	}
@@ -38,6 +40,27 @@ func NewClient(serializer serializer.Serializer, addr string, rpcElements []elem
 		defaultAddr:     addr,
 		rpcElementChain: element.NewRPCElementChain(rpcElements...),
 	}, nil
+}
+
+// NewClientWithLocalAddr creates a new Client using the given serializer, target address, and local address.
+// This allows specifying a custom local UDP address to bind to.
+func NewClientWithLocalAddr(serializer serializer.Serializer, addr, localAddr string, rpcElements []element.RPCElement) (*Client, error) {
+	t, err := transport.NewUDPTransport(localAddr)
+	if err != nil {
+		return nil, err
+	}
+	return &Client{
+		transport:       t,
+		serializer:      serializer,
+		metadataCodec:   metadata.MetadataCodec{},
+		defaultAddr:     addr,
+		rpcElementChain: element.NewRPCElementChain(rpcElements...),
+	}, nil
+}
+
+// Transport returns the underlying UDP transport for cleanup purposes
+func (c *Client) Transport() *transport.UDPTransport {
+	return c.transport
 }
 
 // frameRequest constructs a binary message with [serviceLen][service][methodLen][method][headerLen][headers][payload]
