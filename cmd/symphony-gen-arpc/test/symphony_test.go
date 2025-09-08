@@ -669,3 +669,11 @@ func TestDeepNested_MarshalUnmarshal(t *testing.T) {
 		})
 	}
 }
+
+func TestEmpty_MarshalUnmarshal(t *testing.T) {
+	t.Run("empty message", func(t *testing.T) {
+		original := &TestEmpty{}
+		unmarshaled := &TestEmpty{}
+		runTestCycle(t, original, unmarshaled)
+	})
+}

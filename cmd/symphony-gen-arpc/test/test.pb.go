@@ -385,6 +385,43 @@ func (x *TestOrder) GetRFifth() []string {
 	return nil
 }
 
+// Tests an empty message with no fields
+type TestEmpty struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestEmpty) Reset() {
+	*x = TestEmpty{}
+	mi := &file_test_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestEmpty) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestEmpty) ProtoMessage() {}
+
+func (x *TestEmpty) ProtoReflect() protoreflect.Message {
+	mi := &file_test_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestEmpty.ProtoReflect.Descriptor instead.
+func (*TestEmpty) Descriptor() ([]byte, []int) {
+	return file_test_proto_rawDescGZIP(), []int{6}
+}
+
 // Inner message to be used for nesting.
 type InnerMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -396,7 +433,7 @@ type InnerMessage struct {
 
 func (x *InnerMessage) Reset() {
 	*x = InnerMessage{}
-	mi := &file_test_proto_msgTypes[6]
+	mi := &file_test_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -408,7 +445,7 @@ func (x *InnerMessage) String() string {
 func (*InnerMessage) ProtoMessage() {}
 
 func (x *InnerMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_test_proto_msgTypes[6]
+	mi := &file_test_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -421,7 +458,7 @@ func (x *InnerMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InnerMessage.ProtoReflect.Descriptor instead.
 func (*InnerMessage) Descriptor() ([]byte, []int) {
-	return file_test_proto_rawDescGZIP(), []int{6}
+	return file_test_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *InnerMessage) GetInnerId() int32 {
@@ -450,7 +487,7 @@ type TestNested struct {
 
 func (x *TestNested) Reset() {
 	*x = TestNested{}
-	mi := &file_test_proto_msgTypes[7]
+	mi := &file_test_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -462,7 +499,7 @@ func (x *TestNested) String() string {
 func (*TestNested) ProtoMessage() {}
 
 func (x *TestNested) ProtoReflect() protoreflect.Message {
-	mi := &file_test_proto_msgTypes[7]
+	mi := &file_test_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -475,7 +512,7 @@ func (x *TestNested) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestNested.ProtoReflect.Descriptor instead.
 func (*TestNested) Descriptor() ([]byte, []int) {
-	return file_test_proto_rawDescGZIP(), []int{7}
+	return file_test_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *TestNested) GetOuterId() int64 {
@@ -509,7 +546,7 @@ type Level3Message struct {
 
 func (x *Level3Message) Reset() {
 	*x = Level3Message{}
-	mi := &file_test_proto_msgTypes[8]
+	mi := &file_test_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -521,7 +558,7 @@ func (x *Level3Message) String() string {
 func (*Level3Message) ProtoMessage() {}
 
 func (x *Level3Message) ProtoReflect() protoreflect.Message {
-	mi := &file_test_proto_msgTypes[8]
+	mi := &file_test_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -534,7 +571,7 @@ func (x *Level3Message) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Level3Message.ProtoReflect.Descriptor instead.
 func (*Level3Message) Descriptor() ([]byte, []int) {
-	return file_test_proto_rawDescGZIP(), []int{8}
+	return file_test_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Level3Message) GetFinalText() string {
@@ -553,7 +590,7 @@ type Level2Message struct {
 
 func (x *Level2Message) Reset() {
 	*x = Level2Message{}
-	mi := &file_test_proto_msgTypes[9]
+	mi := &file_test_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -565,7 +602,7 @@ func (x *Level2Message) String() string {
 func (*Level2Message) ProtoMessage() {}
 
 func (x *Level2Message) ProtoReflect() protoreflect.Message {
-	mi := &file_test_proto_msgTypes[9]
+	mi := &file_test_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -578,7 +615,7 @@ func (x *Level2Message) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Level2Message.ProtoReflect.Descriptor instead.
 func (*Level2Message) Descriptor() ([]byte, []int) {
-	return file_test_proto_rawDescGZIP(), []int{9}
+	return file_test_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Level2Message) GetNestedLevel3() *Level3Message {
@@ -598,7 +635,7 @@ type TestDeepNested struct {
 
 func (x *TestDeepNested) Reset() {
 	*x = TestDeepNested{}
-	mi := &file_test_proto_msgTypes[10]
+	mi := &file_test_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -610,7 +647,7 @@ func (x *TestDeepNested) String() string {
 func (*TestDeepNested) ProtoMessage() {}
 
 func (x *TestDeepNested) ProtoReflect() protoreflect.Message {
-	mi := &file_test_proto_msgTypes[10]
+	mi := &file_test_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -623,7 +660,7 @@ func (x *TestDeepNested) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestDeepNested.ProtoReflect.Descriptor instead.
 func (*TestDeepNested) Descriptor() ([]byte, []int) {
-	return file_test_proto_rawDescGZIP(), []int{10}
+	return file_test_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *TestDeepNested) GetTopLevelId() int32 {
@@ -670,7 +707,8 @@ const file_test_proto_rawDesc = "" +
 	"\bf_second\x18\x02 \x01(\x05R\afSecond\x12\x17\n" +
 	"\ar_third\x18\x03 \x03(\x05R\x06rThird\x12\x19\n" +
 	"\bf_fourth\x18\x04 \x01(\x03R\afFourth\x12\x17\n" +
-	"\ar_fifth\x18\x05 \x03(\tR\x06rFifth\"H\n" +
+	"\ar_fifth\x18\x05 \x03(\tR\x06rFifth\"\v\n" +
+	"\tTestEmpty\"H\n" +
 	"\fInnerMessage\x12\x19\n" +
 	"\binner_id\x18\x01 \x01(\x05R\ainnerId\x12\x1d\n" +
 	"\n" +
@@ -704,7 +742,7 @@ func file_test_proto_rawDescGZIP() []byte {
 	return file_test_proto_rawDescData
 }
 
-var file_test_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_test_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_test_proto_goTypes = []any{
 	(*TestRequest)(nil),     // 0: Test.TestRequest
 	(*TestResponse)(nil),    // 1: Test.TestResponse
@@ -712,24 +750,25 @@ var file_test_proto_goTypes = []any{
 	(*TestVariableLen)(nil), // 3: Test.TestVariableLen
 	(*TestRepeated)(nil),    // 4: Test.TestRepeated
 	(*TestOrder)(nil),       // 5: Test.TestOrder
-	(*InnerMessage)(nil),    // 6: Test.InnerMessage
-	(*TestNested)(nil),      // 7: Test.TestNested
-	(*Level3Message)(nil),   // 8: Test.Level3Message
-	(*Level2Message)(nil),   // 9: Test.Level2Message
-	(*TestDeepNested)(nil),  // 10: Test.TestDeepNested
+	(*TestEmpty)(nil),       // 6: Test.TestEmpty
+	(*InnerMessage)(nil),    // 7: Test.InnerMessage
+	(*TestNested)(nil),      // 8: Test.TestNested
+	(*Level3Message)(nil),   // 9: Test.Level3Message
+	(*Level2Message)(nil),   // 10: Test.Level2Message
+	(*TestDeepNested)(nil),  // 11: Test.TestDeepNested
 }
 var file_test_proto_depIdxs = []int32{
-	6, // 0: Test.TestNested.singular_nested:type_name -> Test.InnerMessage
-	6, // 1: Test.TestNested.repeated_nested:type_name -> Test.InnerMessage
-	8, // 2: Test.Level2Message.nested_level3:type_name -> Test.Level3Message
-	9, // 3: Test.TestDeepNested.nested_level2:type_name -> Test.Level2Message
-	0, // 4: Test.TestService.Test:input_type -> Test.TestRequest
-	1, // 5: Test.TestService.Test:output_type -> Test.TestResponse
-	5, // [5:6] is the sub-list for method output_type
-	4, // [4:5] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	7,  // 0: Test.TestNested.singular_nested:type_name -> Test.InnerMessage
+	7,  // 1: Test.TestNested.repeated_nested:type_name -> Test.InnerMessage
+	9,  // 2: Test.Level2Message.nested_level3:type_name -> Test.Level3Message
+	10, // 3: Test.TestDeepNested.nested_level2:type_name -> Test.Level2Message
+	0,  // 4: Test.TestService.Test:input_type -> Test.TestRequest
+	1,  // 5: Test.TestService.Test:output_type -> Test.TestResponse
+	5,  // [5:6] is the sub-list for method output_type
+	4,  // [4:5] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_test_proto_init() }
@@ -743,7 +782,7 @@ func file_test_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_test_proto_rawDesc), len(file_test_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
