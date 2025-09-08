@@ -42,6 +42,16 @@ func generateMarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
 	}
 
 	g.P("func (m *", msg.GoIdent.GoName, ") MarshalSymphony() ([]byte, error) {")
+	
+	// Handle empty messages specially
+	if len(msg.Fields) == 0 {
+		g.P("    // Empty message - just return header")
+		g.P("    return []byte{0x00}, nil")
+		g.P("}")
+		g.P()
+		return
+	}
+	
 	g.P("    var buf bytes.Buffer")
 	g.P()
 
@@ -199,6 +209,18 @@ func generateMarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
 
 func generateUnmarshalStub(g *protogen.GeneratedFile, msg *protogen.Message) {
 	g.P("func (m *", msg.GoIdent.GoName, ") UnmarshalSymphony(data []byte) error {")
+
+	// Handle empty messages specially
+	if len(msg.Fields) == 0 {
+		g.P("    // Empty message - just validate header")
+		g.P("    if len(data) < 1 || data[0] != 0x00 {")
+		g.P("        return fmt.Errorf(\"invalid empty message data\")")
+		g.P("    }")
+		g.P("    return nil")
+		g.P("}")
+		g.P()
+		return
+	}
 
 	// === HEADER PARSING SECTION ===
 	g.P("    // === HEADER PARSING SECTION ===")

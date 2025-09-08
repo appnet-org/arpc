@@ -49,6 +49,10 @@ message TestOrder {
   repeated string r_fifth = 5;  // Variable
 }
 
+// Tests an empty message with no fields
+message TestEmpty {
+}
+
 
 // Inner message to be used for nesting.
 message InnerMessage {
@@ -76,3 +80,4 @@ message TestDeepNested {
   int32 top_level_id = 1;
   Level2Message nested_level2 = 2;
 }
+
