@@ -54,7 +54,7 @@ kind: Deployment
 metadata:
   name: server
 spec:
-  replicas: 2
+  replicas: 1
   template:
     metadata:
       name: server

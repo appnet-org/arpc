@@ -47,7 +47,7 @@ func main() {
 		metrics,
 	}
 
-	client, err := rpc.NewClient(serializer, ":11000", rpcElements) // TODO: change to your server's address fully qualified domain name
+	client, err := rpc.NewClient(serializer, "server.default.svc.cluster.local:11000", rpcElements) // TODO: change to your server's address fully qualified domain name
 	if err != nil {
 		log.Fatal("Failed to create RPC client:", err)
 	}
