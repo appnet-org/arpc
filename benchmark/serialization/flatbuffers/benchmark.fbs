@@ -1,0 +1,10 @@
+namespace benchmark;
+
+table BenchmarkMessage {
+  id: int;
+  score: int;
+  username: string;
+  content: string;
+}
+
+root_type BenchmarkMessage;
