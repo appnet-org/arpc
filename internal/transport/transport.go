@@ -3,13 +3,14 @@ package transport
 import (
 	"encoding/binary"
 	"fmt"
-	"log"
 	"math/rand"
 	"net"
 	"time"
 
 	"github.com/appnet-org/arpc/internal/packet"
 	"github.com/appnet-org/arpc/internal/transport/balancer"
+	"github.com/appnet-org/arpc/pkg/logging"
+	"go.uber.org/zap"
 )
 
 // GenerateRPCID creates a unique RPC ID
@@ -78,7 +79,9 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 			}
 			copy(data[0:4], ip4)
 			binary.LittleEndian.PutUint16(data[4:6], uint16(udpAddr.Port))
-			log.Printf("Embedded IP and port: %s:%d", ip4, udpAddr.Port)
+			logging.Debug("Embedded IP and port",
+				zap.String("ip", ip4.String()),
+				zap.Uint16("port", uint16(udpAddr.Port)))
 		} else {
 			return fmt.Errorf("destination IP is not IPv4")
 		}
@@ -94,7 +97,7 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 	for _, pkt := range packets {
 		// Serialize the packet into a byte slice for transmission
 		packetData, err := packet.SerializePacket(pkt, packetType)
-		log.Printf("Serialized packet: %x", packetData)
+		logging.Debug("Serialized packet", zap.String("packetData", fmt.Sprintf("%x", packetData)))
 		if err != nil {
 			return err
 		}
@@ -141,7 +144,7 @@ func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, pa
 		return []byte(p.ErrorMsg), addr, p.RPCID, packetType, nil
 	default:
 		// Unknown packet type - return early with no data
-		log.Printf("Unknown packet type: %s", packetType.Name)
+		logging.Debug("Unknown packet type", zap.String("packetType", packetType.Name))
 		return nil, nil, 0, packetType, nil
 	}
 }

@@ -5,14 +5,15 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"log"
 	"net"
 
 	"github.com/appnet-org/arpc/internal/packet"
 	"github.com/appnet-org/arpc/internal/transport"
+	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/rpc/element"
 	"github.com/appnet-org/arpc/pkg/serializer"
+	"go.uber.org/zap"
 )
 
 // Client represents an RPC client with a transport and serializer.
@@ -163,7 +164,7 @@ func (c *Client) handleResponsePacket(ctx context.Context, data []byte, rpcID ui
 		return fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
-	log.Printf("Successfully received response for RPC ID %d\n", rpcID)
+	logging.Debug("Successfully received response", zap.Uint64("rpcID", rpcID))
 
 	// Create response for RPC element processing
 	rpcResp := &element.RPCResponse{
@@ -201,14 +202,14 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 
 	// Serialize the request payload
 	reqPayloadBytes, err := c.serializer.Marshal(rpcReq.Payload)
-	log.Printf("Serialized request payload: %x", reqPayloadBytes)
+	logging.Debug("Serialized request payload", zap.String("payload", fmt.Sprintf("%x", reqPayloadBytes)))
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	// Frame the request into binary format
 	framedReq, err := frameRequest(rpcReq.ServiceName, rpcReq.Method, reqPayloadBytes)
-	log.Printf("Framed request Message: %x", framedReq)
+	logging.Debug("Framed request Message", zap.String("message", fmt.Sprintf("%x", framedReq)))
 	if err != nil {
 		return fmt.Errorf("failed to frame request: %w", err)
 	}
@@ -230,7 +231,9 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		}
 
 		if respID != rpcReq.ID {
-			log.Printf("Ignoring response with mismatched RPC ID: %d (expected %d)", respID, rpcReq.ID)
+			logging.Debug("Ignoring response with mismatched RPC ID",
+				zap.Uint64("receivedID", respID),
+				zap.Uint64("expectedID", rpcReq.ID))
 			continue
 		}
 
@@ -241,7 +244,7 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		case packet.PacketTypeError:
 			return c.handleErrorPacket(ctx, string(data))
 		default:
-			log.Printf("Ignoring packet with unknown type: %s", packetType.Name)
+			logging.Debug("Ignoring packet with unknown type", zap.String("packetType", packetType.Name))
 			continue
 		}
 	}
