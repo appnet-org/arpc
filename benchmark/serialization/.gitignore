@@ -1,0 +1,12 @@
+# Benchmark results folder
+results/
+
+# CPU profile files
+*.prof
+
+# Timing results log files
+*_timing_results.log
+
+# Any other benchmark output files
+*.out
+*.log
