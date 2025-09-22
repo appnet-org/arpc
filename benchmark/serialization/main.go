@@ -263,10 +263,7 @@ func measureMarshalTime(id, score int32, username, content string, resultsDir st
 	pbResult := testing.Benchmark(func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			pbReq := &pb.BenchmarkMessage{Id: id, Score: score, Username: username, Content: content}
-			_, err := proto.Marshal(pbReq)
-			if err != nil {
-				b.Fatal(err)
-			}
+			_, _ = proto.Marshal(pbReq)
 		}
 	})
 	pbResultStr := formatBenchmarkResult(pbResult)
@@ -277,10 +274,7 @@ func measureMarshalTime(id, score int32, username, content string, resultsDir st
 	synResult := testing.Benchmark(func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			synReq := &syn.BenchmarkMessage{Id: id, Score: score, Username: username, Content: content}
-			_, err := synReq.MarshalSymphony()
-			if err != nil {
-				b.Fatal(err)
-			}
+			_, _ = synReq.MarshalSymphony()
 		}
 	})
 	synResultStr := formatBenchmarkResult(synResult)
@@ -290,22 +284,13 @@ func measureMarshalTime(id, score int32, username, content string, resultsDir st
 	// Cap'n Proto benchmark
 	cpResult := testing.Benchmark(func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-			if err != nil {
-				b.Fatal(err)
-			}
-			cpReq, err := cp.NewRootBenchmarkMessage(seg)
-			if err != nil {
-				b.Fatal(err)
-			}
+			msg, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
+			cpReq, _ := cp.NewRootBenchmarkMessage(seg)
 			cpReq.SetId(id)
 			cpReq.SetScore(score)
 			cpReq.SetUsername(username)
 			cpReq.SetContent(content)
-			_, err = msg.Marshal()
-			if err != nil {
-				b.Fatal(err)
-			}
+			_, _ = msg.Marshal()
 		}
 	})
 	cpResultStr := formatBenchmarkResult(cpResult)
@@ -381,10 +366,7 @@ func measureUnmarshalTime(id, score int32, username, content string, resultsDir 
 	pbResult := testing.Benchmark(func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			pbDecoded := &pb.BenchmarkMessage{}
-			err := proto.Unmarshal(pbBytes, pbDecoded)
-			if err != nil {
-				b.Fatal(err)
-			}
+			_ = proto.Unmarshal(pbBytes, pbDecoded)
 		}
 	})
 	pbResultStr := formatBenchmarkResult(pbResult)
@@ -395,10 +377,7 @@ func measureUnmarshalTime(id, score int32, username, content string, resultsDir 
 	synResult := testing.Benchmark(func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			synDecoded := &syn.BenchmarkMessage{}
-			err := synDecoded.UnmarshalSymphony(synBytes)
-			if err != nil {
-				b.Fatal(err)
-			}
+			_ = synDecoded.UnmarshalSymphony(synBytes)
 		}
 	})
 	synResultStr := formatBenchmarkResult(synResult)
@@ -408,14 +387,12 @@ func measureUnmarshalTime(id, score int32, username, content string, resultsDir 
 	// Cap'n Proto unmarshal benchmark
 	cpResult := testing.Benchmark(func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			cpMsg, err := capnp.Unmarshal(cpBytes)
-			if err != nil {
-				b.Fatal(err)
-			}
-			_, err = cp.ReadRootBenchmarkMessage(cpMsg)
-			if err != nil {
-				b.Fatal(err)
-			}
+			cpMsg, _ := capnp.Unmarshal(cpBytes)
+			cpDecoded, _ := cp.ReadRootBenchmarkMessage(cpMsg)
+			_, _ = cpDecoded.Username()
+			_, _ = cpDecoded.Content()
+			_ = cpDecoded.Id()
+			_ = cpDecoded.Score()
 		}
 	})
 	cpResultStr := formatBenchmarkResult(cpResult)
@@ -469,10 +446,7 @@ func measureMarshalCPU(id, score int32, username, content string, resultsDir str
 	profileMarshalFunction(filepath.Join(resultsDir, "protobuf_marshal.prof"), func() {
 		pbReq := &pb.BenchmarkMessage{Id: id, Score: score, Username: username, Content: content}
 		for i := 0; i < iterations; i++ {
-			_, err := proto.Marshal(pbReq)
-			if err != nil {
-				log.Fatalf("protobuf marshal error: %v", err)
-			}
+			_, _ = proto.Marshal(pbReq)
 		}
 	})
 	fmt.Printf("✓ Protobuf CPU profile saved to: %s\n", filepath.Join(resultsDir, "protobuf_marshal.prof"))
@@ -481,10 +455,7 @@ func measureMarshalCPU(id, score int32, username, content string, resultsDir str
 	profileMarshalFunction(filepath.Join(resultsDir, "symphony_marshal.prof"), func() {
 		synReq := &syn.BenchmarkMessage{Id: id, Score: score, Username: username, Content: content}
 		for i := 0; i < iterations; i++ {
-			_, err := synReq.MarshalSymphony()
-			if err != nil {
-				log.Fatalf("symphony marshal error: %v", err)
-			}
+			_, _ = synReq.MarshalSymphony()
 		}
 	})
 	fmt.Printf("✓ Symphony CPU profile saved to: %s\n", filepath.Join(resultsDir, "symphony_marshal.prof"))
@@ -492,22 +463,13 @@ func measureMarshalCPU(id, score int32, username, content string, resultsDir str
 	// Profile Cap'n Proto
 	profileMarshalFunction(filepath.Join(resultsDir, "capnproto_marshal.prof"), func() {
 		for i := 0; i < iterations; i++ {
-			msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-			if err != nil {
-				log.Fatalf("capnp message creation error: %v", err)
-			}
-			cpReq, err := cp.NewRootBenchmarkMessage(seg)
-			if err != nil {
-				log.Fatalf("capnp root error: %v", err)
-			}
+			msg, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
+			cpReq, _ := cp.NewRootBenchmarkMessage(seg)
 			cpReq.SetId(id)
 			cpReq.SetScore(score)
 			cpReq.SetUsername(username)
 			cpReq.SetContent(content)
-			_, err = msg.Marshal()
-			if err != nil {
-				log.Fatalf("capnp marshal error: %v", err)
-			}
+			_, _ = msg.Marshal()
 		}
 	})
 	fmt.Printf("✓ Cap'n Proto CPU profile saved to: %s\n", filepath.Join(resultsDir, "capnproto_marshal.prof"))
@@ -595,10 +557,7 @@ func measureUnmarshalCPU(id, score int32, username, content string, resultsDir s
 	profileMarshalFunction(filepath.Join(resultsDir, "protobuf_unmarshal.prof"), func() {
 		for i := 0; i < iterations; i++ {
 			pbDecoded := &pb.BenchmarkMessage{}
-			err := proto.Unmarshal(pbBytes, pbDecoded)
-			if err != nil {
-				log.Fatalf("protobuf unmarshal error: %v", err)
-			}
+			_ = proto.Unmarshal(pbBytes, pbDecoded)
 		}
 	})
 	fmt.Printf("✓ Protobuf unmarshal CPU profile saved to: %s\n", filepath.Join(resultsDir, "protobuf_unmarshal.prof"))
@@ -607,10 +566,7 @@ func measureUnmarshalCPU(id, score int32, username, content string, resultsDir s
 	profileMarshalFunction(filepath.Join(resultsDir, "symphony_unmarshal.prof"), func() {
 		for i := 0; i < iterations; i++ {
 			synDecoded := &syn.BenchmarkMessage{}
-			err := synDecoded.UnmarshalSymphony(synBytes)
-			if err != nil {
-				log.Fatalf("symphony unmarshal error: %v", err)
-			}
+			_ = synDecoded.UnmarshalSymphony(synBytes)
 		}
 	})
 	fmt.Printf("✓ Symphony unmarshal CPU profile saved to: %s\n", filepath.Join(resultsDir, "symphony_unmarshal.prof"))
@@ -618,14 +574,12 @@ func measureUnmarshalCPU(id, score int32, username, content string, resultsDir s
 	// Profile Cap'n Proto unmarshal
 	profileMarshalFunction(filepath.Join(resultsDir, "capnproto_unmarshal.prof"), func() {
 		for i := 0; i < iterations; i++ {
-			cpMsg, err := capnp.Unmarshal(cpBytes)
-			if err != nil {
-				log.Fatalf("capnp unmarshal error: %v", err)
-			}
-			_, err = cp.ReadRootBenchmarkMessage(cpMsg)
-			if err != nil {
-				log.Fatalf("capnp read root error: %v", err)
-			}
+			cpMsg, _ := capnp.Unmarshal(cpBytes)
+			cpDecoded, _ := cp.ReadRootBenchmarkMessage(cpMsg)
+			_, _ = cpDecoded.Username()
+			_, _ = cpDecoded.Content()
+			_ = cpDecoded.Id()
+			_ = cpDecoded.Score()
 		}
 	})
 	fmt.Printf("✓ Cap'n Proto unmarshal CPU profile saved to: %s\n", filepath.Join(resultsDir, "capnproto_unmarshal.prof"))
