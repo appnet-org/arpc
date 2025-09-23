@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	"log"
 	"sync/atomic"
 	"time"
 
+	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/rpc/element"
+	"go.uber.org/zap"
 )
 
 // MetricsElement tracks various RPC metrics
@@ -39,7 +40,7 @@ func (m *MetricsElement) printMetrics() {
 		select {
 		case <-ticker.C:
 			count := atomic.LoadUint64(&m.requestCount)
-			log.Printf("Metrics - Total Requests: %d", count)
+			logging.Debug("Metrics - Total Requests", zap.Uint64("count", count))
 		case <-m.ctx.Done():
 			return
 		}

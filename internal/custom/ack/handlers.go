@@ -2,9 +2,11 @@ package ack
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"time"
+
+	"github.com/appnet-org/arpc/pkg/logging"
+	"go.uber.org/zap"
 )
 
 // ACKLoggerHandler logs ACK packets for debugging
@@ -16,8 +18,11 @@ func (h *ACKLoggerHandler) OnReceive(pkt any, addr *net.UDPAddr) error {
 		return fmt.Errorf("expected ACK packet, got %T", pkt)
 	}
 
-	log.Printf("Received ACK for RPC %d from %s: status=%d, message='%s'",
-		ack.RPCID, addr.String(), ack.Status, ack.Message)
+	logging.Info("Received ACK",
+		zap.Uint64("rpcID", ack.RPCID),
+		zap.String("addr", addr.String()),
+		zap.Uint8("status", ack.Status),
+		zap.String("message", ack.Message))
 	return nil
 }
 
@@ -27,8 +32,11 @@ func (h *ACKLoggerHandler) OnSend(pkt any, addr *net.UDPAddr) error {
 		return fmt.Errorf("expected ACK packet, got %T", pkt)
 	}
 
-	log.Printf("Sending ACK for RPC %d to %s: status=%d, message='%s'",
-		ack.RPCID, addr.String(), ack.Status, ack.Message)
+	logging.Info("Sending ACK",
+		zap.Uint64("rpcID", ack.RPCID),
+		zap.String("addr", addr.String()),
+		zap.Uint8("status", ack.Status),
+		zap.String("message", ack.Message))
 	return nil
 }
 
@@ -56,11 +64,11 @@ func (h *ACKProcessorHandler) OnReceive(pkt any, addr *net.UDPAddr) error {
 	// Process based on status
 	switch ack.Status {
 	case 0:
-		log.Printf("RPC %d completed successfully", ack.RPCID)
+		logging.Info("RPC completed successfully", zap.Uint64("rpcID", ack.RPCID))
 	case 1:
-		log.Printf("RPC %d failed: %s", ack.RPCID, ack.Message)
+		logging.Warn("RPC failed", zap.Uint64("rpcID", ack.RPCID), zap.String("message", ack.Message))
 	default:
-		log.Printf("RPC %d has unknown status %d", ack.RPCID, ack.Status)
+		logging.Warn("RPC has unknown status", zap.Uint64("rpcID", ack.RPCID), zap.Uint8("status", ack.Status))
 	}
 
 	return nil

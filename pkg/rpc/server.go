@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"log"
 
 	"github.com/appnet-org/arpc/internal/packet"
 	"github.com/appnet-org/arpc/internal/transport"
+	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/rpc/element"
 	"github.com/appnet-org/arpc/pkg/serializer"
+	"go.uber.org/zap"
 )
 
 // MethodHandler defines the function signature for handling an RPC method.
@@ -53,7 +54,7 @@ func NewServer(addr string, serializer serializer.Serializer, rpcElements []elem
 // RegisterService registers a service and its methods with the server.
 func (s *Server) RegisterService(desc *ServiceDesc, impl any) {
 	s.services[desc.ServiceName] = desc
-	log.Printf("Registered service: %s\n", desc.ServiceName)
+	logging.Info("Registered service", zap.String("serviceName", desc.ServiceName))
 }
 
 // parseFramedRequest extracts service, method, header, and payload segments from a request frame.
@@ -108,13 +109,13 @@ func frameResponse(service, method string, payload []byte) ([]byte, error) {
 
 // Start begins listening for incoming RPC requests, dispatching to the appropriate service/method handler.
 func (s *Server) Start() {
-	log.Println("Server started... Waiting for messages.")
+	logging.Info("Server started... Waiting for messages.")
 
 	for {
 		// Receive a packet from a client
 		data, addr, rpcID, _, err := s.transport.Receive(packet.MaxUDPPayloadSize)
 		if err != nil {
-			log.Println("Error receiving data:", err)
+			logging.Error("Error receiving data", zap.Error(err))
 			continue
 		}
 
@@ -125,7 +126,7 @@ func (s *Server) Start() {
 		// Parse request payload
 		serviceName, methodName, reqPayloadBytes, err := parseFramedRequest(data)
 		if err != nil {
-			log.Printf("Failed to parse framed request: %v", err)
+			logging.Error("Failed to parse framed request", zap.Error(err))
 			continue
 		}
 
@@ -140,19 +141,21 @@ func (s *Server) Start() {
 		// Process request through RPC elements
 		rpcReq, err = s.rpcElementChain.ProcessRequest(context.Background(), rpcReq)
 		if err != nil {
-			log.Printf("RPC element processing error: %v", err)
+			logging.Error("RPC element processing error", zap.Error(err))
 			continue
 		}
 
 		// Lookup service and method
 		svcDesc, ok := s.services[rpcReq.ServiceName]
 		if !ok {
-			log.Printf("Unknown service: %s", rpcReq.ServiceName)
+			logging.Warn("Unknown service", zap.String("serviceName", rpcReq.ServiceName))
 			continue
 		}
 		methodDesc, ok := svcDesc.Methods[rpcReq.Method]
 		if !ok {
-			log.Printf("Unknown method: %s.%s", rpcReq.ServiceName, rpcReq.Method)
+			logging.Warn("Unknown method",
+				zap.String("serviceName", rpcReq.ServiceName),
+				zap.String("methodName", rpcReq.Method))
 			continue
 		}
 
@@ -161,7 +164,7 @@ func (s *Server) Start() {
 			return s.serializer.Unmarshal(rpcReq.Payload.([]byte), v)
 		})
 		if err != nil {
-			log.Printf("Handler error: %v", err)
+			logging.Error("Handler error", zap.Error(err))
 			continue
 		}
 
@@ -174,28 +177,28 @@ func (s *Server) Start() {
 		// Process response through RPC elements
 		rpcResp, err = s.rpcElementChain.ProcessResponse(context.Background(), rpcResp)
 		if err != nil {
-			log.Printf("RPC element response processing error: %v", err)
+			logging.Error("RPC element response processing error", zap.Error(err))
 			continue
 		}
 
 		// Serialize response
 		respPayloadBytes, err := s.serializer.Marshal(rpcResp.Result)
 		if err != nil {
-			log.Printf("Error marshaling response: %v", err)
+			logging.Error("Error marshaling response", zap.Error(err))
 			continue
 		}
 
 		// Frame response
 		framedResp, err := frameResponse(rpcReq.ServiceName, rpcReq.Method, respPayloadBytes)
 		if err != nil {
-			log.Printf("Failed to frame response: %v", err)
+			logging.Error("Failed to frame response", zap.Error(err))
 			continue
 		}
 
 		// Send the response
 		err = s.transport.Send(addr.String(), rpcID, framedResp, packet.PacketTypeResponse)
 		if err != nil {
-			log.Printf("Error sending response: %v", err)
+			logging.Error("Error sending response", zap.Error(err))
 		}
 	}
 }
