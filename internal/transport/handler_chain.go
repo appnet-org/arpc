@@ -28,6 +28,10 @@ func NewHandlerChain(name string, handlers ...Handler) *HandlerChain {
 	}
 }
 
+func (hc *HandlerChain) AddHandler(handler Handler) {
+	hc.handlers = append(hc.handlers, handler)
+}
+
 // OnReceive processes a packet through the receive chain
 func (hc *HandlerChain) OnReceive(pkt any, addr *net.UDPAddr) error {
 	logging.Debug("Executing on_receive handler chain", zap.String("chainName", hc.name))

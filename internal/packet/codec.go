@@ -19,7 +19,7 @@ type PacketCodec interface {
 // Generic packet serialization/deserialization functions
 func SerializePacket(packet any, packetType PacketType) ([]byte, error) {
 	registry := DefaultRegistry
-	codec, exists := registry.GetCodec(packetType.ID)
+	codec, exists := registry.GetCodec(packetType.TypeID)
 	if !exists {
 		return nil, errors.New("codec not found for packet type " + packetType.Name)
 	}
@@ -50,5 +50,5 @@ func DeserializePacketAny(data []byte) (any, PacketType, error) {
 		return nil, PacketTypeUnknown, err
 	}
 
-	return packet, PacketType{ID: PacketTypeID(packetType), Name: registry.types[PacketTypeID(packetType)].Name}, nil
+	return packet, PacketType{TypeID: PacketTypeID(packetType), Name: registry.types[PacketTypeID(packetType)].Name}, nil
 }

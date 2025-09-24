@@ -29,9 +29,9 @@ func NewHandlerRegistry(transport *UDPTransport) *HandlerRegistry {
 	errorChain := NewHandlerChain("ErrorHandlerChain")
 
 	// Register default handler chains
-	registry.RegisterHandlerChain(packet.PacketTypeRequest.ID, requestChain)
-	registry.RegisterHandlerChain(packet.PacketTypeResponse.ID, responseChain)
-	registry.RegisterHandlerChain(packet.PacketTypeError.ID, errorChain)
+	registry.RegisterHandlerChain(packet.PacketTypeRequest.TypeID, requestChain)
+	registry.RegisterHandlerChain(packet.PacketTypeResponse.TypeID, responseChain)
+	registry.RegisterHandlerChain(packet.PacketTypeError.TypeID, errorChain)
 
 	return registry
 }

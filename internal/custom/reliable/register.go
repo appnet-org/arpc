@@ -1,7 +1,7 @@
-//go:build !exclude_ack
-// +build !exclude_ack
+//go:build !exclude_reliable
+// +build !exclude_reliable
 
-package ack
+package reliable
 
 import (
 	"fmt"

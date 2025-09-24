@@ -8,8 +8,8 @@ import (
 type PacketTypeID uint8
 
 type PacketType struct {
-	ID   PacketTypeID
-	Name string
+	TypeID PacketTypeID
+	Name   string
 }
 
 // PacketRegistry allows registering custom packet types and their codecs
@@ -35,26 +35,27 @@ func (pr *PacketRegistry) RegisterPacketType(packetType string, codec PacketCode
 	}
 
 	pt := PacketType{
-		ID:   pr.nextID,
-		Name: packetType,
+		TypeID: pr.nextID,
+		Name:   packetType,
 	}
-	pr.types[pt.ID] = pt
-	pr.codecs[pt.ID] = codec
+	pr.types[pt.TypeID] = pt
+	pr.codecs[pt.TypeID] = codec
 	pr.nextID++ // Increment for next registration
 
 	return pt, nil
 }
+
 func (pr *PacketRegistry) RegisterPacketTypeWithID(packetType string, id PacketTypeID, codec PacketCodec) (PacketType, error) {
 	if _, exists := pr.types[id]; exists {
 		return PacketTypeUnknown, errors.New("packet type with this ID already exists")
 	}
 
 	pt := PacketType{
-		ID:   id,
-		Name: packetType,
+		TypeID: id,
+		Name:   packetType,
 	}
-	pr.types[pt.ID] = pt
-	pr.codecs[pt.ID] = codec
+	pr.types[pt.TypeID] = pt
+	pr.codecs[pt.TypeID] = codec
 
 	return pt, nil
 }
@@ -76,9 +77,9 @@ var DefaultRegistry = func() *PacketRegistry {
 	pr := NewPacketRegistry()
 
 	// Register default packet types with their codecs
-	pr.RegisterPacketTypeWithID(PacketTypeRequest.Name, PacketTypeRequest.ID, &DataPacketCodec{})
-	pr.RegisterPacketTypeWithID(PacketTypeResponse.Name, PacketTypeResponse.ID, &DataPacketCodec{})
-	pr.RegisterPacketTypeWithID(PacketTypeError.Name, PacketTypeError.ID, &ErrorPacketCodec{})
+	pr.RegisterPacketTypeWithID(PacketTypeRequest.Name, PacketTypeRequest.TypeID, &DataPacketCodec{})
+	pr.RegisterPacketTypeWithID(PacketTypeResponse.Name, PacketTypeResponse.TypeID, &DataPacketCodec{})
+	pr.RegisterPacketTypeWithID(PacketTypeError.Name, PacketTypeError.TypeID, &ErrorPacketCodec{})
 
 	return pr
 }()

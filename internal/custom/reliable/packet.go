@@ -1,4 +1,4 @@
-package ack
+package reliable
 
 import (
 	"bytes"
@@ -11,6 +11,7 @@ import (
 // ACKPacket represents an acknowledgment packet
 type ACKPacket struct {
 	RPCID     uint64 // RPC ID being acknowledged
+	Kind      uint8  // Kind of packet (0=request, 1=response, 2=error)
 	Status    uint8  // Status code (0=success, 1=error, etc.)
 	Timestamp int64  // Timestamp when ACK was generated
 	Message   string // Optional message
@@ -29,6 +30,10 @@ func (c *ACKPacketCodec) Serialize(packet any) ([]byte, error) {
 
 	// Write RPC ID
 	if err := binary.Write(buf, binary.LittleEndian, p.RPCID); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Write(buf, binary.LittleEndian, p.Kind); err != nil {
 		return nil, err
 	}
 
@@ -60,6 +65,11 @@ func (c *ACKPacketCodec) Deserialize(data []byte) (any, error) {
 
 	// Read RPC ID
 	if err := binary.Read(buf, binary.LittleEndian, &pkt.RPCID); err != nil {
+		return nil, err
+	}
+
+	// Read Kind
+	if err := binary.Read(buf, binary.LittleEndian, &pkt.Kind); err != nil {
 		return nil, err
 	}
 

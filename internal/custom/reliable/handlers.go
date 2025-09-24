@@ -1,4 +1,4 @@
-package ack
+package reliable
 
 import (
 	"fmt"

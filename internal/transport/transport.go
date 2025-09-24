@@ -133,7 +133,7 @@ func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, pa
 	}
 
 	// Use the handler registry to process the packet
-	handler, exists := t.handlers.GetHandlerChain(packetType.ID)
+	handler, exists := t.handlers.GetHandlerChain(packetType.TypeID)
 	if !exists {
 		return nil, nil, 0, packetType, fmt.Errorf("no handler chain found for packet type: %s", packetType.Name)
 	}
