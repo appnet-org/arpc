@@ -14,7 +14,8 @@ type RPCRequest struct {
 
 // Response represents an RPC response
 type RPCResponse struct {
-	Result any
+	ID     uint64 // Identifier for the response, paired with the corresponding request
+	Result any    // Response payload
 	Error  error
 }
 

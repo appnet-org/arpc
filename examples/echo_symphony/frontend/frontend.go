@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	echo "github.com/appnet-org/arpc/examples/echo_symphony/symphony"
 	"github.com/appnet-org/arpc/pkg/logging"
@@ -14,7 +16,21 @@ import (
 	"go.uber.org/zap"
 )
 
-var echoClient echo.EchoServiceClient
+var (
+	echoClient   echo.EchoServiceClient
+	elementTable map[string]func() element.RPCElement = map[string]func() element.RPCElement{
+		"metrics":  NewMetricsElement,
+		"firewall": NewFirewallElement,
+	}
+)
+
+type RPCElementError struct {
+	reason string
+}
+
+func (e *RPCElementError) Error() string {
+	return e.reason
+}
 
 func handler(w http.ResponseWriter, r *http.Request) {
 	message := r.URL.Query().Get("key")
@@ -29,7 +45,9 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	resp, err := echoClient.Echo(context.Background(), req)
 
 	if err != nil {
-		logging.Error("RPC call failed", zap.Error(err))
+		if _, ok := err.(*RPCElementError); !ok {
+			logging.Error("RPC call failed", zap.Error(err))
+		}
 		http.Error(w, fmt.Sprintf("RPC call failed: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -66,12 +84,22 @@ func main() {
 	// Create RPC client
 	serializer := &serializer.SymphonySerializer{}
 
-	// Create metrics element
-	metrics := NewMetricsElement()
-
-	// Create RPC elements
-	rpcElements := []element.RPCElement{
-		metrics,
+	var elementStr string
+	var elements []string
+	var rpcElements []element.RPCElement
+	flag.StringVar(&elementStr, "element", "", "comma separated list of elements")
+	flag.Parse()
+	if elementStr == "" {
+		elements = []string{}
+	} else {
+		elements = strings.Split(elementStr, ",")
+	}
+	for _, element := range elements {
+		if _, ok := elementTable[element]; !ok {
+			logging.Warn("Unrecognized element, skipped", zap.String("element", element))
+			continue
+		}
+		rpcElements = append(rpcElements, elementTable[element]())
 	}
 
 	client, err := rpc.NewClient(serializer, ":11000", rpcElements) // TODO: change to your server's address fully qualified domain name

@@ -111,6 +111,13 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 	return nil
 }
 
+// Receive takes a buffer size as input, read data from the UDP socket, and return
+// the following information when receiving the complete data for an RPC message:
+// * complete data for a message (if no message is complete, it will return nil)
+// * source address
+// * RPC id
+// * packet type
+// * error
 func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, packet.PacketType, error) {
 	// Read data from the UDP connection into the buffer
 	buffer := make([]byte, bufferSize)
