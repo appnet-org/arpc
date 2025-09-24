@@ -168,6 +168,7 @@ func (c *Client) handleResponsePacket(ctx context.Context, data []byte, rpcID ui
 
 	// Create response for RPC element processing
 	rpcResp := &element.RPCResponse{
+		ID:     rpcID,
 		Result: resp,
 		Error:  nil,
 	}
