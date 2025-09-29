@@ -32,6 +32,25 @@ func (hc *HandlerChain) AddHandler(handler Handler) {
 	hc.handlers = append(hc.handlers, handler)
 }
 
+// RemoveHandler removes a handler from the chain
+func (hc *HandlerChain) RemoveHandler(handler Handler) bool {
+	for i, h := range hc.handlers {
+		if h == handler {
+			// Remove the handler by slicing around it
+			hc.handlers = append(hc.handlers[:i], hc.handlers[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// GetHandlers returns a copy of the handlers slice
+func (hc *HandlerChain) GetHandlers() []Handler {
+	handlers := make([]Handler, len(hc.handlers))
+	copy(handlers, hc.handlers)
+	return handlers
+}
+
 // OnReceive processes a packet through the receive chain
 func (hc *HandlerChain) OnReceive(pkt any, addr *net.UDPAddr) error {
 	logging.Debug("Executing on_receive handler chain", zap.String("chainName", hc.name))

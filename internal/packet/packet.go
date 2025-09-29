@@ -72,6 +72,23 @@ func (pr *PacketRegistry) GetCodec(packet_id PacketTypeID) (PacketCodec, bool) {
 	return codec, exists
 }
 
+// Copy creates a new PacketRegistry with the same packet types and codecs
+func (pr *PacketRegistry) Copy() *PacketRegistry {
+	newPr := &PacketRegistry{
+		types:  make(map[PacketTypeID]PacketType),
+		codecs: make(map[PacketTypeID]PacketCodec),
+		nextID: pr.nextID,
+	}
+
+	// Copy all existing types and codecs
+	for id, packetType := range pr.types {
+		newPr.types[id] = packetType
+		newPr.codecs[id] = pr.codecs[id]
+	}
+
+	return newPr
+}
+
 // DefaultRegistry is the default packet registry with predefined types
 var DefaultRegistry = func() *PacketRegistry {
 	pr := NewPacketRegistry()
@@ -83,6 +100,25 @@ var DefaultRegistry = func() *PacketRegistry {
 
 	return pr
 }()
+
+// GetPacketTypeByName retrieves a packet type by name
+func (pr *PacketRegistry) GetPacketTypeByName(name string) (PacketType, bool) {
+	for _, packetType := range pr.types {
+		if packetType.Name == name {
+			return packetType, true
+		}
+	}
+	return PacketTypeUnknown, false
+}
+
+// ListPacketTypes returns all registered packet types
+func (pr *PacketRegistry) ListPacketTypes() []PacketType {
+	types := make([]PacketType, 0, len(pr.types))
+	for _, packetType := range pr.types {
+		types = append(types, packetType)
+	}
+	return types
+}
 
 // Errors
 var (

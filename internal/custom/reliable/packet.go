@@ -8,6 +8,8 @@ import (
 	"github.com/appnet-org/arpc/internal/packet"
 )
 
+const AckPacketName = "Acknowledgement"
+
 // ACKPacket represents an acknowledgment packet
 type ACKPacket struct {
 	RPCID     uint64 // RPC ID being acknowledged

@@ -23,6 +23,7 @@ type UDPTransport struct {
 	reassembler  *DataReassembler
 	resolver     *balancer.Resolver
 	handlers     *HandlerRegistry
+	packets      *packet.PacketRegistry
 	timerManager *TimerManager
 }
 
@@ -52,6 +53,9 @@ func NewUDPTransportWithBalancer(address string, resolver *balancer.Resolver) (*
 
 	// Set handlers after transport is fully constructed
 	transport.handlers = NewHandlerRegistry(transport)
+
+	// Set default packet registry
+	transport.packets = packet.DefaultRegistry.Copy()
 
 	return transport, nil
 }
@@ -118,7 +122,7 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 // * RPC id
 // * packet type
 // * error
-func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, packet.PacketType, error) {
+func (t *UDPTransport) Receive(bufferSize int, role Role) ([]byte, *net.UDPAddr, uint64, packet.PacketType, error) {
 	// Read data from the UDP connection into the buffer
 	buffer := make([]byte, bufferSize)
 	n, addr, err := t.conn.ReadFromUDP(buffer)
@@ -133,7 +137,7 @@ func (t *UDPTransport) Receive(bufferSize int) ([]byte, *net.UDPAddr, uint64, pa
 	}
 
 	// Use the handler registry to process the packet
-	handler, exists := t.handlers.GetHandlerChain(packetType.TypeID)
+	handler, exists := t.handlers.GetHandlerChain(packetType.TypeID, role)
 	if !exists {
 		return nil, nil, 0, packetType, fmt.Errorf("no handler chain found for packet type: %s", packetType.Name)
 	}
@@ -174,4 +178,39 @@ func (t *UDPTransport) Close() error {
 	// Stop the timer manager before closing the connection
 	t.timerManager.Stop()
 	return t.conn.Close()
+}
+
+// RegisterHandlerChain registers a handler chain for a packet type
+func (t *UDPTransport) RegisterHandlerChain(packetTypeID packet.PacketTypeID, chain *HandlerChain, role Role) {
+	t.handlers.RegisterHandlerChain(packetTypeID, chain, role)
+}
+
+// RegisterPacketType registers a packet type with the transport
+func (t *UDPTransport) RegisterPacketType(packetType string, codec packet.PacketCodec) (packet.PacketType, error) {
+	return t.packets.RegisterPacketType(packetType, codec)
+}
+
+// RegisterPacketTypeWithID registers a packet type with a specific ID
+func (t *UDPTransport) RegisterPacketTypeWithID(packetType string, id packet.PacketTypeID, codec packet.PacketCodec) (packet.PacketType, error) {
+	return t.packets.RegisterPacketTypeWithID(packetType, id, codec)
+}
+
+// GetPacketRegistry returns the packet registry for advanced operations
+func (t *UDPTransport) GetPacketRegistry() *packet.PacketRegistry {
+	return t.packets
+}
+
+// GetHandlerRegistry returns the handler registry for advanced operations
+func (t *UDPTransport) GetHandlerRegistry() *HandlerRegistry {
+	return t.handlers
+}
+
+// GetTimerManager returns the timer manager for advanced operations
+func (t *UDPTransport) GetTimerManager() *TimerManager {
+	return t.timerManager
+}
+
+// ListRegisteredPackets returns all registered packet types
+func (t *UDPTransport) ListRegisteredPackets() []packet.PacketType {
+	return t.packets.ListPacketTypes()
 }

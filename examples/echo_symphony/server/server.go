@@ -34,7 +34,7 @@ func (s *echoServer) Echo(ctx context.Context, req *echo.EchoRequest) (*echo.Ech
 func getLoggingConfig() *logging.Config {
 	level := os.Getenv("LOG_LEVEL")
 	if level == "" {
-		level = "info"
+		level = "debug"
 	}
 
 	format := os.Getenv("LOG_FORMAT")
