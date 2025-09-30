@@ -14,7 +14,7 @@ import (
 )
 
 // MethodHandler defines the function signature for handling an RPC method.
-type MethodHandler func(srv any, ctx context.Context, dec func(any) error) (resp any, newCtx context.Context, err error)
+type MethodHandler func(srv any, ctx context.Context, dec func(any) error, req *element.RPCRequest, chain *element.RPCElementChain) (resp *element.RPCResponse, newCtx context.Context, err error)
 
 // MethodDesc represents an RPC service's method specification.
 type MethodDesc struct {
@@ -116,6 +116,9 @@ func (s *Server) Start() {
 		data, addr, rpcID, _, err := s.transport.Receive(packet.MaxUDPPayloadSize)
 		if err != nil {
 			logging.Error("Error receiving data", zap.Error(err))
+			if err := s.transport.Send(addr.String(), rpcID, []byte(err.Error()), packet.PacketTypeUnknown); err != nil {
+				logging.Error("Error sending error response", zap.Error(err))
+			}
 			continue
 		}
 
@@ -127,6 +130,9 @@ func (s *Server) Start() {
 		serviceName, methodName, reqPayloadBytes, err := parseFramedRequest(data)
 		if err != nil {
 			logging.Error("Failed to parse framed request", zap.Error(err))
+			if err := s.transport.Send(addr.String(), rpcID, []byte(err.Error()), packet.PacketTypeUnknown); err != nil {
+				logging.Error("Error sending error response", zap.Error(err))
+			}
 			continue
 		}
 
@@ -135,20 +141,15 @@ func (s *Server) Start() {
 			ID:          rpcID,
 			ServiceName: serviceName,
 			Method:      methodName,
-			Payload:     reqPayloadBytes,
-		}
-
-		// Process request through RPC elements
-		rpcReq, err = s.rpcElementChain.ProcessRequest(context.Background(), rpcReq)
-		if err != nil {
-			logging.Error("RPC element processing error", zap.Error(err))
-			continue
 		}
 
 		// Lookup service and method
 		svcDesc, ok := s.services[rpcReq.ServiceName]
 		if !ok {
 			logging.Warn("Unknown service", zap.String("serviceName", rpcReq.ServiceName))
+			if err := s.transport.Send(addr.String(), rpcID, []byte("unknown service"), packet.PacketTypeError); err != nil {
+				logging.Error("Error sending error response", zap.Error(err))
+			}
 			continue
 		}
 		methodDesc, ok := svcDesc.Methods[rpcReq.Method]
@@ -160,24 +161,20 @@ func (s *Server) Start() {
 		}
 
 		// Invoke method handler
-		resp, _, err := methodDesc.Handler(svcDesc.ServiceImpl, context.Background(), func(v any) error {
-			return s.serializer.Unmarshal(rpcReq.Payload.([]byte), v)
-		})
+		rpcResp, _, err := methodDesc.Handler(svcDesc.ServiceImpl, context.Background(), func(v any) error {
+			return s.serializer.Unmarshal(reqPayloadBytes, v)
+		}, rpcReq, s.rpcElementChain)
 		if err != nil {
-			logging.Error("Handler error", zap.Error(err))
-			continue
-		}
-
-		// Create RPC response for element processing
-		rpcResp := &element.RPCResponse{
-			Result: resp,
-			Error:  err,
-		}
-
-		// Process response through RPC elements
-		rpcResp, err = s.rpcElementChain.ProcessResponse(context.Background(), rpcResp)
-		if err != nil {
-			logging.Error("RPC element response processing error", zap.Error(err))
+			var errType packet.PacketType
+			if rpcErr, ok := err.(*RPCError); ok && rpcErr.Type == RPCFailError {
+				errType = packet.PacketTypeError
+			} else {
+				errType = packet.PacketTypeUnknown
+				logging.Error("Handler error", zap.Error(err))
+			}
+			if err := s.transport.Send(addr.String(), rpcID, []byte(err.Error()), errType); err != nil {
+				logging.Error("Error sending error response", zap.Error(err))
+			}
 			continue
 		}
 
@@ -185,6 +182,9 @@ func (s *Server) Start() {
 		respPayloadBytes, err := s.serializer.Marshal(rpcResp.Result)
 		if err != nil {
 			logging.Error("Error marshaling response", zap.Error(err))
+			if err := s.transport.Send(addr.String(), rpcID, []byte(err.Error()), packet.PacketTypeUnknown); err != nil {
+				logging.Error("Error sending error response", zap.Error(err))
+			}
 			continue
 		}
 
@@ -192,6 +192,9 @@ func (s *Server) Start() {
 		framedResp, err := frameResponse(rpcReq.ServiceName, rpcReq.Method, respPayloadBytes)
 		if err != nil {
 			logging.Error("Failed to frame response", zap.Error(err))
+			if err := s.transport.Send(addr.String(), rpcID, []byte(err.Error()), packet.PacketTypeUnknown); err != nil {
+				logging.Error("Error sending error response", zap.Error(err))
+			}
 			continue
 		}
 

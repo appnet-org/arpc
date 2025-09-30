@@ -32,6 +32,7 @@ func NewHandlerRegistry(transport *UDPTransport) *HandlerRegistry {
 	registry.RegisterHandlerChain(packet.PacketTypeRequest.ID, requestChain)
 	registry.RegisterHandlerChain(packet.PacketTypeResponse.ID, responseChain)
 	registry.RegisterHandlerChain(packet.PacketTypeError.ID, errorChain)
+	registry.RegisterHandlerChain(packet.PacketTypeUnknown.ID, errorChain)
 
 	return registry
 }
