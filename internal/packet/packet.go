@@ -97,6 +97,7 @@ var DefaultRegistry = func() *PacketRegistry {
 	pr.RegisterPacketTypeWithID(PacketTypeRequest.Name, PacketTypeRequest.TypeID, &DataPacketCodec{})
 	pr.RegisterPacketTypeWithID(PacketTypeResponse.Name, PacketTypeResponse.TypeID, &DataPacketCodec{})
 	pr.RegisterPacketTypeWithID(PacketTypeError.Name, PacketTypeError.TypeID, &ErrorPacketCodec{})
+	pr.RegisterPacketTypeWithID(PacketTypeUnknown.Name, PacketTypeUnknown.TypeID, &ErrorPacketCodec{})
 
 	return pr
 }()

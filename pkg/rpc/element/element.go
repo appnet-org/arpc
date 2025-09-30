@@ -46,9 +46,17 @@ func NewRPCElementChain(elements ...RPCElement) *RPCElementChain {
 // ProcessRequest processes the request through all RPC elements in the chain
 func (c *RPCElementChain) ProcessRequest(ctx context.Context, req *RPCRequest) (*RPCRequest, error) {
 	var err error
-	for _, element := range c.elements {
+	for idx, element := range c.elements {
 		req, err = element.ProcessRequest(ctx, req)
 		if err != nil {
+			// We mock a RPCResponse struct to go through the ProcessResponse logic of executed elements
+			resp := &RPCResponse{
+				Result: nil,
+				Error:  err,
+			}
+			for i := idx - 1; i >= 0; i-- {
+				resp, _ = c.elements[i].ProcessResponse(ctx, resp)
+			}
 			return nil, err
 		}
 	}

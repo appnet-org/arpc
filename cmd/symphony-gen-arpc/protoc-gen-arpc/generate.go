@@ -18,6 +18,7 @@ func generateFile(plugin *protogen.Plugin, file *protogen.File) {
 	g.P(`import (`)
 	g.P(`  "context"`)
 	g.P(`  "github.com/appnet-org/arpc/pkg/rpc"`)
+	g.P(`  "github.com/appnet-org/arpc/pkg/rpc/element"`)
 	g.P(`)`)
 	g.P()
 
@@ -95,6 +96,7 @@ func genService(g *protogen.GeneratedFile, service *protogen.Service) {
 	g.P("    },")
 	g.P("  }, srv)")
 	g.P("}")
+	g.P("")
 
 	// === Method handler implementations ===
 	for _, m := range service.Methods {
@@ -102,11 +104,21 @@ func genService(g *protogen.GeneratedFile, service *protogen.Service) {
 		inputType := m.Input.GoIdent.GoName
 
 		// Each handler decodes the request and invokes the appropriate method
-		g.P("func ", handlerName, "(srv any, ctx context.Context, dec func(any) error) (any, context.Context, error) {")
-		g.P("  in := new(", inputType, ")")
-		g.P("  if err := dec(in); err != nil { return nil, ctx, err }")
-		g.P("  out, newCtx, err := srv.(", svcName, "Server).", m.GoName, "(ctx, in)")
-		g.P("  return out, newCtx, err")
+		g.P("func ", handlerName, "(srv any, ctx context.Context, dec func(any) error, req *element.RPCRequest, chain *element.RPCElementChain) (*element.RPCResponse, context.Context, error) {")
+		g.P("  req.Payload = new(", inputType, ")")
+		g.P("  if err := dec(req.Payload); err != nil { return nil, ctx, err }")
+		g.P("  req, err := chain.ProcessRequest(ctx, req)")
+		g.P("  if err != nil { return nil, ctx, err }")
+		g.P("  result, newCtx, err := srv.(", svcName, "Server).", m.GoName, "(ctx, req.Payload.(*", inputType, "))")
+		g.P("  if err != nil { return nil, newCtx, err }")
+		g.P("  resp := &element.RPCResponse{")
+		g.P("    ID:     req.ID,")
+		g.P("    Result: result,")
+		g.P("  }")
+		g.P("  resp, err = chain.ProcessResponse(newCtx, resp)")
+		g.P("  if err != nil { return nil, newCtx, err }")
+		g.P("  return resp, newCtx, err")
 		g.P("}")
+		g.P("")
 	}
 }

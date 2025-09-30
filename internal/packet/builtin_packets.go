@@ -124,7 +124,7 @@ func (c *ErrorPacketCodec) Serialize(packet any) ([]byte, error) {
 	buf := new(bytes.Buffer)
 
 	// Write error packet type ID
-	if err := binary.Write(buf, binary.LittleEndian, PacketTypeError.TypeID); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, p.PacketTypeID); err != nil {
 		return nil, err
 	}
 

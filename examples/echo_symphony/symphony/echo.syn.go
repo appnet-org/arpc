@@ -2,134 +2,242 @@
 package echo
 
 import (
-	"bytes"
 	"encoding/binary"
+	"fmt"
 )
 
 func (m *EchoRequest) MarshalSymphony() ([]byte, error) {
-	var buf bytes.Buffer
-	buf.WriteByte(0x00) // layout header
-	buf.Write([]byte{1, 2, 3, 4})
+	// Pre-allocate buffer with estimated size
+	buf := make([]byte, 0, 108)
+	var temp [8]byte // Reusable temp buffer for encoding
+
+	// === HEADER SECTION ===
+	buf = append(buf, 0x00) // layout header
+	buf = append(buf, []byte{1, 2, 3, 4}...)
+
+	// === OFFSET TABLE SECTION ===
 	offset := 0
-	offset += 4
-	offset += 4
-	binary.Write(&buf, binary.LittleEndian, byte(3))
-	binary.Write(&buf, binary.LittleEndian, uint16(offset)) // offset of Username
-	binary.Write(&buf, binary.LittleEndian, uint16(len(m.Username)))
+
+	offset += 4 // Id
+
+	offset += 4 // Score
+
+	// Field 3 (Username): string or bytes
+	buf = append(buf, byte(3))
+	binary.LittleEndian.PutUint16(temp[:2], uint16(offset)) // offset of Username
+	buf = append(buf, temp[:2]...)
+	binary.LittleEndian.PutUint16(temp[:2], uint16(len(m.Username)))
+	buf = append(buf, temp[:2]...)
 	offset += len(m.Username)
-	binary.Write(&buf, binary.LittleEndian, byte(4))
-	binary.Write(&buf, binary.LittleEndian, uint16(offset)) // offset of Content
-	binary.Write(&buf, binary.LittleEndian, uint16(len(m.Content)))
+
+	// Field 4 (Content): string or bytes
+	buf = append(buf, byte(4))
+	binary.LittleEndian.PutUint16(temp[:2], uint16(offset)) // offset of Content
+	buf = append(buf, temp[:2]...)
+	binary.LittleEndian.PutUint16(temp[:2], uint16(len(m.Content)))
+	buf = append(buf, temp[:2]...)
 	offset += len(m.Content)
-	binary.Write(&buf, binary.LittleEndian, m.Id)
-	binary.Write(&buf, binary.LittleEndian, m.Score)
-	buf.Write([]byte(m.Username))
-	buf.Write([]byte(m.Content))
-	return buf.Bytes(), nil
+
+	// === DATA REGION SECTION ===
+
+	// Write fixed field (Id)
+	binary.LittleEndian.PutUint32(temp[:4], uint32(m.Id))
+	buf = append(buf, temp[:4]...)
+
+	// Write fixed field (Score)
+	binary.LittleEndian.PutUint32(temp[:4], uint32(m.Score))
+	buf = append(buf, temp[:4]...)
+
+	// Write string or bytes field (Username)
+	buf = append(buf, []byte(m.Username)...)
+
+	// Write string or bytes field (Content)
+	buf = append(buf, []byte(m.Content)...)
+
+	return buf, nil
 }
 
 func (m *EchoRequest) UnmarshalSymphony(data []byte) error {
-	reader := bytes.NewReader(data)
-	var header byte
-	if err := binary.Read(reader, binary.LittleEndian, &header); err != nil {
-		return err
+	// === HEADER PARSING SECTION ===
+	if len(data) < 5 {
+		return fmt.Errorf("data too short for header")
 	}
-	fieldOrder := make([]byte, 4)
-	if _, err := reader.Read(fieldOrder); err != nil {
-		return err
-	}
+	offset := 0
+	_ = data[offset] // header byte (currently unused)
+	offset++
+
+	fieldOrder := data[offset : offset+4]
+	offset += 4
+
+	// === OFFSET TABLE PARSING SECTION ===
 	type offsetEntry struct{ offset, length uint16 }
 	offsets := map[byte]offsetEntry{}
+	offsetTableSize := 10
+	if len(data) < offset+offsetTableSize {
+		return fmt.Errorf("data too short for offset table")
+	}
 	for i := 0; i < 2; i++ {
-		var fieldID byte
-		var off, len uint16
-		if err := binary.Read(reader, binary.LittleEndian, &fieldID); err != nil {
-			return err
-		}
-		if err := binary.Read(reader, binary.LittleEndian, &off); err != nil {
-			return err
-		}
-		if err := binary.Read(reader, binary.LittleEndian, &len); err != nil {
-			return err
-		}
+		entryOffset := offset + i*5
+		fieldID := data[entryOffset]
+		off := binary.LittleEndian.Uint16(data[entryOffset+1 : entryOffset+3])
+		len := binary.LittleEndian.Uint16(data[entryOffset+3 : entryOffset+5])
 		offsets[fieldID] = offsetEntry{off, len}
 	}
-	dataRegion := data[len(data)-reader.Len():]
-	if err := binary.Read(bytes.NewReader(dataRegion[0:4]), binary.LittleEndian, &m.Id); err != nil {
-		return err
+	offset += offsetTableSize
+
+	// === DATA REGION EXTRACTION SECTION ===
+	dataRegion := data[offset:]
+	dataOffset := 0
+
+	// === FIELD UNMARSHALING SECTION ===
+	for _, fieldNum := range fieldOrder {
+		switch fieldNum {
+		case 1: // Id
+			// Unmarshal fixed field (Id)
+			if dataOffset+4 > len(dataRegion) {
+				return fmt.Errorf("insufficient data for fixed field")
+			}
+			m.Id = int32(binary.LittleEndian.Uint32(dataRegion[dataOffset : dataOffset+4]))
+			dataOffset += 4
+		case 2: // Score
+			// Unmarshal fixed field (Score)
+			if dataOffset+4 > len(dataRegion) {
+				return fmt.Errorf("insufficient data for fixed field")
+			}
+			m.Score = int32(binary.LittleEndian.Uint32(dataRegion[dataOffset : dataOffset+4]))
+			dataOffset += 4
+		case 3: // Username
+			// Unmarshal string or []byte field (Username)
+			if entry, ok := offsets[3]; ok {
+				m.Username = string(dataRegion[entry.offset : entry.offset+entry.length])
+				dataOffset += int(entry.length)
+			}
+		case 4: // Content
+			// Unmarshal string or []byte field (Content)
+			if entry, ok := offsets[4]; ok {
+				m.Content = string(dataRegion[entry.offset : entry.offset+entry.length])
+				dataOffset += int(entry.length)
+			}
+		}
 	}
-	if err := binary.Read(bytes.NewReader(dataRegion[4:8]), binary.LittleEndian, &m.Score); err != nil {
-		return err
-	}
-	if entry, ok := offsets[3]; ok {
-		m.Username = string(dataRegion[entry.offset : entry.offset+entry.length])
-	}
-	if entry, ok := offsets[4]; ok {
-		m.Content = string(dataRegion[entry.offset : entry.offset+entry.length])
-	}
+
 	return nil
 }
 
 func (m *EchoResponse) MarshalSymphony() ([]byte, error) {
-	var buf bytes.Buffer
-	buf.WriteByte(0x00) // layout header
-	buf.Write([]byte{1, 2, 3, 4})
+	// Pre-allocate buffer with estimated size
+	buf := make([]byte, 0, 108)
+	var temp [8]byte // Reusable temp buffer for encoding
+
+	// === HEADER SECTION ===
+	buf = append(buf, 0x00) // layout header
+	buf = append(buf, []byte{1, 2, 3, 4}...)
+
+	// === OFFSET TABLE SECTION ===
 	offset := 0
-	offset += 4
-	offset += 4
-	binary.Write(&buf, binary.LittleEndian, byte(3))
-	binary.Write(&buf, binary.LittleEndian, uint16(offset)) // offset of Username
-	binary.Write(&buf, binary.LittleEndian, uint16(len(m.Username)))
+
+	offset += 4 // Id
+
+	offset += 4 // Score
+
+	// Field 3 (Username): string or bytes
+	buf = append(buf, byte(3))
+	binary.LittleEndian.PutUint16(temp[:2], uint16(offset)) // offset of Username
+	buf = append(buf, temp[:2]...)
+	binary.LittleEndian.PutUint16(temp[:2], uint16(len(m.Username)))
+	buf = append(buf, temp[:2]...)
 	offset += len(m.Username)
-	binary.Write(&buf, binary.LittleEndian, byte(4))
-	binary.Write(&buf, binary.LittleEndian, uint16(offset)) // offset of Content
-	binary.Write(&buf, binary.LittleEndian, uint16(len(m.Content)))
+
+	// Field 4 (Content): string or bytes
+	buf = append(buf, byte(4))
+	binary.LittleEndian.PutUint16(temp[:2], uint16(offset)) // offset of Content
+	buf = append(buf, temp[:2]...)
+	binary.LittleEndian.PutUint16(temp[:2], uint16(len(m.Content)))
+	buf = append(buf, temp[:2]...)
 	offset += len(m.Content)
-	binary.Write(&buf, binary.LittleEndian, m.Id)
-	binary.Write(&buf, binary.LittleEndian, m.Score)
-	buf.Write([]byte(m.Username))
-	buf.Write([]byte(m.Content))
-	return buf.Bytes(), nil
+
+	// === DATA REGION SECTION ===
+
+	// Write fixed field (Id)
+	binary.LittleEndian.PutUint32(temp[:4], uint32(m.Id))
+	buf = append(buf, temp[:4]...)
+
+	// Write fixed field (Score)
+	binary.LittleEndian.PutUint32(temp[:4], uint32(m.Score))
+	buf = append(buf, temp[:4]...)
+
+	// Write string or bytes field (Username)
+	buf = append(buf, []byte(m.Username)...)
+
+	// Write string or bytes field (Content)
+	buf = append(buf, []byte(m.Content)...)
+
+	return buf, nil
 }
 
 func (m *EchoResponse) UnmarshalSymphony(data []byte) error {
-	reader := bytes.NewReader(data)
-	var header byte
-	if err := binary.Read(reader, binary.LittleEndian, &header); err != nil {
-		return err
+	// === HEADER PARSING SECTION ===
+	if len(data) < 5 {
+		return fmt.Errorf("data too short for header")
 	}
-	fieldOrder := make([]byte, 4)
-	if _, err := reader.Read(fieldOrder); err != nil {
-		return err
-	}
+	offset := 0
+	_ = data[offset] // header byte (currently unused)
+	offset++
+
+	fieldOrder := data[offset : offset+4]
+	offset += 4
+
+	// === OFFSET TABLE PARSING SECTION ===
 	type offsetEntry struct{ offset, length uint16 }
 	offsets := map[byte]offsetEntry{}
+	offsetTableSize := 10
+	if len(data) < offset+offsetTableSize {
+		return fmt.Errorf("data too short for offset table")
+	}
 	for i := 0; i < 2; i++ {
-		var fieldID byte
-		var off, len uint16
-		if err := binary.Read(reader, binary.LittleEndian, &fieldID); err != nil {
-			return err
-		}
-		if err := binary.Read(reader, binary.LittleEndian, &off); err != nil {
-			return err
-		}
-		if err := binary.Read(reader, binary.LittleEndian, &len); err != nil {
-			return err
-		}
+		entryOffset := offset + i*5
+		fieldID := data[entryOffset]
+		off := binary.LittleEndian.Uint16(data[entryOffset+1 : entryOffset+3])
+		len := binary.LittleEndian.Uint16(data[entryOffset+3 : entryOffset+5])
 		offsets[fieldID] = offsetEntry{off, len}
 	}
-	dataRegion := data[len(data)-reader.Len():]
-	if err := binary.Read(bytes.NewReader(dataRegion[0:4]), binary.LittleEndian, &m.Id); err != nil {
-		return err
+	offset += offsetTableSize
+
+	// === DATA REGION EXTRACTION SECTION ===
+	dataRegion := data[offset:]
+	dataOffset := 0
+
+	// === FIELD UNMARSHALING SECTION ===
+	for _, fieldNum := range fieldOrder {
+		switch fieldNum {
+		case 1: // Id
+			// Unmarshal fixed field (Id)
+			if dataOffset+4 > len(dataRegion) {
+				return fmt.Errorf("insufficient data for fixed field")
+			}
+			m.Id = int32(binary.LittleEndian.Uint32(dataRegion[dataOffset : dataOffset+4]))
+			dataOffset += 4
+		case 2: // Score
+			// Unmarshal fixed field (Score)
+			if dataOffset+4 > len(dataRegion) {
+				return fmt.Errorf("insufficient data for fixed field")
+			}
+			m.Score = int32(binary.LittleEndian.Uint32(dataRegion[dataOffset : dataOffset+4]))
+			dataOffset += 4
+		case 3: // Username
+			// Unmarshal string or []byte field (Username)
+			if entry, ok := offsets[3]; ok {
+				m.Username = string(dataRegion[entry.offset : entry.offset+entry.length])
+				dataOffset += int(entry.length)
+			}
+		case 4: // Content
+			// Unmarshal string or []byte field (Content)
+			if entry, ok := offsets[4]; ok {
+				m.Content = string(dataRegion[entry.offset : entry.offset+entry.length])
+				dataOffset += int(entry.length)
+			}
+		}
 	}
-	if err := binary.Read(bytes.NewReader(dataRegion[4:8]), binary.LittleEndian, &m.Score); err != nil {
-		return err
-	}
-	if entry, ok := offsets[3]; ok {
-		m.Username = string(dataRegion[entry.offset : entry.offset+entry.length])
-	}
-	if entry, ok := offsets[4]; ok {
-		m.Content = string(dataRegion[entry.offset : entry.offset+entry.length])
-	}
+
 	return nil
 }

@@ -41,10 +41,12 @@ func NewHandlerRegistry(transport *UDPTransport) *HandlerRegistry {
 	registry.RegisterHandlerChain(packet.PacketTypeRequest.TypeID, requestChain, RoleClient)
 	registry.RegisterHandlerChain(packet.PacketTypeResponse.TypeID, responseChain, RoleClient)
 	registry.RegisterHandlerChain(packet.PacketTypeError.TypeID, errorChain, RoleClient)
+	registry.RegisterHandlerChain(packet.PacketTypeUnknown.TypeID, errorChain, RoleClient)
 
 	registry.RegisterHandlerChain(packet.PacketTypeRequest.TypeID, requestChain, RoleServer)
 	registry.RegisterHandlerChain(packet.PacketTypeResponse.TypeID, responseChain, RoleServer)
 	registry.RegisterHandlerChain(packet.PacketTypeError.TypeID, errorChain, RoleServer)
+	registry.RegisterHandlerChain(packet.PacketTypeUnknown.TypeID, errorChain, RoleServer)
 
 	return registry
 }

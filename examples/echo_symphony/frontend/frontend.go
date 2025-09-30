@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/appnet-org/arpc/examples/echo_symphony/elements"
 	echo "github.com/appnet-org/arpc/examples/echo_symphony/symphony"
 	"github.com/appnet-org/arpc/internal/custom/reliable"
 	"github.com/appnet-org/arpc/internal/packet"
@@ -21,19 +22,8 @@ import (
 
 var (
 	echoClient   echo.EchoServiceClient
-	elementTable map[string]func() element.RPCElement = map[string]func() element.RPCElement{
-		"metrics":  NewMetricsElement,
-		"firewall": NewFirewallElement,
-	}
+	elementTable = elements.GetElementTable()
 )
-
-type RPCElementError struct {
-	reason string
-}
-
-func (e *RPCElementError) Error() string {
-	return e.reason
-}
 
 func handler(w http.ResponseWriter, r *http.Request) {
 	message := r.URL.Query().Get("key")
@@ -48,7 +38,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	resp, err := echoClient.Echo(context.Background(), req)
 
 	if err != nil {
-		if _, ok := err.(*RPCElementError); !ok {
+		if rpcErr, ok := err.(*rpc.RPCError); !ok || rpcErr.Type == rpc.RPCUnknownError {
 			logging.Error("RPC call failed", zap.Error(err))
 		}
 		http.Error(w, fmt.Sprintf("RPC call failed: %v", err), http.StatusInternalServerError)

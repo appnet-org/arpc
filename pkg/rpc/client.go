@@ -135,21 +135,26 @@ func parseFramedResponse(data []byte) (service string, method string, payload []
 	return service, method, payload, nil
 }
 
-func (c *Client) handleErrorPacket(ctx context.Context, errorMsg string) error {
+func (c *Client) handleErrorPacket(ctx context.Context, errMsg string, errType packet.PacketType) error {
 	// Create error response for RPC element processing
 	rpcResp := &element.RPCResponse{
 		Result: nil,
-		Error:  fmt.Errorf("server error: %s", errorMsg),
+		Error:  fmt.Errorf("server error: %s", errMsg),
 	}
 
 	// Process error response through RPC elements
-	rpcResp, err := c.rpcElementChain.ProcessResponse(ctx, rpcResp)
+	_, err := c.rpcElementChain.ProcessResponse(ctx, rpcResp)
 	if err != nil {
 		return err
 	}
 
-	// Return the processed error
-	return rpcResp.Error
+	var rpcErrType RPCErrorType
+	if errType == packet.PacketTypeError {
+		rpcErrType = RPCFailError
+	} else {
+		rpcErrType = RPCUnknownError
+	}
+	return &RPCError{Type: rpcErrType, Reason: errMsg}
 }
 
 func (c *Client) handleResponsePacket(ctx context.Context, data []byte, rpcID uint64, resp any) error {
@@ -242,8 +247,8 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		switch packetType {
 		case packet.PacketTypeResponse:
 			return c.handleResponsePacket(ctx, data, respID, resp)
-		case packet.PacketTypeError:
-			return c.handleErrorPacket(ctx, string(data))
+		case packet.PacketTypeError, packet.PacketTypeUnknown:
+			return c.handleErrorPacket(ctx, string(data), packetType)
 		default:
 			logging.Debug("Ignoring packet with unknown type", zap.String("packetType", packetType.Name))
 			continue
