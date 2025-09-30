@@ -56,7 +56,7 @@ func (r *DataReassembler) FragmentData(data []byte, rpcID uint64, packetType pro
 	if packetType == protocol.PacketTypeError || packetType == protocol.PacketTypeUnknown {
 		packets := []any{}
 		packets = append(packets, &protocol.ErrorPacket{
-			PacketTypeID: packetType.ID,
+			PacketTypeID: packetType.TypeID,
 			RPCID:        rpcID,
 			ErrorMsg:     string(data),
 		})
