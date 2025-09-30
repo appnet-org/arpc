@@ -65,11 +65,13 @@ func (c *Client) Transport() *transport.UDPTransport {
 }
 
 // frameRequest constructs a binary message with [serviceLen][service][methodLen][method][headerLen][headers][payload]
-func frameRequest(service, method string, payload []byte) ([]byte, error) {
+func (c *Client) frameRequest(service, method string, payload []byte) ([]byte, error) {
+	// TOOD(xz): we should pre-calculate the buffer to avoid multiple allocations (issue #14).
 	buf := new(bytes.Buffer)
 
 	// TODO(XZ): this is a temporary solution fix issue #5.
-	// The first 6 bytes are the original IP address and port. The actual values are added in the transport layer.
+	// The first 8 bytes are the original destination IP address and port, as well as the source port. The actual values are added in the transport layer.
+	// We need to embed the source port in the request payload because somehow NAT assigns a different port to the client.
 	ip := net.ParseIP("0.0.0.0").To4()
 	if _, err := buf.Write(ip); err != nil {
 		return nil, err
@@ -77,6 +79,12 @@ func frameRequest(service, method string, payload []byte) ([]byte, error) {
 
 	port := uint16(0)
 	if err := binary.Write(buf, binary.LittleEndian, port); err != nil {
+		return nil, err
+	}
+
+	localAddr := c.transport.LocalAddr()
+	sourcePort := uint16(localAddr.Port)
+	if err := binary.Write(buf, binary.LittleEndian, sourcePort); err != nil {
 		return nil, err
 	}
 
@@ -104,7 +112,7 @@ func frameRequest(service, method string, payload []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func parseFramedResponse(data []byte) (service string, method string, payload []byte, err error) {
+func (c *Client) parseFramedResponse(data []byte) (service string, method string, payload []byte, err error) {
 	offset := 0
 
 	// Parse service name
@@ -154,7 +162,7 @@ func (c *Client) handleErrorPacket(ctx context.Context, errorMsg string) error {
 
 func (c *Client) handleResponsePacket(ctx context.Context, data []byte, rpcID uint64, resp any) error {
 	// Parse framed response: extract service, method, payload
-	_, _, respPayloadBytes, err := parseFramedResponse(data)
+	_, _, respPayloadBytes, err := c.parseFramedResponse(data)
 	if err != nil {
 		return fmt.Errorf("failed to parse framed response: %w", err)
 	}
@@ -208,8 +216,13 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
+	localAddr := c.transport.LocalAddr()
+	sourcePort := uint16(localAddr.Port)
+	logging.Debug("Source port", zap.Uint16("port", sourcePort))
+
+	// Add the destination IP address and port to the request payload
 	// Frame the request into binary format
-	framedReq, err := frameRequest(rpcReq.ServiceName, rpcReq.Method, reqPayloadBytes)
+	framedReq, err := c.frameRequest(rpcReq.ServiceName, rpcReq.Method, reqPayloadBytes)
 	logging.Debug("Framed request Message", zap.String("message", fmt.Sprintf("%x", framedReq)))
 	if err != nil {
 		return fmt.Errorf("failed to frame request: %w", err)

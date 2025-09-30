@@ -59,9 +59,9 @@ func (s *Server) RegisterService(desc *ServiceDesc, impl any) {
 }
 
 // parseFramedRequest extracts service, method, header, and payload segments from a request frame.
-func parseFramedRequest(data []byte) (string, string, []byte, error) {
-	// TODO(XZ): this is a temporary solution fix issue #5 (the first 6 bytes are the original IP address and port)
-	offset := 6
+func (s *Server) parseFramedRequest(data []byte) (string, string, []byte, error) {
+	// TODO(XZ): this is a temporary solution fix issue #5 (the first 8 bytes are the original IP address and port)
+	offset := 8
 
 	// Service
 	serviceLen := int(binary.LittleEndian.Uint16(data[offset:]))
@@ -81,7 +81,8 @@ func parseFramedRequest(data []byte) (string, string, []byte, error) {
 	return service, method, payload, nil
 }
 
-func frameResponse(service, method string, payload []byte) ([]byte, error) {
+func (s *Server) frameResponse(service, method string, payload []byte) ([]byte, error) {
+	// TOOD(xz): we should pre-calculate the buffer to avoid multiple allocations (issue #14).
 	buf := new(bytes.Buffer)
 
 	// Write service name
@@ -125,7 +126,7 @@ func (s *Server) Start() {
 		}
 
 		// Parse request payload
-		serviceName, methodName, reqPayloadBytes, err := parseFramedRequest(data)
+		serviceName, methodName, reqPayloadBytes, err := s.parseFramedRequest(data)
 		if err != nil {
 			logging.Error("Failed to parse framed request", zap.Error(err))
 			continue
@@ -190,7 +191,7 @@ func (s *Server) Start() {
 		}
 
 		// Frame response
-		framedResp, err := frameResponse(rpcReq.ServiceName, rpcReq.Method, respPayloadBytes)
+		framedResp, err := s.frameResponse(rpcReq.ServiceName, rpcReq.Method, respPayloadBytes)
 		if err != nil {
 			logging.Error("Failed to frame response", zap.Error(err))
 			continue

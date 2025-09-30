@@ -214,3 +214,8 @@ func (t *UDPTransport) GetTimerManager() *TimerManager {
 func (t *UDPTransport) ListRegisteredPackets() []packet.PacketType {
 	return t.packets.ListPacketTypes()
 }
+
+// LocalAddr returns the local UDP address of the transport
+func (t *UDPTransport) LocalAddr() *net.UDPAddr {
+	return t.conn.LocalAddr().(*net.UDPAddr)
+}
