@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 
 	"github.com/appnet-org/arpc/internal/packet"
 	"github.com/appnet-org/arpc/internal/transport"
@@ -113,7 +114,7 @@ func (s *Server) Start() {
 
 	for {
 		// Receive a packet from a client
-		data, addr, rpcID, _, err := s.transport.Receive(packet.MaxUDPPayloadSize)
+		data, addr, rpcID, _, err := s.transport.Receive(packet.MaxUDPPayloadSize, transport.RoleServer)
 		if err != nil {
 			logging.Error("Error receiving data", zap.Error(err))
 			if err := s.transport.Send(addr.String(), rpcID, []byte(err.Error()), packet.PacketTypeUnknown); err != nil {
@@ -204,4 +205,38 @@ func (s *Server) Start() {
 			logging.Error("Error sending response", zap.Error(err))
 		}
 	}
+}
+
+// Temporary functions to register packet types and handlers.
+// TODO(XZ): remove these once the transport can be dynamically configured.
+
+// RegisterPacketType registers a custom packet type with the server's transport
+func (s *Server) RegisterPacketType(packetType string, codec packet.PacketCodec) (packet.PacketType, error) {
+	return s.transport.RegisterPacketType(packetType, codec)
+}
+
+// RegisterPacketTypeWithID registers a custom packet type with a specific ID
+func (s *Server) RegisterPacketTypeWithID(packetType string, id packet.PacketTypeID, codec packet.PacketCodec) (packet.PacketType, error) {
+	return s.transport.RegisterPacketTypeWithID(packetType, id, codec)
+}
+
+// RegisterHandler registers a handler for a specific packet type and role
+func (s *Server) RegisterHandler(packetTypeID packet.PacketTypeID, handler transport.Handler, role transport.Role) {
+	handlerChain := transport.NewHandlerChain(fmt.Sprintf("ServerHandler_%d", packetTypeID), handler)
+	s.transport.RegisterHandlerChain(packetTypeID, handlerChain, role)
+}
+
+// RegisterHandlerChain registers a complete handler chain for a packet type and role
+func (s *Server) RegisterHandlerChain(packetTypeID packet.PacketTypeID, chain *transport.HandlerChain, role transport.Role) {
+	s.transport.RegisterHandlerChain(packetTypeID, chain, role)
+}
+
+// GetRegisteredPackets returns all registered packet types
+func (s *Server) GetRegisteredPackets() []packet.PacketType {
+	return s.transport.ListRegisteredPackets()
+}
+
+// GetTransport returns the underlying transport for advanced operations
+func (s *Server) GetTransport() *transport.UDPTransport {
+	return s.transport
 }

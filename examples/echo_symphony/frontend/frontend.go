@@ -10,6 +10,9 @@ import (
 
 	"github.com/appnet-org/arpc/examples/echo_symphony/elements"
 	echo "github.com/appnet-org/arpc/examples/echo_symphony/symphony"
+	"github.com/appnet-org/arpc/internal/custom/reliable"
+	"github.com/appnet-org/arpc/internal/packet"
+	"github.com/appnet-org/arpc/internal/transport"
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/rpc"
 	"github.com/appnet-org/arpc/pkg/rpc/element"
@@ -50,7 +53,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 func getLoggingConfig() *logging.Config {
 	level := os.Getenv("LOG_LEVEL")
 	if level == "" {
-		level = "info"
+		level = "debug"
 	}
 
 	format := os.Getenv("LOG_FORMAT")
@@ -96,6 +99,23 @@ func main() {
 	if err != nil {
 		logging.Fatal("Failed to create RPC client", zap.Error(err))
 	}
+
+	// Register ACK packet type - much simpler!
+	ackPacketType, err := client.RegisterPacketTypeWithID(
+		reliable.AckPacketName,
+		packet.PacketTypeID(4),
+		&reliable.ACKPacketCodec{},
+	)
+	if err != nil {
+		logging.Fatal("Failed to register ACK packet type", zap.Error(err))
+	}
+
+	// Register ACK handler - much simpler!
+	ackHandler := reliable.NewReliableClientHandler(
+		client.GetTransport(),
+		client.GetTransport().GetTimerManager(),
+	)
+	client.RegisterHandler(ackPacketType.TypeID, ackHandler, transport.RoleClient)
 
 	// Create EchoService client
 	echoClient = echo.NewEchoServiceClient(client)

@@ -227,7 +227,7 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 
 	// Wait and process the response
 	for {
-		data, _, respID, packetType, err := c.transport.Receive(packet.MaxUDPPayloadSize)
+		data, _, respID, packetType, err := c.transport.Receive(packet.MaxUDPPayloadSize, transport.RoleClient)
 		if err != nil {
 			return fmt.Errorf("failed to receive response: %w", err)
 		}
@@ -254,4 +254,38 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 			continue
 		}
 	}
+}
+
+// Temporary functions to register packet types and handlers.
+// TODO(XZ): remove these once the transport can be dynamically configured.
+
+// RegisterPacketType registers a custom packet type with the client's transport
+func (c *Client) RegisterPacketType(packetType string, codec packet.PacketCodec) (packet.PacketType, error) {
+	return c.transport.RegisterPacketType(packetType, codec)
+}
+
+// RegisterPacketTypeWithID registers a custom packet type with a specific ID
+func (c *Client) RegisterPacketTypeWithID(packetType string, id packet.PacketTypeID, codec packet.PacketCodec) (packet.PacketType, error) {
+	return c.transport.RegisterPacketTypeWithID(packetType, id, codec)
+}
+
+// RegisterHandler registers a handler for a specific packet type and role
+func (c *Client) RegisterHandler(packetTypeID packet.PacketTypeID, handler transport.Handler, role transport.Role) {
+	handlerChain := transport.NewHandlerChain(fmt.Sprintf("ClientHandler_%d", packetTypeID), handler)
+	c.transport.RegisterHandlerChain(packetTypeID, handlerChain, role)
+}
+
+// RegisterHandlerChain registers a complete handler chain for a packet type and role
+func (c *Client) RegisterHandlerChain(packetTypeID packet.PacketTypeID, chain *transport.HandlerChain, role transport.Role) {
+	c.transport.RegisterHandlerChain(packetTypeID, chain, role)
+}
+
+// GetRegisteredPackets returns all registered packet types
+func (c *Client) GetRegisteredPackets() []packet.PacketType {
+	return c.transport.ListRegisteredPackets()
+}
+
+// GetTransport returns the underlying transport for advanced operations
+func (c *Client) GetTransport() *transport.UDPTransport {
+	return c.transport
 }

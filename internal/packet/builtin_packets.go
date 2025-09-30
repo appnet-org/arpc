@@ -10,10 +10,10 @@ import (
 
 // Builtin packet types
 var (
-	PacketTypeUnknown  = PacketType{ID: 0, Name: "Unknown"}
-	PacketTypeRequest  = PacketType{ID: 1, Name: "Request"}
-	PacketTypeResponse = PacketType{ID: 2, Name: "Response"}
-	PacketTypeError    = PacketType{ID: 3, Name: "Error"}
+	PacketTypeUnknown  = PacketType{TypeID: 0, Name: "Unknown"}
+	PacketTypeRequest  = PacketType{TypeID: 1, Name: "Request"}
+	PacketTypeResponse = PacketType{TypeID: 2, Name: "Response"}
+	PacketTypeError    = PacketType{TypeID: 3, Name: "Error"}
 )
 
 // DataPacket represents the common structure for Request and Response packets

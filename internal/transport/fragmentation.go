@@ -74,7 +74,7 @@ func (r *DataReassembler) FragmentData(data []byte, rpcID uint64, packetType pro
 
 		// Create a packet for the current chunk
 		pkt := &protocol.DataPacket{
-			PacketTypeID: packetType.ID,
+			PacketTypeID: packetType.TypeID,
 			RPCID:        rpcID,
 			TotalPackets: totalPackets,
 			SeqNumber:    uint16(i),
