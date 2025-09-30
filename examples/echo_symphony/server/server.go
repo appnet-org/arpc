@@ -2,14 +2,22 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/appnet-org/arpc/examples/echo_symphony/elements"
 	echo "github.com/appnet-org/arpc/examples/echo_symphony/symphony"
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/rpc"
+	"github.com/appnet-org/arpc/pkg/rpc/element"
 	"github.com/appnet-org/arpc/pkg/serializer"
 	"go.uber.org/zap"
+)
+
+var (
+	elementTable = elements.GetElementTable()
 )
 
 // EchoService implementation
@@ -55,8 +63,26 @@ func main() {
 		panic(fmt.Sprintf("Failed to initialize logging: %v", err))
 	}
 
+	var elementStr string
+	var elements []string
+	var rpcElements []element.RPCElement
+	flag.StringVar(&elementStr, "element", "", "comma separated list of elements")
+	flag.Parse()
+	if elementStr == "" {
+		elements = []string{}
+	} else {
+		elements = strings.Split(elementStr, ",")
+	}
+	for _, element := range elements {
+		if _, ok := elementTable[element]; !ok {
+			logging.Warn("Unrecognized element, skipped", zap.String("element", element))
+			continue
+		}
+		rpcElements = append(rpcElements, elementTable[element]())
+	}
+
 	serializer := &serializer.SymphonySerializer{}
-	server, err := rpc.NewServer(":11000", serializer, nil)
+	server, err := rpc.NewServer(":11000", serializer, rpcElements)
 	if err != nil {
 		logging.Fatal("Failed to start server", zap.Error(err))
 	}
