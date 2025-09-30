@@ -1,9 +1,10 @@
-package main
+package elements
 
 import (
 	"context"
 
 	echo "github.com/appnet-org/arpc/examples/echo_symphony/symphony"
+	"github.com/appnet-org/arpc/pkg/rpc"
 	"github.com/appnet-org/arpc/pkg/rpc/element"
 )
 
@@ -24,7 +25,7 @@ func NewFirewallElement() element.RPCElement {
 func (e *FirewallElement) ProcessRequest(ctx context.Context, req *element.RPCRequest) (*element.RPCRequest, error) {
 	payload := req.Payload.(*echo.EchoRequest)
 	if payload.GetContent() == "bomb" {
-		return nil, &RPCElementError{reason: "acl"}
+		return nil, &rpc.RPCError{Type: rpc.RPCFailError, Reason: "acl"}
 	}
 	return req, nil
 }
