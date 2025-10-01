@@ -83,9 +83,11 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 			}
 			copy(data[0:4], ip4)
 			binary.LittleEndian.PutUint16(data[4:6], uint16(udpAddr.Port))
-			logging.Debug("Embedded IP and port",
+			logging.Debug("Embedded Peer address and source port",
 				zap.String("ip", ip4.String()),
-				zap.Uint16("port", uint16(udpAddr.Port)))
+				zap.Uint16("port", uint16(udpAddr.Port)),
+				zap.Uint16("sourcePort", binary.LittleEndian.Uint16(data[6:8])),
+			)
 		} else {
 			return fmt.Errorf("destination IP is not IPv4")
 		}
@@ -101,7 +103,7 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 	for _, pkt := range packets {
 		// Serialize the packet into a byte slice for transmission
 		packetData, err := packet.SerializePacket(pkt, packetType)
-		logging.Debug("Serialized packet", zap.String("packetData", fmt.Sprintf("%x", packetData)))
+		logging.Debug("Serialized packet", zap.String("packetData", fmt.Sprintf("%x", packetData)), zap.Uint64("rpcID", rpcID))
 		if err != nil {
 			return err
 		}

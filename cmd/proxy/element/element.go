@@ -51,27 +51,3 @@ func (c *RPCElementChain) ProcessResponse(ctx context.Context, resp []byte) ([]b
 	}
 	return resp, nil
 }
-
-// func (c *RPCElementChain) parseMetadata(ctx context.Context, data []byte) (uint64, string, string, uint16, error) {
-// 	offset := uint16(1)
-// 	rpcID := binary.LittleEndian.Uint64(data[offset : offset+8])
-// 	offset += 12
-
-// 	serviceLen := binary.LittleEndian.Uint16(data[offset : offset+2])
-// 	offset += 2
-// 	if offset+serviceLen > uint16(len(data)) {
-// 		log.Printf("Invalid packet: service length %d is too large", serviceLen)
-// 		return 0, "", "", 0, nil
-// 	}
-// 	service := data[offset : offset+serviceLen]
-// 	offset += serviceLen
-// 	methodLen := binary.LittleEndian.Uint16(data[offset : offset+2])
-// 	offset += 2
-// 	if offset+methodLen > uint16(len(data)) {
-// 		log.Printf("Invalid packet: method length %d is too large", methodLen)
-// 		return 0, "", "", 0, nil
-// 	}
-// 	method := data[offset : offset+methodLen]
-// 	offset += methodLen
-// 	return rpcID, string(service), string(method), offset, nil
-// }

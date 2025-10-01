@@ -38,7 +38,7 @@ func DefaultConfig() *Config {
 func getLoggingConfig() *logging.Config {
 	level := os.Getenv("LOG_LEVEL")
 	if level == "" {
-		level = "info"
+		level = "debug"
 	}
 
 	format := os.Getenv("LOG_FORMAT")
@@ -63,7 +63,7 @@ func main() {
 
 	// Create element chain with logging
 	elementChain := element.NewRPCElementChain(
-		element.NewLoggingElement(true), // Enable verbose logging
+	// element.NewLoggingElement(true), // Enable verbose logging
 	)
 
 	config := DefaultConfig()
@@ -139,25 +139,29 @@ func runProxyServer(port int, state *ProxyState) error {
 }
 
 // extractPeer extracts peer information from the packet data
-func extractPeer(data []byte) *net.UDPAddr {
+func extractPeer(data []byte) (*net.UDPAddr, uint16) {
 	if len(data) < 19 {
-		return nil
+		return nil, 0
 	}
 
+	// Filter out non-request packets
 	packetType := data[0]
 	if packetType != 1 {
-		return nil
+		return nil, 0
 	}
 
-	ip := data[13:17]
-	port := binary.LittleEndian.Uint16(data[17:19])
-	return &net.UDPAddr{IP: net.IP(ip), Port: int(port)}
+	// Payload starts at index 17 for data packets
+	peerIp := data[17:21]
+	peerPort := binary.LittleEndian.Uint16(data[21:23])
+	localPort := binary.LittleEndian.Uint16(data[23:25])
+	return &net.UDPAddr{IP: net.IP(peerIp), Port: int(peerPort)}, localPort
 }
 
 // handlePacket processes incoming packets and forwards them to the appropriate peer
 func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte) {
 	ctx := context.Background()
-	peer := extractPeer(data)
+	peer, localPort := extractPeer(data)
+	logging.Debug("Extracted peer", zap.String("peer", peer.String()), zap.Uint16("localPort", localPort))
 
 	if peer != nil {
 		// It's a request: map src <-> peer
@@ -165,7 +169,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 
 		// TODO(XZ): temp solution for issue #6. We only rewrite the port for client-side proxy.
 		if src.Port != 15002 {
-			src.Port = 53357 // hack
+			src.Port = int(localPort) // hack
 		}
 
 		state.connections[src.String()] = peer

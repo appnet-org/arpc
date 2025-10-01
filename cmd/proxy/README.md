@@ -1,6 +1,6 @@
 ## Running the Transparent UDP Proxy
 
-This guide walks you through building and running the UDP proxy, configuring `iptables` for transparent redirection, and debugging the setup.
+This guide walks you through building and running the Symphony proxy locally, configuring `iptables` for transparent redirection, and debugging the setup.
 
 ---
 

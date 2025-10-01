@@ -221,10 +221,6 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	localAddr := c.transport.LocalAddr()
-	sourcePort := uint16(localAddr.Port)
-	logging.Debug("Source port", zap.Uint16("port", sourcePort))
-
 	// Add the destination IP address and port to the request payload
 	// Frame the request into binary format
 	framedReq, err := c.frameRequest(rpcReq.ServiceName, rpcReq.Method, reqPayloadBytes)
