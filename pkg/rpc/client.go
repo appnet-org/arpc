@@ -1,11 +1,9 @@
 package rpc
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
-	"net"
 
 	"github.com/appnet-org/arpc/internal/packet"
 	"github.com/appnet-org/arpc/internal/transport"
@@ -64,52 +62,37 @@ func (c *Client) Transport() *transport.UDPTransport {
 	return c.transport
 }
 
-// frameRequest constructs a binary message with [serviceLen][service][methodLen][method][headerLen][headers][payload]
+// frameRequest constructs a binary message with
+// [dst ip(4B)][dst port(2B)][src port(2B)][serviceLen(2B)][service][methodLen(2B)][method][payload]
 func (c *Client) frameRequest(service, method string, payload []byte) ([]byte, error) {
-	// TOOD(xz): we should pre-calculate the buffer to avoid multiple allocations (issue #14).
-	buf := new(bytes.Buffer)
+	// Pre-calculate buffer size (headers: 4 + 2 + 2 + 2 + 2 = 12 bytes)
+	totalSize := 12 + len(service) + len(method) + len(payload)
+	buf := make([]byte, totalSize)
 
-	// TODO(XZ): this is a temporary solution fix issue #5.
-	// The first 8 bytes are the original destination IP address and port, as well as the source port. The actual values are added in the transport layer.
-	// We need to embed the source port in the request payload because somehow NAT assigns a different port to the client.
-	ip := net.ParseIP("0.0.0.0").To4()
-	if _, err := buf.Write(ip); err != nil {
-		return nil, err
-	}
+	// Fixed dst ip (0.0.0.0) — hardcode instead of net.ParseIP
+	copy(buf[0:4], []byte{0, 0, 0, 0})
 
-	port := uint16(0)
-	if err := binary.Write(buf, binary.LittleEndian, port); err != nil {
-		return nil, err
-	}
+	// dst port = 0
+	binary.LittleEndian.PutUint16(buf[4:6], 0)
 
+	// source port
 	localAddr := c.transport.LocalAddr()
-	sourcePort := uint16(localAddr.Port)
-	if err := binary.Write(buf, binary.LittleEndian, sourcePort); err != nil {
-		return nil, err
-	}
+	binary.LittleEndian.PutUint16(buf[6:8], uint16(localAddr.Port))
 
-	// Write service name
-	if err := binary.Write(buf, binary.LittleEndian, uint16(len(service))); err != nil {
-		return nil, err
-	}
-	if _, err := buf.Write([]byte(service)); err != nil {
-		return nil, err
-	}
+	// service
+	binary.LittleEndian.PutUint16(buf[8:10], uint16(len(service)))
+	copy(buf[10:], service)
 
-	// Write method name
-	if err := binary.Write(buf, binary.LittleEndian, uint16(len(method))); err != nil {
-		return nil, err
-	}
-	if _, err := buf.Write([]byte(method)); err != nil {
-		return nil, err
-	}
+	// method
+	methodStart := 10 + len(service)
+	binary.LittleEndian.PutUint16(buf[methodStart:methodStart+2], uint16(len(method)))
+	copy(buf[methodStart+2:], method)
 
-	// Write payload
-	if _, err := buf.Write(payload); err != nil {
-		return nil, err
-	}
+	// payload
+	payloadStart := methodStart + 2 + len(method)
+	copy(buf[payloadStart:], payload)
 
-	return buf.Bytes(), nil
+	return buf, nil
 }
 
 func (c *Client) parseFramedResponse(data []byte) (service string, method string, payload []byte, err error) {

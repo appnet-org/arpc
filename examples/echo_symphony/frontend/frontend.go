@@ -95,7 +95,7 @@ func main() {
 		rpcElements = append(rpcElements, elementTable[element]())
 	}
 
-	client, err := rpc.NewClient(serializer, "130.127.133.203:11000", rpcElements) // TODO: change to your server's address fully qualified domain name
+	client, err := rpc.NewClient(serializer, ":11000", rpcElements) // TODO: change to your server's address fully qualified domain name
 	if err != nil {
 		logging.Fatal("Failed to create RPC client", zap.Error(err))
 	}

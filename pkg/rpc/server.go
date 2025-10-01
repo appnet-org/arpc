@@ -1,7 +1,6 @@
 package rpc
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -81,32 +80,27 @@ func (s *Server) parseFramedRequest(data []byte) (string, string, []byte, error)
 	return service, method, payload, nil
 }
 
+// frameResponse constructs a binary message with
+// [serviceLen(2B)][service][methodLen(2B)][method][payload]
 func (s *Server) frameResponse(service, method string, payload []byte) ([]byte, error) {
-	// TOOD(xz): we should pre-calculate the buffer to avoid multiple allocations (issue #14).
-	buf := new(bytes.Buffer)
+	// total size = 2 + len(service) + 2 + len(method) + len(payload)
+	totalSize := 4 + len(service) + len(method) + len(payload)
+	buf := make([]byte, totalSize)
 
-	// Write service name
-	if err := binary.Write(buf, binary.LittleEndian, uint16(len(service))); err != nil {
-		return nil, err
-	}
-	if _, err := buf.Write([]byte(service)); err != nil {
-		return nil, err
-	}
+	// service length
+	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(service)))
+	copy(buf[2:], service)
 
-	// Write method name
-	if err := binary.Write(buf, binary.LittleEndian, uint16(len(method))); err != nil {
-		return nil, err
-	}
-	if _, err := buf.Write([]byte(method)); err != nil {
-		return nil, err
-	}
+	// method length
+	methodStart := 2 + len(service)
+	binary.LittleEndian.PutUint16(buf[methodStart:methodStart+2], uint16(len(method)))
+	copy(buf[methodStart+2:], method)
 
-	// Write payload
-	if _, err := buf.Write(payload); err != nil {
-		return nil, err
-	}
+	// payload
+	payloadStart := methodStart + 2 + len(method)
+	copy(buf[payloadStart:], payload)
 
-	return buf.Bytes(), nil
+	return buf, nil
 }
 
 // Start begins listening for incoming RPC requests, dispatching to the appropriate service/method handler.

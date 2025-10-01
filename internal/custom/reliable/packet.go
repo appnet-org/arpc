@@ -1,7 +1,6 @@
 package reliable
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 
@@ -12,91 +11,72 @@ const AckPacketName = "Acknowledgement"
 
 // ACKPacket represents an acknowledgment packet
 type ACKPacket struct {
-	RPCID     uint64 // RPC ID being acknowledged
-	Kind      uint8  // Kind of packet (0=request, 1=response, 2=error)
-	Status    uint8  // Status code (0=success, 1=error, etc.)
-	Timestamp int64  // Timestamp when ACK was generated
-	Message   string // Optional message
+	PacketTypeID packet.PacketTypeID
+	RPCID        uint64 // RPC ID being acknowledged
+	Kind         uint8  // Kind of packet (0=request, 1=response, 2=error)
+	Status       uint8  // Status code (0=success, 1=error, etc.)
+	Timestamp    int64  // Timestamp when ACK was generated
+	Message      string // Optional message
 }
 
 // ACKPacketCodec implements PacketCodec for ACK packets
 type ACKPacketCodec struct{}
 
+// Serialize encodes an ACKPacket into binary format:
+// [PacketTypeID(1B)][RPCID(8B)][Kind(1B)][Status(1B)][Timestamp(8B)][MsgLen(4B)][Msg]
 func (c *ACKPacketCodec) Serialize(packet any) ([]byte, error) {
 	p, ok := packet.(*ACKPacket)
 	if !ok {
 		return nil, errors.New("invalid packet type for ACK codec")
 	}
 
-	buf := new(bytes.Buffer)
-
-	// Write RPC ID
-	if err := binary.Write(buf, binary.LittleEndian, p.RPCID); err != nil {
-		return nil, err
-	}
-
-	if err := binary.Write(buf, binary.LittleEndian, p.Kind); err != nil {
-		return nil, err
-	}
-
-	// Write status
-	if err := binary.Write(buf, binary.LittleEndian, p.Status); err != nil {
-		return nil, err
-	}
-
-	// Write timestamp
-	if err := binary.Write(buf, binary.LittleEndian, p.Timestamp); err != nil {
-		return nil, err
-	}
-
-	// Write message length and string
 	msgBytes := []byte(p.Message)
-	if err := binary.Write(buf, binary.LittleEndian, uint32(len(msgBytes))); err != nil {
-		return nil, err
-	}
-	if _, err := buf.Write(msgBytes); err != nil {
-		return nil, err
-	}
+	totalSize := 23 + len(msgBytes) // header + message
+	buf := make([]byte, totalSize)
 
-	return buf.Bytes(), nil
+	// PacketTypeID
+	buf[0] = byte(p.PacketTypeID)
+
+	// RPCID
+	binary.LittleEndian.PutUint64(buf[1:9], p.RPCID)
+
+	// Kind
+	buf[9] = p.Kind
+
+	// Status
+	buf[10] = p.Status
+
+	// Timestamp
+	binary.LittleEndian.PutUint64(buf[11:19], uint64(p.Timestamp))
+
+	// Message length
+	binary.LittleEndian.PutUint32(buf[19:23], uint32(len(msgBytes)))
+
+	// Message
+	copy(buf[23:], msgBytes)
+
+	return buf, nil
 }
 
+// Deserialize decodes binary data into an ACKPacket
 func (c *ACKPacketCodec) Deserialize(data []byte) (any, error) {
-	buf := bytes.NewReader(data)
+	if len(data) < 23 {
+		return nil, errors.New("data too short for ACKPacket header")
+	}
+
 	pkt := &ACKPacket{}
+	pkt.PacketTypeID = packet.PacketTypeID(data[0])
+	pkt.RPCID = binary.LittleEndian.Uint64(data[1:9])
+	pkt.Kind = data[9]
+	pkt.Status = data[10]
+	pkt.Timestamp = int64(binary.LittleEndian.Uint64(data[11:19]))
 
-	// Read RPC ID
-	if err := binary.Read(buf, binary.LittleEndian, &pkt.RPCID); err != nil {
-		return nil, err
+	msgLen := binary.LittleEndian.Uint32(data[19:23])
+	if len(data) < 23+int(msgLen) {
+		return nil, errors.New("data too short for declared message length")
 	}
 
-	// Read Kind
-	if err := binary.Read(buf, binary.LittleEndian, &pkt.Kind); err != nil {
-		return nil, err
-	}
-
-	// Read status
-	if err := binary.Read(buf, binary.LittleEndian, &pkt.Status); err != nil {
-		return nil, err
-	}
-
-	// Read timestamp
-	if err := binary.Read(buf, binary.LittleEndian, &pkt.Timestamp); err != nil {
-		return nil, err
-	}
-
-	// Read message length and string
-	var msgLen uint32
-	if err := binary.Read(buf, binary.LittleEndian, &msgLen); err != nil {
-		return nil, err
-	}
-
-	msgBytes := make([]byte, msgLen)
-	if _, err := buf.Read(msgBytes); err != nil {
-		return nil, err
-	}
-	pkt.Message = string(msgBytes)
-
+	pkt.Message = string(data[23 : 23+msgLen])
 	return pkt, nil
 }
 
