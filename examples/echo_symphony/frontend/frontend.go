@@ -50,7 +50,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 func getLoggingConfig() *logging.Config {
 	level := os.Getenv("LOG_LEVEL")
 	if level == "" {
-		level = "debug"
+		level = "info"
 	}
 
 	format := os.Getenv("LOG_FORMAT")

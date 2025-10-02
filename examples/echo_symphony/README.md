@@ -16,4 +16,7 @@ go run frontend/frontend.go frontend/metrics.go
 
 ```bash
 curl http://localhost:8080?key=hello
+
+# or 
+curl http://10.96.88.88:80?key=hello
 ```
