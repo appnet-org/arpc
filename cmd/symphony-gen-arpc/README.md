@@ -23,7 +23,7 @@ To generate code from your `.proto` file using both the Symphony and aRPC plugin
 protoc --symphony_out=paths=source_relative:. \
        --arpc_out=paths=source_relative:. \
        --go_out=paths=source_relative:. \
-       <your-proto-file>
+       kv.proto
 ```
 
 This command will generate:

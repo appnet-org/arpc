@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
-	"log"
+	"os"
 	"sync"
 
 	kv "github.com/appnet-org/arpc/benchmark/kv-store/symphony"
+	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/rpc"
 	"github.com/appnet-org/arpc/pkg/serializer"
+	"go.uber.org/zap"
 )
 
 // KVService implementation
@@ -27,7 +29,7 @@ func (s *kvServer) Get(ctx context.Context, req *kv.GetRequest) (*kv.GetResponse
 	defer s.mu.RUnlock()
 
 	key := req.GetKey()
-	log.Printf("Server got Get request for key: [%s]", key)
+	logging.Debug("Server got Get request", zap.String("key", key))
 
 	value, exists := s.data[key]
 	if !exists {
@@ -38,7 +40,7 @@ func (s *kvServer) Get(ctx context.Context, req *kv.GetRequest) (*kv.GetResponse
 		Value: value,
 	}
 
-	log.Printf("Server returning value: [%s] for key: [%s]", value, key)
+	logging.Debug("Server returning value for key", zap.String("key", key), zap.String("value", value))
 	return resp, context.Background(), nil
 }
 
@@ -48,7 +50,7 @@ func (s *kvServer) Set(ctx context.Context, req *kv.SetRequest) (*kv.SetResponse
 
 	key := req.GetKey()
 	value := req.GetValue()
-	log.Printf("Server got Set request for key: [%s], value: [%s]", key, value)
+	logging.Debug("Server got Set request", zap.String("key", key), zap.String("value", value))
 
 	s.data[key] = value
 
@@ -56,15 +58,38 @@ func (s *kvServer) Set(ctx context.Context, req *kv.SetRequest) (*kv.SetResponse
 		Value: value,
 	}
 
-	log.Printf("Server set key: [%s] to value: [%s]", key, value)
+	logging.Debug("Server set key to value", zap.String("key", key), zap.String("value", value))
 	return resp, context.Background(), nil
 }
 
+// getLoggingConfig reads logging configuration from environment variables with defaults
+func getLoggingConfig() *logging.Config {
+	level := os.Getenv("LOG_LEVEL")
+	if level == "" {
+		level = "info"
+	}
+
+	format := os.Getenv("LOG_FORMAT")
+	if format == "" {
+		format = "console"
+	}
+
+	return &logging.Config{
+		Level:  level,
+		Format: format,
+	}
+}
+
 func main() {
+	// Initialize logging with configuration from environment variables
+	if err := logging.Init(getLoggingConfig()); err != nil {
+		panic(err)
+	}
+
 	serializer := &serializer.SymphonySerializer{}
 	server, err := rpc.NewServer(":11000", serializer, nil)
 	if err != nil {
-		log.Fatal("Failed to start server:", err)
+		logging.Fatal("Failed to start server", zap.Error(err))
 	}
 
 	kvServer := NewKVServer()

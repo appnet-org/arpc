@@ -3,7 +3,9 @@ package kv
 
 import (
 	"context"
+
 	"github.com/appnet-org/arpc/pkg/rpc"
+	"github.com/appnet-org/arpc/pkg/rpc/element"
 )
 
 // KVServiceClient is the client API for KVService service.
@@ -57,19 +59,51 @@ func RegisterKVServiceServer(s *rpc.Server, srv KVServiceServer) {
 		},
 	}, srv)
 }
-func _KVService_Get_Handler(srv any, ctx context.Context, dec func(any) error) (any, context.Context, error) {
-	in := new(GetRequest)
-	if err := dec(in); err != nil {
+
+func _KVService_Get_Handler(srv any, ctx context.Context, dec func(any) error, req *element.RPCRequest, chain *element.RPCElementChain) (*element.RPCResponse, context.Context, error) {
+	req.Payload = new(GetRequest)
+	if err := dec(req.Payload); err != nil {
 		return nil, ctx, err
 	}
-	out, newCtx, err := srv.(KVServiceServer).Get(ctx, in)
-	return out, newCtx, err
+	req, err := chain.ProcessRequest(ctx, req)
+	if err != nil {
+		return nil, ctx, err
+	}
+	result, newCtx, err := srv.(KVServiceServer).Get(ctx, req.Payload.(*GetRequest))
+	if err != nil {
+		return nil, newCtx, err
+	}
+	resp := &element.RPCResponse{
+		ID:     req.ID,
+		Result: result,
+	}
+	resp, err = chain.ProcessResponse(newCtx, resp)
+	if err != nil {
+		return nil, newCtx, err
+	}
+	return resp, newCtx, err
 }
-func _KVService_Set_Handler(srv any, ctx context.Context, dec func(any) error) (any, context.Context, error) {
-	in := new(SetRequest)
-	if err := dec(in); err != nil {
+
+func _KVService_Set_Handler(srv any, ctx context.Context, dec func(any) error, req *element.RPCRequest, chain *element.RPCElementChain) (*element.RPCResponse, context.Context, error) {
+	req.Payload = new(SetRequest)
+	if err := dec(req.Payload); err != nil {
 		return nil, ctx, err
 	}
-	out, newCtx, err := srv.(KVServiceServer).Set(ctx, in)
-	return out, newCtx, err
+	req, err := chain.ProcessRequest(ctx, req)
+	if err != nil {
+		return nil, ctx, err
+	}
+	result, newCtx, err := srv.(KVServiceServer).Set(ctx, req.Payload.(*SetRequest))
+	if err != nil {
+		return nil, newCtx, err
+	}
+	resp := &element.RPCResponse{
+		ID:     req.ID,
+		Result: result,
+	}
+	resp, err = chain.ProcessResponse(newCtx, resp)
+	if err != nil {
+		return nil, newCtx, err
+	}
+	return resp, newCtx, err
 }

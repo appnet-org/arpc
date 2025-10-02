@@ -1,15 +1,15 @@
-## Run the client and server
+## Run the Client and Server
 
 Start the server:
 
 ```bash
-go run server/server.go 
+go run server/*.go 
 ```
 
 In a **separate terminal**, run the client:
 
 ```bash
-go run frontend/frontend.go frontend/metrics.go
+go run frontend/*.go 
 ```
 
 ## 4. Test
