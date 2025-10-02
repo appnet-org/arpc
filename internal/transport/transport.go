@@ -109,6 +109,7 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 		}
 
 		_, err = t.conn.WriteToUDP(packetData, udpAddr)
+		logging.Debug("Sent packet", zap.Uint64("rpcID", rpcID))
 		if err != nil {
 			return err
 		}

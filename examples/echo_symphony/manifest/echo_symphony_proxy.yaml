@@ -78,6 +78,9 @@ metadata:
   name: server
 spec:
   replicas: 1
+  selector:
+    matchLabels:
+      app: server
   template:
     metadata:
       name: server
@@ -100,6 +103,10 @@ spec:
       - image: appnetorg/echo-symphony:latest
         name: server-echo-symphony
         command: ["/app/server/server"]
+        securityContext:
+          runAsUser: 0
+          capabilities:
+            add: ["NET_ADMIN"]
       - name: symphony-proxy
         image: appnetorg/symphony-proxy:latest
         command: ["/app/proxy"]
@@ -107,6 +114,3 @@ spec:
           runAsUser: 1337
           capabilities:
             add: ["NET_ADMIN", "NET_RAW"]
-  selector:
-    matchLabels:
-      app: server

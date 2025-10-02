@@ -10,9 +10,6 @@ import (
 
 	"github.com/appnet-org/arpc/examples/echo_symphony/elements"
 	echo "github.com/appnet-org/arpc/examples/echo_symphony/symphony"
-	"github.com/appnet-org/arpc/internal/custom/reliable"
-	"github.com/appnet-org/arpc/internal/packet"
-	"github.com/appnet-org/arpc/internal/transport"
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/rpc"
 	"github.com/appnet-org/arpc/pkg/rpc/element"
@@ -95,27 +92,27 @@ func main() {
 		rpcElements = append(rpcElements, elementTable[element]())
 	}
 
-	client, err := rpc.NewClient(serializer, ":11000", rpcElements) // TODO: change to your server's address fully qualified domain name
+	client, err := rpc.NewClient(serializer, "server.default.svc.cluster.local:11000", rpcElements) // TODO: change to your server's address fully qualified domain name
 	if err != nil {
 		logging.Fatal("Failed to create RPC client", zap.Error(err))
 	}
 
-	// Register ACK packet type - much simpler!
-	ackPacketType, err := client.RegisterPacketTypeWithID(
-		reliable.AckPacketName,
-		packet.PacketTypeID(4),
-		&reliable.ACKPacketCodec{},
-	)
-	if err != nil {
-		logging.Fatal("Failed to register ACK packet type", zap.Error(err))
-	}
+	// // Register ACK packet type
+	// ackPacketType, err := client.RegisterPacketTypeWithID(
+	// 	reliable.AckPacketName,
+	// 	packet.PacketTypeID(4),
+	// 	&reliable.ACKPacketCodec{},
+	// )
+	// if err != nil {
+	// 	logging.Fatal("Failed to register ACK packet type", zap.Error(err))
+	// }
 
-	// Register ACK handler - much simpler!
-	ackHandler := reliable.NewReliableClientHandler(
-		client.GetTransport(),
-		client.GetTransport().GetTimerManager(),
-	)
-	client.RegisterHandler(ackPacketType.TypeID, ackHandler, transport.RoleClient)
+	// // Register ACK handler
+	// ackHandler := reliable.NewReliableClientHandler(
+	// 	client.GetTransport(),
+	// 	client.GetTransport().GetTimerManager(),
+	// )
+	// client.RegisterHandler(ackPacketType.TypeID, ackHandler, transport.RoleClient)
 
 	// Create EchoService client
 	echoClient = echo.NewEchoServiceClient(client)
