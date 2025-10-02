@@ -10,6 +10,7 @@ import (
 	"github.com/appnet-org/arpc/examples/echo_symphony/elements"
 	echo "github.com/appnet-org/arpc/examples/echo_symphony/symphony"
 	"github.com/appnet-org/arpc/pkg/logging"
+	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/rpc"
 	"github.com/appnet-org/arpc/pkg/rpc/element"
 	"github.com/appnet-org/arpc/pkg/serializer"
@@ -24,8 +25,8 @@ var (
 type echoServer struct{}
 
 func (s *echoServer) Echo(ctx context.Context, req *echo.EchoRequest) (*echo.EchoResponse, context.Context, error) {
-
-	logging.Debug("Server received request", zap.String("content", req.GetContent()))
+	md := metadata.FromIncomingContext(ctx)
+	logging.Debug("Server received request", zap.String("content", req.GetContent()), zap.Any("metadata", md))
 
 	resp := &echo.EchoResponse{
 		Id:       req.GetId(),

@@ -1,3 +1,4 @@
+// pkg/rpc/client.go
 package rpc
 
 import (
@@ -63,10 +64,10 @@ func (c *Client) Transport() *transport.UDPTransport {
 }
 
 // frameRequest constructs a binary message with
-// [dst ip(4B)][dst port(2B)][src port(2B)][serviceLen(2B)][service][methodLen(2B)][method][payload]
-func (c *Client) frameRequest(service, method string, payload []byte) ([]byte, error) {
-	// Pre-calculate buffer size (headers: 4 + 2 + 2 + 2 + 2 = 12 bytes)
-	totalSize := 12 + len(service) + len(method) + len(payload)
+// [dst ip(4B)][dst port(2B)][src port(2B)][serviceLen(2B)][service][methodLen(2B)][method][metadataLen(2B)][metadata][payload]
+func (c *Client) frameRequest(service, method string, metadataBytes, payload []byte) ([]byte, error) {
+	// Pre-calculate buffer size (headers: 4 + 2 + 2 + 2 + 2 + 2 = 14 bytes)
+	totalSize := 14 + len(service) + len(method) + len(metadataBytes) + len(payload)
 	buf := make([]byte, totalSize)
 
 	// Fixed dst ip (0.0.0.0) — hardcode instead of net.ParseIP
@@ -88,8 +89,13 @@ func (c *Client) frameRequest(service, method string, payload []byte) ([]byte, e
 	binary.LittleEndian.PutUint16(buf[methodStart:methodStart+2], uint16(len(method)))
 	copy(buf[methodStart+2:], method)
 
+	// metadata
+	metadataStart := methodStart + 2 + len(method)
+	binary.LittleEndian.PutUint16(buf[metadataStart:metadataStart+2], uint16(len(metadataBytes)))
+	copy(buf[metadataStart+2:], metadataBytes)
+
 	// payload
-	payloadStart := methodStart + 2 + len(method)
+	payloadStart := metadataStart + 2 + len(metadataBytes)
 	copy(buf[payloadStart:], payload)
 
 	return buf, nil
@@ -197,6 +203,17 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		return err
 	}
 
+	// Extract metadata from context
+	md := metadata.FromOutgoingContext(ctx)
+	var metadataBytes []byte
+	if len(md) > 0 {
+		metadataBytes, err = c.metadataCodec.EncodeHeaders(md)
+		if err != nil {
+			return fmt.Errorf("failed to encode metadata: %w", err)
+		}
+		logging.Debug("Encoded metadata", zap.String("metadata", fmt.Sprintf("%x", metadataBytes)))
+	}
+
 	// Serialize the request payload
 	reqPayloadBytes, err := c.serializer.Marshal(rpcReq.Payload)
 	logging.Debug("Serialized request payload", zap.String("payload", fmt.Sprintf("%x", reqPayloadBytes)))
@@ -206,7 +223,7 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 
 	// Add the destination IP address and port to the request payload
 	// Frame the request into binary format
-	framedReq, err := c.frameRequest(rpcReq.ServiceName, rpcReq.Method, reqPayloadBytes)
+	framedReq, err := c.frameRequest(rpcReq.ServiceName, rpcReq.Method, metadataBytes, reqPayloadBytes)
 	logging.Debug("Framed request Message", zap.String("message", fmt.Sprintf("%x", framedReq)))
 	if err != nil {
 		return fmt.Errorf("failed to frame request: %w", err)

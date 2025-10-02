@@ -8,6 +8,7 @@ import (
 	"github.com/appnet-org/arpc/internal/packet"
 	"github.com/appnet-org/arpc/internal/transport"
 	"github.com/appnet-org/arpc/pkg/logging"
+	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/rpc/element"
 	"github.com/appnet-org/arpc/pkg/serializer"
 	"go.uber.org/zap"
@@ -33,6 +34,7 @@ type ServiceDesc struct {
 type Server struct {
 	transport       *transport.UDPTransport
 	serializer      serializer.Serializer
+	metadataCodec   metadata.MetadataCodec
 	services        map[string]*ServiceDesc
 	rpcElementChain *element.RPCElementChain
 }
@@ -46,6 +48,7 @@ func NewServer(addr string, serializer serializer.Serializer, rpcElements []elem
 	return &Server{
 		transport:       udpTransport,
 		serializer:      serializer,
+		metadataCodec:   metadata.MetadataCodec{},
 		services:        make(map[string]*ServiceDesc),
 		rpcElementChain: element.NewRPCElementChain(rpcElements...),
 	}, nil
@@ -57,27 +60,64 @@ func (s *Server) RegisterService(desc *ServiceDesc, impl any) {
 	logging.Info("Registered service", zap.String("serviceName", desc.ServiceName))
 }
 
-// parseFramedRequest extracts service, method, header, and payload segments from a request frame.
-func (s *Server) parseFramedRequest(data []byte) (string, string, []byte, error) {
+// parseFramedRequest extracts service, method, metadata, and payload segments from a request frame.
+// Wire format: [dst ip(4B)][dst port(2B)][src port(2B)][serviceLen(2B)][service][methodLen(2B)][method][metadataLen(2B)][metadata][payload]
+func (s *Server) parseFramedRequest(data []byte) (string, string, metadata.Metadata, []byte, error) {
 	// TODO(XZ): this is a temporary solution fix issue #5 (the first 8 bytes are the original IP address and port)
 	offset := 8
 
 	// Service
+	if offset+2 > len(data) {
+		return "", "", nil, nil, fmt.Errorf("data too short for service length")
+	}
 	serviceLen := int(binary.LittleEndian.Uint16(data[offset:]))
 	offset += 2
+	if offset+serviceLen > len(data) {
+		return "", "", nil, nil, fmt.Errorf("service length %d exceeds data length", serviceLen)
+	}
 	service := string(data[offset : offset+serviceLen])
 	offset += serviceLen
 
 	// Method
+	if offset+2 > len(data) {
+		return "", "", nil, nil, fmt.Errorf("data too short for method length")
+	}
 	methodLen := int(binary.LittleEndian.Uint16(data[offset:]))
 	offset += 2
+	if offset+methodLen > len(data) {
+		return "", "", nil, nil, fmt.Errorf("method length %d exceeds data length", methodLen)
+	}
 	method := string(data[offset : offset+methodLen])
 	offset += methodLen
+
+	// Metadata
+	var md metadata.Metadata
+	if offset+2 > len(data) {
+		return "", "", nil, nil, fmt.Errorf("data too short for metadata length")
+	}
+	metadataLen := int(binary.LittleEndian.Uint16(data[offset:]))
+	offset += 2
+
+	if metadataLen > 0 {
+		if offset+metadataLen > len(data) {
+			return "", "", nil, nil, fmt.Errorf("metadata length %d exceeds data length", metadataLen)
+		}
+		metadataBytes := data[offset : offset+metadataLen]
+		offset += metadataLen
+
+		// Decode metadata
+		var err error
+		md, err = s.metadataCodec.DecodeHeaders(metadataBytes)
+		if err != nil {
+			return "", "", nil, nil, fmt.Errorf("failed to decode metadata: %w", err)
+		}
+		logging.Debug("Decoded metadata", zap.Any("metadata", md))
+	}
 
 	// Payload
 	payload := data[offset:]
 
-	return service, method, payload, nil
+	return service, method, md, payload, nil
 }
 
 // frameResponse constructs a binary message with
@@ -123,13 +163,19 @@ func (s *Server) Start() {
 		}
 
 		// Parse request payload
-		serviceName, methodName, reqPayloadBytes, err := s.parseFramedRequest(data)
+		serviceName, methodName, md, reqPayloadBytes, err := s.parseFramedRequest(data)
 		if err != nil {
 			logging.Error("Failed to parse framed request", zap.Error(err))
 			if err := s.transport.Send(addr.String(), rpcID, []byte(err.Error()), packet.PacketTypeUnknown); err != nil {
 				logging.Error("Error sending error response", zap.Error(err))
 			}
 			continue
+		}
+
+		// Create context with incoming metadata
+		ctx := context.Background()
+		if len(md) > 0 {
+			ctx = metadata.NewIncomingContext(ctx, md)
 		}
 
 		// Create RPC request for element processing
@@ -156,8 +202,8 @@ func (s *Server) Start() {
 			continue
 		}
 
-		// Invoke method handler
-		rpcResp, _, err := methodDesc.Handler(svcDesc.ServiceImpl, context.Background(), func(v any) error {
+		// Invoke method handler with context containing metadata
+		rpcResp, _, err := methodDesc.Handler(svcDesc.ServiceImpl, ctx, func(v any) error {
 			return s.serializer.Unmarshal(reqPayloadBytes, v)
 		}, rpcReq, s.rpcElementChain)
 		if err != nil {

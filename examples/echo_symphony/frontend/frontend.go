@@ -11,6 +11,7 @@ import (
 	"github.com/appnet-org/arpc/examples/echo_symphony/elements"
 	echo "github.com/appnet-org/arpc/examples/echo_symphony/symphony"
 	"github.com/appnet-org/arpc/pkg/logging"
+	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/rpc"
 	"github.com/appnet-org/arpc/pkg/rpc/element"
 	"github.com/appnet-org/arpc/pkg/serializer"
@@ -24,20 +25,27 @@ var (
 
 func handler(w http.ResponseWriter, r *http.Request) {
 	message := r.URL.Query().Get("key")
-	logging.Debug("Received HTTP request", zap.String("key", message))
 
+	// Create custom headers
+	md := metadata.New(map[string]string{
+		"username":   "Bob",
+		"request-id": "12345",
+		"trace-id":   "abc-def-123",
+	})
+
+	// Attach metadata to context
+	ctx := metadata.NewOutgoingContext(context.Background(), md)
+
+	// Make RPC call with custom headers
 	req := &echo.EchoRequest{
 		Id:       42,
 		Score:    100,
 		Username: "alice",
 		Content:  message,
 	}
-	resp, err := echoClient.Echo(context.Background(), req)
+	resp, err := echoClient.Echo(ctx, req)
 
 	if err != nil {
-		if rpcErr, ok := err.(*rpc.RPCError); !ok || rpcErr.Type == rpc.RPCUnknownError {
-			logging.Error("RPC call failed", zap.Error(err))
-		}
 		http.Error(w, fmt.Sprintf("RPC call failed: %v", err), http.StatusInternalServerError)
 		return
 	}
