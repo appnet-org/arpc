@@ -10,8 +10,8 @@ WORKDIR /app
 # Copy the entire repo, assuming your context is ~/arpc
 COPY . .
 
-# Go to kv-store subdir
-WORKDIR /app/benchmark/kv-store
+# Go to kv-store-symphony subdir
+WORKDIR /app/benchmark/kv-store-symphony
 
 RUN go mod tidy
 
@@ -31,8 +31,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy built binaries
-COPY --from=builder /app/benchmark/kv-store/frontend /app/frontend
-COPY --from=builder /app/benchmark/kv-store/kvstore /app/kvstore
+COPY --from=builder /app/benchmark/kv-store-symphony/frontend /app/frontend
+COPY --from=builder /app/benchmark/kv-store-symphony/kvstore /app/kvstore
 
 # Make binaries executable
 RUN chmod +x /app/frontend /app/kvstore

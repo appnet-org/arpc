@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"os"
 
-	kv "github.com/appnet-org/arpc/benchmark/kv-store/symphony"
+	kv "github.com/appnet-org/arpc/benchmark/kv-store-symphony/symphony"
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/rpc"
 	"github.com/appnet-org/arpc/pkg/serializer"

@@ -1,4 +1,4 @@
-module github.com/appnet-org/arpc/benchmark/kv-store
+module github.com/appnet-org/arpc/benchmark/kv-store-symphony
 
 go 1.23.9
 
@@ -16,5 +16,3 @@ require (
 )
 
 replace github.com/appnet-org/arpc => ../../
-
-replace github.com/appnet-org/arpc/benchmark/kv-store/kv-store => ./kv-store
