@@ -103,7 +103,7 @@ func main() {
 	// Create RPC client
 	serializer := &serializer.SymphonySerializer{}
 
-	client, err := rpc.NewClient(serializer, ":11000", nil) // TODO: change to your server's address fully qualified domain name
+	client, err := rpc.NewClient(serializer, "kvstore.default.svc.cluster.local:11000", nil) // TODO: change to your server's address fully qualified domain name
 	if err != nil {
 		logging.Fatal("Failed to create RPC client", zap.Error(err))
 	}
