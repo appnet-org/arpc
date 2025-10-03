@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"strconv"
 	"sync"
 
 	kv "github.com/appnet-org/arpc/benchmark/kv-store/symphony"
@@ -14,19 +15,26 @@ import (
 
 // KVService implementation
 type kvServer struct {
-	mu   sync.RWMutex
-	data map[string]string
+	mu          sync.RWMutex
+	data        map[string]string
+	maxSize     int
+	accessOrder []string // For LRU eviction
 }
 
-func NewKVServer() *kvServer {
+func NewKVServer(maxSize int) *kvServer {
+	if maxSize <= 0 {
+		maxSize = 1000 // Default max size
+	}
 	return &kvServer{
-		data: make(map[string]string),
+		data:        make(map[string]string),
+		maxSize:     maxSize,
+		accessOrder: make([]string, 0, maxSize),
 	}
 }
 
 func (s *kvServer) Get(ctx context.Context, req *kv.GetRequest) (*kv.GetResponse, context.Context, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	key := req.GetKey()
 	logging.Debug("Server got Get request", zap.String("key", key))
@@ -34,6 +42,9 @@ func (s *kvServer) Get(ctx context.Context, req *kv.GetRequest) (*kv.GetResponse
 	value, exists := s.data[key]
 	if !exists {
 		value = "" // Return empty string if key doesn't exist
+	} else {
+		// Move to end of access order for LRU
+		s.moveToEnd(key)
 	}
 
 	resp := &kv.GetResponse{
@@ -52,7 +63,15 @@ func (s *kvServer) Set(ctx context.Context, req *kv.SetRequest) (*kv.SetResponse
 	value := req.GetValue()
 	logging.Debug("Server got Set request", zap.String("key", key), zap.String("value", value))
 
+	// Check if we need to evict an item
+	if len(s.data) >= s.maxSize {
+		if _, exists := s.data[key]; !exists {
+			s.evictLRU()
+		}
+	}
+
 	s.data[key] = value
+	s.moveToEnd(key)
 
 	resp := &kv.SetResponse{
 		Value: value,
@@ -62,11 +81,38 @@ func (s *kvServer) Set(ctx context.Context, req *kv.SetRequest) (*kv.SetResponse
 	return resp, context.Background(), nil
 }
 
+// moveToEnd moves the key to the end of the access order (most recently used)
+func (s *kvServer) moveToEnd(key string) {
+	// Remove from current position if it exists
+	for i, k := range s.accessOrder {
+		if k == key {
+			s.accessOrder = append(s.accessOrder[:i], s.accessOrder[i+1:]...)
+			break
+		}
+	}
+	// Add to end
+	s.accessOrder = append(s.accessOrder, key)
+}
+
+// evictLRU removes the least recently used item
+func (s *kvServer) evictLRU() {
+	if len(s.accessOrder) == 0 {
+		return
+	}
+
+	// Remove the first (oldest) item
+	keyToRemove := s.accessOrder[0]
+	s.accessOrder = s.accessOrder[1:]
+	delete(s.data, keyToRemove)
+
+	logging.Debug("Evicted LRU key", zap.String("key", keyToRemove))
+}
+
 // getLoggingConfig reads logging configuration from environment variables with defaults
 func getLoggingConfig() *logging.Config {
 	level := os.Getenv("LOG_LEVEL")
 	if level == "" {
-		level = "info"
+		level = "debug"
 	}
 
 	format := os.Getenv("LOG_FORMAT")
@@ -92,7 +138,15 @@ func main() {
 		logging.Fatal("Failed to start server", zap.Error(err))
 	}
 
-	kvServer := NewKVServer()
+	// Create KV server with max size constraint (configurable via environment variable)
+	maxSize := 1000 // Default max size
+	if maxSizeEnv := os.Getenv("KV_MAX_SIZE"); maxSizeEnv != "" {
+		if parsed, err := strconv.Atoi(maxSizeEnv); err == nil && parsed > 0 {
+			maxSize = parsed
+		}
+	}
+
+	kvServer := NewKVServer(maxSize)
 	kv.RegisterKVServiceServer(server, kvServer)
 	server.Start()
 }
