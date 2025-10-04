@@ -2,170 +2,164 @@
 package echo_capnp
 
 import (
-	"context"
-
-	"capnproto.org/go/capnp/v3"
-	"github.com/appnet-org/arpc/pkg/rpc"
+    "context"
+    "capnproto.org/go/capnp/v3"
+    "github.com/appnet-org/arpc/pkg/rpc"
+    "github.com/appnet-org/arpc/pkg/rpc/element"
 )
 
-type EchoRequest_ struct {
-	Msg         *capnp.Message
-	CapnpStruct *EchoRequest
-}
-
-func (e *EchoRequest_) GetUsername() (string, error) {
-	return e.CapnpStruct.Username()
-}
-
-func (e *EchoRequest_) GetContent() (string, error) {
-	return e.CapnpStruct.Content()
-}
-
-func (e *EchoRequest_) GetId() (int32, error) {
-	return e.CapnpStruct.Id(), nil
-}
-
-func (e *EchoRequest_) GetScore() (int32, error) {
-	return e.CapnpStruct.Score(), nil
-}
-
-func CreateEchoRequest(username string, content string, id int32, score int32) (*EchoRequest_, error) {
-	msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-	if err != nil {
-		return nil, err
-	}
-	capnpStruct, err := NewRootEchoRequest(seg)
-	if err != nil {
-		return nil, err
-	}
-	capnpStruct.SetId(id)
-	if err != nil {
-		return nil, err
-	}
-	capnpStruct.SetScore(score)
-	if err != nil {
-		return nil, err
-	}
-	capnpStruct.SetUsername(username)
-	if err != nil {
-		return nil, err
-	}
-	err = capnpStruct.SetContent(content)
-	if err != nil {
-		return nil, err
-	}
-	echoRequest := &EchoRequest_{
-		Msg:         msg,
-		CapnpStruct: &capnpStruct,
-	}
-	return echoRequest, nil
-}
-
 type EchoResponse_ struct {
-	Msg         *capnp.Message
-	CapnpStruct *EchoResponse
-}
-
-func (e *EchoResponse_) GetContent() (string, error) {
-	return e.CapnpStruct.Content()
+    Msg		  *capnp.Message
+    CapnpStruct *EchoResponse
 }
 
 func (e *EchoResponse_) GetId() (int32, error) {
-	return e.CapnpStruct.Id(), nil
+    return e.CapnpStruct.Id(), nil
 }
 
 func (e *EchoResponse_) GetScore() (int32, error) {
-	return e.CapnpStruct.Score(), nil
+    return e.CapnpStruct.Score(), nil
 }
 
 func (e *EchoResponse_) GetUsername() (string, error) {
-	return e.CapnpStruct.Username()
+    return e.CapnpStruct.Username()
 }
 
-func CreateEchoResponse(content string, id int32, score int32, username string) (*EchoResponse_, error) {
-	msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-	if err != nil {
-		return nil, err
-	}
-	capnpStruct, err := NewRootEchoResponse(seg)
-	if err != nil {
-		return nil, err
-	}
-	capnpStruct.SetContent(content)
-	if err != nil {
-		return nil, err
-	}
-	capnpStruct.SetId(id)
-	if err != nil {
-		return nil, err
-	}
-	capnpStruct.SetScore(score)
-	if err != nil {
-		return nil, err
-	}
-	capnpStruct.SetUsername(username)
-	if err != nil {
-		return nil, err
-	}
-	echoResponse := &EchoResponse_{
-		Msg:         msg,
-		CapnpStruct: &capnpStruct,
-	}
-	return echoResponse, nil
+func (e *EchoResponse_) GetContent() (string, error) {
+    return e.CapnpStruct.Content()
+}
+
+func CreateEchoResponse(id int32, score int32, username string, content string) (*EchoResponse_, error) {
+    msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+    if err != nil {
+        return nil, err
+    }
+    capnpStruct, err := NewRootEchoResponse(seg)
+    if err != nil {
+        return nil, err
+    }
+    err = capnpStruct.SetContent(content)
+    if err != nil {
+        return nil, err
+    }
+    capnpStruct.SetId(id)
+    capnpStruct.SetScore(score)
+    err = capnpStruct.SetUsername(username)
+    if err != nil {
+        return nil, err
+    }
+    echoResponse := &EchoResponse_{
+        Msg:         msg,
+        CapnpStruct: &capnpStruct,
+    }
+    return echoResponse, nil
+}
+
+type EchoRequest_ struct {
+    Msg		  *capnp.Message
+    CapnpStruct *EchoRequest
+}
+
+func (e *EchoRequest_) GetId() (int32, error) {
+    return e.CapnpStruct.Id(), nil
+}
+
+func (e *EchoRequest_) GetScore() (int32, error) {
+    return e.CapnpStruct.Score(), nil
+}
+
+func (e *EchoRequest_) GetUsername() (string, error) {
+    return e.CapnpStruct.Username()
+}
+
+func (e *EchoRequest_) GetContent() (string, error) {
+    return e.CapnpStruct.Content()
+}
+
+func CreateEchoRequest(id int32, score int32, username string, content string) (*EchoRequest_, error) {
+    msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+    if err != nil {
+        return nil, err
+    }
+    capnpStruct, err := NewRootEchoRequest(seg)
+    if err != nil {
+        return nil, err
+    }
+    capnpStruct.SetId(id)
+    capnpStruct.SetScore(score)
+    err = capnpStruct.SetUsername(username)
+    if err != nil {
+        return nil, err
+    }
+    err = capnpStruct.SetContent(content)
+    if err != nil {
+        return nil, err
+    }
+    echoRequest := &EchoRequest_{
+        Msg:         msg,
+        CapnpStruct: &capnpStruct,
+    }
+    return echoRequest, nil
 }
 
 type EchoServiceClient interface {
-	Echo(ctx context.Context, req *EchoRequest_) (*EchoResponse_, error)
+    Echo(ctx context.Context, req *EchoRequest_) (*EchoResponse_, error)
 }
 
 type arpcEchoServiceClient struct {
-	client *rpc.Client
+    client *rpc.Client
 }
 
 func NewEchoServiceClient(client *rpc.Client) EchoServiceClient {
-	return &arpcEchoServiceClient{client: client}
+    return &arpcEchoServiceClient{client: client}
 }
 
 func (c *arpcEchoServiceClient) Echo(ctx context.Context, req *EchoRequest_) (*EchoResponse_, error) {
-	resp := new(EchoResponse_)
-	if err := c.client.Call(ctx, "EchoService", "Echo", req.Msg, &resp.Msg); err != nil {
-		return nil, err
-	}
-	echoResponse, err := ReadRootEchoResponse(resp.Msg)
-	if err != nil {
-		return nil, err
-	}
-	resp.CapnpStruct = &echoResponse
-	return resp, nil
+    resp := new(EchoResponse_)
+    if err := c.client.Call(ctx, "EchoService", "Echo", req.Msg, &resp.Msg); err != nil {
+        return nil, err
+    }
+    echoResponse, err := ReadRootEchoResponse(resp.Msg)
+    if err != nil {
+        return nil, err
+    }
+    resp.CapnpStruct = &echoResponse
+    return resp, nil
 }
 
 type EchoServiceServer interface {
-	Echo(ctx context.Context, req *EchoRequest_) (*EchoResponse_, context.Context, error)
+    Echo(ctx context.Context, req *EchoRequest_) (*EchoResponse_, context.Context, error)
 }
 
 func RegisterEchoServiceServer(s *rpc.Server, srv EchoServiceServer) {
-	s.RegisterService(&rpc.ServiceDesc{
-		ServiceName: "EchoService",
-		ServiceImpl: srv,
-		Methods: map[string]*rpc.MethodDesc{
-			"Echo": {
-				MethodName: "Echo",
-				Handler:    _EchoService_Echo_Handler,
-			},
-		},
-	}, srv)
+    s.RegisterService(&rpc.ServiceDesc{
+        ServiceName: "EchoService",
+        ServiceImpl: srv,
+        Methods: map[string]*rpc.MethodDesc{
+            "Echo": {
+                MethodName: "Echo",
+                Handler: _EchoService_Echo_Handler,
+            },
+        },
+    }, srv)
 }
 
-func _EchoService_Echo_Handler(srv any, ctx context.Context, dec func(any) error) (any, context.Context, error) {
-	in := new(EchoRequest_)
-	if err := dec(&in.Msg); err != nil {
-		return nil, ctx, err
-	}
-	echoRequest, err := ReadRootEchoRequest(in.Msg)
-	if err != nil {
-		return nil, ctx, err
-	}
-	in.CapnpStruct = &echoRequest
-	resp, newCtx, err := srv.(EchoServiceServer).Echo(ctx, in)
-	return resp.Msg, newCtx, err
+func _EchoService_Echo_Handler(srv any, ctx context.Context, dec func(any) error, req *element.RPCRequest, chain *element.RPCElementChain) (*element.RPCResponse, context.Context, error) {
+    req.Payload = new(EchoRequest_)
+    if err := dec(&req.Payload.(*EchoRequest_).Msg); err != nil { return nil, ctx, err }
+    echoRequest, err := ReadRootEchoRequest(req.Payload.(*EchoRequest_).Msg)
+    if err != nil { return nil, ctx, err }
+    req.Payload.(*EchoRequest_).CapnpStruct = &echoRequest
+    req, err = chain.ProcessRequest(ctx, req)
+    if err != nil { return nil, ctx, err }
+    result, newCtx, err := srv.(EchoServiceServer).Echo(ctx, req.Payload.(*EchoRequest_))
+    if err != nil { return nil, newCtx, err }
+    resp := &element.RPCResponse{
+        ID:     req.ID,
+        Result: result.Msg,
+    }
+    resp, err = chain.ProcessResponse(ctx, resp)
+    if err != nil { return nil, newCtx, err }
+    return resp, newCtx, err
 }
+

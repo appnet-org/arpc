@@ -4,6 +4,7 @@ package pb
 import (
 	"context"
 	"github.com/appnet-org/arpc/pkg/rpc"
+	"github.com/appnet-org/arpc/pkg/rpc/element"
 )
 
 // EchoServiceClient is the client API for EchoService service.
@@ -43,11 +44,26 @@ func RegisterEchoServiceServer(s *rpc.Server, srv EchoServiceServer) {
 		},
 	}, srv)
 }
-func _EchoService_Echo_Handler(srv any, ctx context.Context, dec func(any) error) (any, context.Context, error) {
-	in := new(EchoRequest)
-	if err := dec(in); err != nil {
+func _EchoService_Echo_Handler(srv any, ctx context.Context, dec func(any) error, req *element.RPCRequest, chain *element.RPCElementChain) (*element.RPCResponse, context.Context, error) {
+	req.Payload = new(EchoRequest)
+	if err := dec(req.Payload); err != nil {
 		return nil, ctx, err
 	}
-	out, err := srv.(EchoServiceServer).Echo(ctx, in)
-	return out, ctx, err
+	req, err := chain.ProcessRequest(ctx, req)
+	if err != nil {
+		return nil, ctx, err
+	}
+	result, err := srv.(EchoServiceServer).Echo(ctx, req.Payload.(*EchoRequest))
+	if err != nil {
+		return nil, ctx, err
+	}
+	resp := &element.RPCResponse{
+		ID:     req.ID,
+		Result: result,
+	}
+	resp, err = chain.ProcessResponse(ctx, resp)
+	if err != nil {
+		return nil, ctx, err
+	}
+	return resp, ctx, err
 }

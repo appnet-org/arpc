@@ -25,10 +25,10 @@ func (s *echoServer) Echo(ctx context.Context, req *echo.EchoRequest_) (*echo.Ec
 	respCtx := metadata.NewOutgoingContext(ctx, md)
 
 	resp, err := echo.CreateEchoResponse(
-		"Echo "+reqContent, // content
 		3,                  // id
 		30,                 // score
 		"Bob",              // username
+		"Echo "+reqContent, // content
 	)
 	if err != nil {
 		return nil, ctx, err

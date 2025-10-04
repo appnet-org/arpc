@@ -14,7 +14,7 @@ sudo make install
 **Step 2: Install Capnp Go Plugin**
 
 ```bash
-go install capnproto.org/go/capnp/v3/capnpc-go@latest
+go install capnproto.org/go/capnp/v3/capnpc-go@v3.1.0-alpha.1
 ```
 
 **Step 3: Generate aRPC Stubs**
