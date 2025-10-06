@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 
+	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/proxy/element"
+	"go.uber.org/zap"
 )
 
 // ProxyState manages the state of the UDP proxy
@@ -33,12 +34,36 @@ func DefaultConfig() *Config {
 	}
 }
 
+// getLoggingConfig reads logging configuration from environment variables with defaults
+func getLoggingConfig() *logging.Config {
+	level := os.Getenv("LOG_LEVEL")
+	if level == "" {
+		level = "info"
+	}
+
+	format := os.Getenv("LOG_FORMAT")
+	if format == "" {
+		format = "console"
+	}
+
+	return &logging.Config{
+		Level:  level,
+		Format: format,
+	}
+}
+
 func main() {
-	log.Println("Starting bidirectional UDP proxy on :15002 and :15006...")
+	// Initialize logging
+	err := logging.Init(getLoggingConfig())
+	if err != nil {
+		panic(fmt.Sprintf("Failed to initialize logging: %v", err))
+	}
+
+	logging.Info("Starting bidirectional UDP proxy on :15002 and :15006...")
 
 	// Create element chain with logging
 	elementChain := element.NewRPCElementChain(
-		element.NewLoggingElement(true), // Enable verbose logging
+	// element.NewLoggingElement(true), // Enable verbose logging
 	)
 
 	config := DefaultConfig()
@@ -49,7 +74,7 @@ func main() {
 
 	// Start proxy servers
 	if err := startProxyServers(config, state); err != nil {
-		log.Fatalf("Failed to start proxy servers: %v", err)
+		logging.Fatal("Failed to start proxy servers", zap.Error(err))
 	}
 
 	// Wait for shutdown signal
@@ -93,7 +118,7 @@ func runProxyServer(port int, state *ProxyState) error {
 	}
 	defer conn.Close()
 
-	log.Printf("Listening on UDP port %d", port)
+	logging.Info("Listening on UDP port", zap.Int("port", port))
 
 	const bufferSize = 2048
 	buf := make([]byte, bufferSize)
@@ -101,7 +126,7 @@ func runProxyServer(port int, state *ProxyState) error {
 	for {
 		n, src, err := conn.ReadFromUDP(buf)
 		if err != nil {
-			log.Printf("ReadFromUDP error on port %d: %v", port, err)
+			logging.Error("ReadFromUDP error", zap.Int("port", port), zap.Error(err))
 			continue
 		}
 
@@ -114,25 +139,29 @@ func runProxyServer(port int, state *ProxyState) error {
 }
 
 // extractPeer extracts peer information from the packet data
-func extractPeer(data []byte) *net.UDPAddr {
+func extractPeer(data []byte) (*net.UDPAddr, uint16) {
 	if len(data) < 19 {
-		return nil
+		return nil, 0
 	}
 
+	// Filter out non-request packets
 	packetType := data[0]
 	if packetType != 1 {
-		return nil
+		return nil, 0
 	}
 
-	ip := data[13:17]
-	port := binary.LittleEndian.Uint16(data[17:19])
-	return &net.UDPAddr{IP: net.IP(ip), Port: int(port)}
+	// Payload starts at index 17 for data packets
+	peerIp := data[17:21]
+	peerPort := binary.LittleEndian.Uint16(data[21:23])
+	localPort := binary.LittleEndian.Uint16(data[23:25])
+	return &net.UDPAddr{IP: net.IP(peerIp), Port: int(peerPort)}, localPort
 }
 
 // handlePacket processes incoming packets and forwards them to the appropriate peer
 func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte) {
 	ctx := context.Background()
-	peer := extractPeer(data)
+	peer, localPort := extractPeer(data)
+	logging.Debug("Extracted peer", zap.String("peer", peer.String()), zap.Uint16("localPort", localPort))
 
 	if peer != nil {
 		// It's a request: map src <-> peer
@@ -140,7 +169,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 
 		// TODO(XZ): temp solution for issue #6. We only rewrite the port for client-side proxy.
 		if src.Port != 15002 {
-			src.Port = 53357 // hack
+			src.Port = int(localPort) // hack
 		}
 
 		state.connections[src.String()] = peer
@@ -154,7 +183,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		state.mu.RUnlock()
 
 		if !ok {
-			log.Printf("Unknown client for server response %v — dropping", src)
+			logging.Warn("Unknown client for server response, dropping", zap.String("src", src.String()))
 			return
 		}
 	}
@@ -163,17 +192,20 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 
 	// Send the processed packet to the peer
 	if _, err := conn.WriteToUDP(processedData, peer); err != nil {
-		log.Printf("WriteToUDP error: %v", err)
+		logging.Error("WriteToUDP error", zap.Error(err))
 		return
 	}
 
-	log.Printf("Forwarded %d bytes: %v → %v", len(processedData), src, peer)
+	logging.Debug("Forwarded packet",
+		zap.Int("bytes", len(processedData)),
+		zap.String("src", src.String()),
+		zap.String("peer", peer.String()))
 }
 
 // processPacket processes the packet through the element chain
 func processPacket(ctx context.Context, state *ProxyState, data []byte, isRequest bool) []byte {
-	// Print the packet (in hex)
-	log.Printf("Received packet: %x", data)
+	// Log the packet (in hex)
+	logging.Debug("Received packet", zap.String("hex", fmt.Sprintf("%x", data)))
 
 	var err error
 	if isRequest {
@@ -185,7 +217,7 @@ func processPacket(ctx context.Context, state *ProxyState, data []byte, isReques
 	}
 
 	if err != nil {
-		log.Printf("Error processing packet through element chain: %v", err)
+		logging.Error("Error processing packet through element chain", zap.Error(err))
 		return data // Return original data on error
 	}
 
@@ -197,5 +229,5 @@ func waitForShutdown() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
-	log.Println("Shutting down proxy...")
+	logging.Info("Shutting down proxy...")
 }

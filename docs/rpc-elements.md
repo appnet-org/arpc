@@ -36,6 +36,7 @@ type RPCRequest struct {
 #### RPCResponse
 ```go
 type RPCResponse struct {
+    ID     uint64
     Result any
     Error  error
 }

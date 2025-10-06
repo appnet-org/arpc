@@ -1,75 +1,82 @@
 package metadata
 
 import (
-	"bytes"
 	"encoding/binary"
-	"fmt"
+	"errors"
 	"strings"
 )
 
 type MetadataCodec struct{}
 
-// EncodeHeaders serializes metadata to the wire format: [count][kLen][key][vLen][value]...
+// EncodeHeaders serializes metadata to wire format: [count][kLen][key][vLen][value]...
 func (MetadataCodec) EncodeHeaders(md Metadata) ([]byte, error) {
-	buf := new(bytes.Buffer)
-
-	// Write number of headers
-	if err := binary.Write(buf, binary.LittleEndian, uint16(len(md))); err != nil {
-		return nil, err
+	// First compute total size
+	totalSize := 2 // for count
+	for k, v := range md {
+		kb := []byte(strings.ToLower(k))
+		vb := []byte(v)
+		totalSize += 2 + len(kb) + 2 + len(vb)
 	}
 
-	// Write each key-value pair
+	buf := make([]byte, totalSize)
+	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(md)))
+
+	// Write pairs
+	offset := 2
 	for k, v := range md {
 		kb := []byte(strings.ToLower(k))
 		vb := []byte(v)
 
-		if err := binary.Write(buf, binary.LittleEndian, uint16(len(kb))); err != nil {
-			return nil, err
-		}
-		if _, err := buf.Write(kb); err != nil {
-			return nil, err
-		}
-		if err := binary.Write(buf, binary.LittleEndian, uint16(len(vb))); err != nil {
-			return nil, err
-		}
-		if _, err := buf.Write(vb); err != nil {
-			return nil, err
-		}
+		binary.LittleEndian.PutUint16(buf[offset:offset+2], uint16(len(kb)))
+		offset += 2
+		copy(buf[offset:], kb)
+		offset += len(kb)
+
+		binary.LittleEndian.PutUint16(buf[offset:offset+2], uint16(len(vb)))
+		offset += 2
+		copy(buf[offset:], vb)
+		offset += len(vb)
 	}
 
-	return buf.Bytes(), nil
+	return buf, nil
 }
 
-// DecodeHeaders parses the [count][kLen][key][vLen][value]... wire format into Metadata
+// DecodeHeaders parses [count][kLen][key][vLen][value]... into Metadata
 func (MetadataCodec) DecodeHeaders(data []byte) (Metadata, error) {
-	md := Metadata{}
-	buf := bytes.NewReader(data)
-
-	var count uint16
-	if err := binary.Read(buf, binary.LittleEndian, &count); err != nil {
-		return nil, fmt.Errorf("failed to read header count: %w", err)
+	if len(data) < 2 {
+		return nil, errors.New("data too short for header count")
 	}
+	count := binary.LittleEndian.Uint16(data[0:2])
 
+	md := make(Metadata, count)
+
+	offset := 2
 	for i := 0; i < int(count); i++ {
-		var kLen uint16
-		if err := binary.Read(buf, binary.LittleEndian, &kLen); err != nil {
-			return nil, err
+		if offset+2 > len(data) {
+			return nil, errors.New("truncated before key length")
 		}
-		k := make([]byte, kLen)
-		if _, err := buf.Read(k); err != nil {
-			return nil, err
-		}
+		kLen := int(binary.LittleEndian.Uint16(data[offset:]))
+		offset += 2
 
-		var vLen uint16
-		if err := binary.Read(buf, binary.LittleEndian, &vLen); err != nil {
-			return nil, err
+		if offset+kLen > len(data) {
+			return nil, errors.New("truncated in key")
 		}
-		v := make([]byte, vLen)
-		if _, err := buf.Read(v); err != nil {
-			return nil, err
-		}
+		k := strings.ToLower(string(data[offset : offset+kLen]))
+		offset += kLen
 
-		md[strings.ToLower(string(k))] = string(v)
+		if offset+2 > len(data) {
+			return nil, errors.New("truncated before value length")
+		}
+		vLen := int(binary.LittleEndian.Uint16(data[offset:]))
+		offset += 2
+
+		if offset+vLen > len(data) {
+			return nil, errors.New("truncated in value")
+		}
+		v := string(data[offset : offset+vLen])
+		offset += vLen
+
+		md[k] = v
 	}
 
 	return md, nil

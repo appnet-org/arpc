@@ -5,7 +5,9 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"log"
+
+	"github.com/appnet-org/arpc/pkg/logging"
+	"go.uber.org/zap"
 )
 
 // LoggingElement implements RPCElement to provide logging functionality
@@ -23,7 +25,7 @@ func NewLoggingElement(verbose bool) *LoggingElement {
 // ProcessRequest logs the incoming request and returns it unchanged
 func (l *LoggingElement) ProcessRequest(ctx context.Context, req []byte) ([]byte, error) {
 	if len(req) == 0 {
-		log.Printf("[LOGGING] Received empty request")
+		logging.Info("Received empty request")
 		return req, nil
 	}
 
@@ -31,15 +33,20 @@ func (l *LoggingElement) ProcessRequest(ctx context.Context, req []byte) ([]byte
 	packetType := req[0]
 	rpcID, service, method, err := l.parseMetadata(req)
 	if err != nil {
-		log.Printf("[LOGGING] Error parsing request metadata: %v", err)
+		logging.Warn("Error parsing request metadata", zap.Error(err))
 		return req, nil // Continue processing even if parsing fails
 	}
 
-	log.Printf("[LOGGING] REQUEST | Type: %d | RPC ID: %d | Service: %s | Method: %s | Size: %d bytes",
-		packetType, rpcID, service, method, len(req))
+	logging.Info("REQUEST",
+		zap.Uint8("type", packetType),
+		zap.Uint64("rpc_id", rpcID),
+		zap.String("service", service),
+		zap.String("method", method),
+		zap.Int("size_bytes", len(req)),
+	)
 
 	if l.verbose {
-		log.Printf("[LOGGING] Request payload (hex): %s", hex.EncodeToString(req))
+		logging.Debug("Request payload", zap.String("hex", hex.EncodeToString(req)))
 	}
 
 	return req, nil
@@ -48,7 +55,7 @@ func (l *LoggingElement) ProcessRequest(ctx context.Context, req []byte) ([]byte
 // ProcessResponse logs the outgoing response and returns it unchanged
 func (l *LoggingElement) ProcessResponse(ctx context.Context, resp []byte) ([]byte, error) {
 	if len(resp) == 0 {
-		log.Printf("[LOGGING] Received empty response")
+		logging.Info("Received empty response")
 		return resp, nil
 	}
 
@@ -56,15 +63,20 @@ func (l *LoggingElement) ProcessResponse(ctx context.Context, resp []byte) ([]by
 	packetType := resp[0]
 	rpcID, service, method, err := l.parseMetadata(resp)
 	if err != nil {
-		log.Printf("[LOGGING] Error parsing response metadata: %v", err)
+		logging.Warn("Error parsing response metadata", zap.Error(err))
 		return resp, nil // Continue processing even if parsing fails
 	}
 
-	log.Printf("[LOGGING] RESPONSE | Type: %d | RPC ID: %d | Service: %s | Method: %s | Size: %d bytes",
-		packetType, rpcID, service, method, len(resp))
+	logging.Info("RESPONSE",
+		zap.Uint8("type", packetType),
+		zap.Uint64("rpc_id", rpcID),
+		zap.String("service", service),
+		zap.String("method", method),
+		zap.Int("size_bytes", len(resp)),
+	)
 
 	if l.verbose {
-		log.Printf("[LOGGING] Response payload (hex): %s", hex.EncodeToString(resp))
+		logging.Debug("Response payload", zap.String("hex", hex.EncodeToString(resp)))
 	}
 
 	return resp, nil
@@ -81,13 +93,24 @@ func (l *LoggingElement) parseMetadata(data []byte) (uint64, string, string, err
 		return 0, "", "", fmt.Errorf("packet too short: %d bytes", len(data))
 	}
 
+	// Packet header
 	offset := uint16(1)
 	rpcID := binary.LittleEndian.Uint64(data[offset : offset+8])
-	offset += 12
+	offset += 8
+	totalPackets := binary.LittleEndian.Uint16(data[offset : offset+2])
+	offset += 2
+	seqNumber := binary.LittleEndian.Uint16(data[offset : offset+2])
+	offset += 2
+	logging.Debug("Total packets", zap.Uint16("total_packets", totalPackets), zap.Uint16("seq_number", seqNumber))
 
-	if offset+2 > uint16(len(data)) {
-		return rpcID, "", "", fmt.Errorf("packet too short for service length")
-	}
+	// Message header
+	payloadLen := binary.LittleEndian.Uint32(data[offset : offset+4])
+	logging.Debug("Payload length", zap.Uint32("payload_len", payloadLen))
+	offset += 4
+
+	offset += 8 // account for peer address and source port
+
+	//TODO(xz): the code below is not correct, fix it.
 
 	serviceLen := binary.LittleEndian.Uint16(data[offset : offset+2])
 	offset += 2

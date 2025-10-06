@@ -1,11 +1,10 @@
+// pkg/rpc/client.go
 package rpc
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
-	"net"
 
 	"github.com/appnet-org/arpc/internal/packet"
 	"github.com/appnet-org/arpc/internal/transport"
@@ -64,47 +63,45 @@ func (c *Client) Transport() *transport.UDPTransport {
 	return c.transport
 }
 
-// frameRequest constructs a binary message with [serviceLen][service][methodLen][method][headerLen][headers][payload]
-func frameRequest(service, method string, payload []byte) ([]byte, error) {
-	buf := new(bytes.Buffer)
+// frameRequest constructs a binary message with
+// [dst ip(4B)][dst port(2B)][src port(2B)][serviceLen(2B)][service][methodLen(2B)][method][metadataLen(2B)][metadata][payload]
+func (c *Client) frameRequest(service, method string, metadataBytes, payload []byte) ([]byte, error) {
+	// Pre-calculate buffer size (headers: 4 + 2 + 2 + 2 + 2 + 2 = 14 bytes)
+	totalSize := 14 + len(service) + len(method) + len(metadataBytes) + len(payload)
+	buf := make([]byte, totalSize)
 
-	// TODO(XZ): this is a temporary solution fix issue #5.
-	// The first 6 bytes are the original IP address and port. The actual values are added in the transport layer.
-	ip := net.ParseIP("0.0.0.0").To4()
-	if _, err := buf.Write(ip); err != nil {
-		return nil, err
-	}
+	// Fixed dst ip (0.0.0.0) — hardcode instead of net.ParseIP
+	copy(buf[0:4], []byte{0, 0, 0, 0})
 
-	port := uint16(0)
-	if err := binary.Write(buf, binary.LittleEndian, port); err != nil {
-		return nil, err
-	}
+	// dst port = 0
+	binary.LittleEndian.PutUint16(buf[4:6], 0)
 
-	// Write service name
-	if err := binary.Write(buf, binary.LittleEndian, uint16(len(service))); err != nil {
-		return nil, err
-	}
-	if _, err := buf.Write([]byte(service)); err != nil {
-		return nil, err
-	}
+	// source port
+	localAddr := c.transport.LocalAddr()
+	binary.LittleEndian.PutUint16(buf[6:8], uint16(localAddr.Port))
 
-	// Write method name
-	if err := binary.Write(buf, binary.LittleEndian, uint16(len(method))); err != nil {
-		return nil, err
-	}
-	if _, err := buf.Write([]byte(method)); err != nil {
-		return nil, err
-	}
+	// service
+	binary.LittleEndian.PutUint16(buf[8:10], uint16(len(service)))
+	copy(buf[10:], service)
 
-	// Write payload
-	if _, err := buf.Write(payload); err != nil {
-		return nil, err
-	}
+	// method
+	methodStart := 10 + len(service)
+	binary.LittleEndian.PutUint16(buf[methodStart:methodStart+2], uint16(len(method)))
+	copy(buf[methodStart+2:], method)
 
-	return buf.Bytes(), nil
+	// metadata
+	metadataStart := methodStart + 2 + len(method)
+	binary.LittleEndian.PutUint16(buf[metadataStart:metadataStart+2], uint16(len(metadataBytes)))
+	copy(buf[metadataStart+2:], metadataBytes)
+
+	// payload
+	payloadStart := metadataStart + 2 + len(metadataBytes)
+	copy(buf[payloadStart:], payload)
+
+	return buf, nil
 }
 
-func parseFramedResponse(data []byte) (service string, method string, payload []byte, err error) {
+func (c *Client) parseFramedResponse(data []byte) (service string, method string, payload []byte, err error) {
 	offset := 0
 
 	// Parse service name
@@ -135,26 +132,31 @@ func parseFramedResponse(data []byte) (service string, method string, payload []
 	return service, method, payload, nil
 }
 
-func (c *Client) handleErrorPacket(ctx context.Context, errorMsg string) error {
+func (c *Client) handleErrorPacket(ctx context.Context, errMsg string, errType packet.PacketType) error {
 	// Create error response for RPC element processing
 	rpcResp := &element.RPCResponse{
 		Result: nil,
-		Error:  fmt.Errorf("server error: %s", errorMsg),
+		Error:  fmt.Errorf("server error: %s", errMsg),
 	}
 
 	// Process error response through RPC elements
-	rpcResp, err := c.rpcElementChain.ProcessResponse(ctx, rpcResp)
+	_, err := c.rpcElementChain.ProcessResponse(ctx, rpcResp)
 	if err != nil {
 		return err
 	}
 
-	// Return the processed error
-	return rpcResp.Error
+	var rpcErrType RPCErrorType
+	if errType == packet.PacketTypeError {
+		rpcErrType = RPCFailError
+	} else {
+		rpcErrType = RPCUnknownError
+	}
+	return &RPCError{Type: rpcErrType, Reason: errMsg}
 }
 
 func (c *Client) handleResponsePacket(ctx context.Context, data []byte, rpcID uint64, resp any) error {
 	// Parse framed response: extract service, method, payload
-	_, _, respPayloadBytes, err := parseFramedResponse(data)
+	_, _, respPayloadBytes, err := c.parseFramedResponse(data)
 	if err != nil {
 		return fmt.Errorf("failed to parse framed response: %w", err)
 	}
@@ -168,6 +170,7 @@ func (c *Client) handleResponsePacket(ctx context.Context, data []byte, rpcID ui
 
 	// Create response for RPC element processing
 	rpcResp := &element.RPCResponse{
+		ID:     rpcID,
 		Result: resp,
 		Error:  nil,
 	}
@@ -200,6 +203,17 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		return err
 	}
 
+	// Extract metadata from context
+	md := metadata.FromOutgoingContext(ctx)
+	var metadataBytes []byte
+	if len(md) > 0 {
+		metadataBytes, err = c.metadataCodec.EncodeHeaders(md)
+		if err != nil {
+			return fmt.Errorf("failed to encode metadata: %w", err)
+		}
+		logging.Debug("Encoded metadata", zap.String("metadata", fmt.Sprintf("%x", metadataBytes)))
+	}
+
 	// Serialize the request payload
 	reqPayloadBytes, err := c.serializer.Marshal(rpcReq.Payload)
 	logging.Debug("Serialized request payload", zap.String("payload", fmt.Sprintf("%x", reqPayloadBytes)))
@@ -207,8 +221,9 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
+	// Add the destination IP address and port to the request payload
 	// Frame the request into binary format
-	framedReq, err := frameRequest(rpcReq.ServiceName, rpcReq.Method, reqPayloadBytes)
+	framedReq, err := c.frameRequest(rpcReq.ServiceName, rpcReq.Method, metadataBytes, reqPayloadBytes)
 	logging.Debug("Framed request Message", zap.String("message", fmt.Sprintf("%x", framedReq)))
 	if err != nil {
 		return fmt.Errorf("failed to frame request: %w", err)
@@ -221,7 +236,7 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 
 	// Wait and process the response
 	for {
-		data, _, respID, packetType, err := c.transport.Receive(packet.MaxUDPPayloadSize)
+		data, _, respID, packetType, err := c.transport.Receive(packet.MaxUDPPayloadSize, transport.RoleClient)
 		if err != nil {
 			return fmt.Errorf("failed to receive response: %w", err)
 		}
@@ -241,11 +256,45 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		switch packetType {
 		case packet.PacketTypeResponse:
 			return c.handleResponsePacket(ctx, data, respID, resp)
-		case packet.PacketTypeError:
-			return c.handleErrorPacket(ctx, string(data))
+		case packet.PacketTypeError, packet.PacketTypeUnknown:
+			return c.handleErrorPacket(ctx, string(data), packetType)
 		default:
 			logging.Debug("Ignoring packet with unknown type", zap.String("packetType", packetType.Name))
 			continue
 		}
 	}
+}
+
+// Temporary functions to register packet types and handlers.
+// TODO(XZ): remove these once the transport can be dynamically configured.
+
+// RegisterPacketType registers a custom packet type with the client's transport
+func (c *Client) RegisterPacketType(packetType string, codec packet.PacketCodec) (packet.PacketType, error) {
+	return c.transport.RegisterPacketType(packetType, codec)
+}
+
+// RegisterPacketTypeWithID registers a custom packet type with a specific ID
+func (c *Client) RegisterPacketTypeWithID(packetType string, id packet.PacketTypeID, codec packet.PacketCodec) (packet.PacketType, error) {
+	return c.transport.RegisterPacketTypeWithID(packetType, id, codec)
+}
+
+// RegisterHandler registers a handler for a specific packet type and role
+func (c *Client) RegisterHandler(packetTypeID packet.PacketTypeID, handler transport.Handler, role transport.Role) {
+	handlerChain := transport.NewHandlerChain(fmt.Sprintf("ClientHandler_%d", packetTypeID), handler)
+	c.transport.RegisterHandlerChain(packetTypeID, handlerChain, role)
+}
+
+// RegisterHandlerChain registers a complete handler chain for a packet type and role
+func (c *Client) RegisterHandlerChain(packetTypeID packet.PacketTypeID, chain *transport.HandlerChain, role transport.Role) {
+	c.transport.RegisterHandlerChain(packetTypeID, chain, role)
+}
+
+// GetRegisteredPackets returns all registered packet types
+func (c *Client) GetRegisteredPackets() []packet.PacketType {
+	return c.transport.ListRegisteredPackets()
+}
+
+// GetTransport returns the underlying transport for advanced operations
+func (c *Client) GetTransport() *transport.UDPTransport {
+	return c.transport
 }

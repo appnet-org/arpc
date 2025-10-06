@@ -2,13 +2,14 @@ package balancer
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"strconv"
 	"strings"
 
 	"github.com/appnet-org/arpc/internal/transport/balancer/random"
 	"github.com/appnet-org/arpc/internal/transport/balancer/types"
+	"github.com/appnet-org/arpc/pkg/logging"
+	"go.uber.org/zap"
 )
 
 // Resolver handles DNS resolution and load balancing
@@ -63,9 +64,15 @@ func (r *Resolver) ResolveUDPTarget(addr string) (*net.UDPAddr, error) {
 	}
 
 	// Log all resolved IPs
-	log.Printf("DNS lookup for %s returned IPs:", host)
+	logging.Debug("DNS lookup completed",
+		zap.String("host", host),
+		zap.Int("ip_count", len(ips)))
+
 	for i, resolvedIP := range ips {
-		log.Printf("  [%d] %s", i, resolvedIP.String())
+		logging.Debug("Resolved IP",
+			zap.String("host", host),
+			zap.Int("index", i),
+			zap.String("ip", resolvedIP.String()))
 	}
 
 	// Use the balancer to pick an IP
@@ -74,7 +81,12 @@ func (r *Resolver) ResolveUDPTarget(addr string) (*net.UDPAddr, error) {
 		return nil, fmt.Errorf("balancer failed to select an IP for %q", host)
 	}
 
-	log.Printf("Balancer '%s' selected %s → %s:%d", r.balancer.Name(), addr, chosen, port)
+	logging.Info("Balancer selected IP",
+		zap.String("balancer", r.balancer.Name()),
+		zap.String("original_addr", addr),
+		zap.String("selected_ip", chosen.String()),
+		zap.Int("port", port))
+
 	return &net.UDPAddr{IP: chosen, Port: port}, nil
 }
 
