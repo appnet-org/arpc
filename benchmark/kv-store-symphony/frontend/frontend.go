@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 
 	kv "github.com/appnet-org/arpc/benchmark/kv-store-symphony/symphony"
 	"github.com/appnet-org/arpc/pkg/logging"
@@ -12,6 +16,14 @@ import (
 	"github.com/appnet-org/arpc/pkg/serializer"
 	"go.uber.org/zap"
 )
+
+// NEW: deterministic random string generator from key_id and desired length
+func generateDeterministicString(keyID string, length int) string {
+	hash := sha256.Sum256([]byte(keyID))
+	repeatCount := (length + len(hash)*2 - 1) / (len(hash) * 2)
+	hexStr := strings.Repeat(hex.EncodeToString(hash[:]), repeatCount)
+	return hexStr[:length]
+}
 
 var kvClient kv.KVServiceClient
 
@@ -34,84 +46,71 @@ func getLoggingConfig() *logging.Config {
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	operation := r.URL.Query().Get("operation")
-	key := r.URL.Query().Get("key")
-	value := r.URL.Query().Get("value")
+	op := strings.ToLower(r.URL.Query().Get("op"))
+	keyID := r.URL.Query().Get("key")
+	keySizeStr := r.URL.Query().Get("key_size")
+	valueSizeStr := r.URL.Query().Get("value_size")
+
+	keySize, _ := strconv.Atoi(keySizeStr)
+	valueSize, _ := strconv.Atoi(valueSizeStr)
+
+	if keyID == "" {
+		http.Error(w, "key parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	// NEW: generate deterministic key/value strings
+	keyStr := generateDeterministicString(keyID+"-key", keySize)
+	valueStr := generateDeterministicString(keyID+"-value", valueSize)
+
 	logging.Debug("Received HTTP request",
-		zap.String("operation", operation),
-		zap.String("key", key),
-		zap.String("value", value),
+		zap.String("op", op),
+		zap.String("key_id", keyID),
+		zap.Int("key_size", keySize),
+		zap.Int("value_size", valueSize),
 	)
 
-	switch operation {
+	switch op {
 	case "get":
-		if key == "" {
-			http.Error(w, "Key parameter is required for get operation", http.StatusBadRequest)
-			return
-		}
-
-		req := &kv.GetRequest{
-			Key: key,
-		}
+		req := &kv.GetRequest{Key: keyStr}
 		resp, err := kvClient.Get(context.Background(), req)
 		if err != nil {
-			if rpcErr, ok := err.(*rpc.RPCError); !ok || rpcErr.Type == rpc.RPCUnknownError {
-				logging.Error("Get RPC call failed", zap.Error(err))
-			}
-			http.Error(w, fmt.Sprintf("Get RPC call failed: %v", err), http.StatusInternalServerError)
+			logging.Error("Get RPC call failed", zap.Error(err))
+			http.Error(w, fmt.Sprintf("Get RPC failed: %v", err), http.StatusInternalServerError)
 			return
 		}
-
-		logging.Debug("Got Get response", zap.String("value", resp.Value))
-		fmt.Fprintf(w, "Value for key '%s': %s\n", key, resp.Value)
+		fmt.Fprintf(w, "Value for key_id '%s' (key='%s'): %s\n", keyID, keyStr, resp.Value)
 
 	case "set":
-		if key == "" || value == "" {
-			http.Error(w, "Key and value parameters are required for set operation", http.StatusBadRequest)
-			return
-		}
-
-		req := &kv.SetRequest{
-			Key:   key,
-			Value: value,
-		}
+		req := &kv.SetRequest{Key: keyStr, Value: valueStr}
 		resp, err := kvClient.Set(context.Background(), req)
 		if err != nil {
-			if rpcErr, ok := err.(*rpc.RPCError); !ok || rpcErr.Type == rpc.RPCUnknownError {
-				logging.Error("Set RPC call failed", zap.Error(err))
-			}
-			http.Error(w, fmt.Sprintf("Set RPC call failed: %v", err), http.StatusInternalServerError)
+			logging.Error("Set RPC call failed", zap.Error(err))
+			http.Error(w, fmt.Sprintf("Set RPC failed: %v", err), http.StatusInternalServerError)
 			return
 		}
-
-		logging.Debug("Got Set response", zap.String("value", resp.Value))
-		fmt.Fprintf(w, "Set key '%s' to value '%s', response: %s\n", key, value, resp.Value)
+		fmt.Fprintf(w, "Set key_id '%s' (key='%s') to value='%s'. Response: %s\n",
+			keyID, keyStr, valueStr, resp.Value)
 
 	default:
-		http.Error(w, "Invalid operation. Use 'get' or 'set'", http.StatusBadRequest)
-		return
+		http.Error(w, "Invalid operation. Use op=GET or op=SET", http.StatusBadRequest)
 	}
 }
 
 func main() {
-	// Initialize logging with configuration from environment variables
 	err := logging.Init(getLoggingConfig())
 	if err != nil {
 		panic(fmt.Sprintf("Failed to initialize logging: %v", err))
 	}
 
-	// Create RPC client
 	serializer := &serializer.SymphonySerializer{}
-
-	client, err := rpc.NewClient(serializer, "kvstore.default.svc.cluster.local:11000", nil) // TODO: change to your server's address fully qualified domain name
+	// client, err := rpc.NewClient(serializer, ":11000", nil)
+	client, err := rpc.NewClient(serializer, "kvstore.default.svc.cluster.local:11000", nil)
 	if err != nil {
 		logging.Fatal("Failed to create RPC client", zap.Error(err))
 	}
-
-	// Create KVService client
 	kvClient = kv.NewKVServiceClient(client)
 
-	// Set up HTTP server
 	http.HandleFunc("/", handler)
 	logging.Info("HTTP server listening", zap.String("addr", ":8080"))
 	if err := http.ListenAndServe(":8080", nil); err != nil {
