@@ -81,18 +81,23 @@ func genServiceServer(f *os.File, iname string, iface *Interface) {
 	writeCode(f, "")
 
 	for mname, method := range iface.Methods {
-		writeCode(f, "func _%s_%s_Handler(srv any, ctx context.Context, dec func(any) error) (any, context.Context, error) {", iname, mname)
-		writeCode(f, "    in := new(%s_)", method.ReqType)
-		writeCode(f, "    if err := dec(&in.Msg); err != nil {")
-		writeCode(f, "        return nil, ctx, err")
+		writeCode(f, "func _%s_%s_Handler(srv any, ctx context.Context, dec func(any) error, req *element.RPCRequest, chain *element.RPCElementChain) (*element.RPCResponse, context.Context, error) {", iname, mname)
+		writeCode(f, "    req.Payload = new(%s_)", method.ReqType)
+		writeCode(f, "    if err := dec(&req.Payload.(*%s_).Msg); err != nil { return nil, ctx, err }", method.ReqType)
+		writeCode(f, "    %s, err := ReadRoot%s(req.Payload.(*%s_).Msg)", Uncapitalize(method.ReqType), method.ReqType, method.ReqType)
+		writeCode(f, "    if err != nil { return nil, ctx, err }")
+		writeCode(f, "    req.Payload.(*%s_).CapnpStruct = &%s", method.ReqType, Uncapitalize(method.ReqType))
+		writeCode(f, "    req, err = chain.ProcessRequest(ctx, req)")
+		writeCode(f, "    if err != nil { return nil, ctx, err }")
+		writeCode(f, "    result, newCtx, err := srv.(%sServer).%s(ctx, req.Payload.(*%s_))", iname, mname, method.ReqType)
+		writeCode(f, "    if err != nil { return nil, newCtx, err }")
+		writeCode(f, "    resp := &element.RPCResponse{")
+		writeCode(f, "        ID:     req.ID,")
+		writeCode(f, "        Result: result.Msg,")
 		writeCode(f, "    }")
-		writeCode(f, "    %s, err := ReadRoot%s(in.Msg)", Uncapitalize(method.ReqType), method.ReqType)
-		writeCode(f, "    if err != nil {")
-		writeCode(f, "        return nil, ctx, err")
-		writeCode(f, "    }")
-		writeCode(f, "    in.CapnpStruct = &%s", Uncapitalize(method.ReqType))
-		writeCode(f, "    resp, newCtx, err := srv.(%sServer).%s(ctx, in)", iname, mname)
-		writeCode(f, "    return resp.Msg, newCtx, err")
+		writeCode(f, "    resp, err = chain.ProcessResponse(ctx, resp)")
+		writeCode(f, "    if err != nil { return nil, newCtx, err }")
+		writeCode(f, "    return resp, newCtx, err")
 		writeCode(f, "}")
 		writeCode(f, "")
 	}
@@ -109,7 +114,12 @@ func genWrapper(f *os.File, sname string, s *Struct) {
 	for fname, fd := range s.Fields {
 		signature = append(signature, fname+" "+fd.Type)
 		writeCode(f, "func (e *%s_) Get%s() (%s, error) {", sname, Capitalize(fname), fd.Type)
-		writeCode(f, "    return e.CapnpStruct.%s()", Capitalize(fname))
+		if fd.Type == "int32" {
+			// in capnp, get int32 variable wont' return error
+			writeCode(f, "    return e.CapnpStruct.%s(), nil", Capitalize(fname))
+		} else {
+			writeCode(f, "    return e.CapnpStruct.%s()", Capitalize(fname))
+		}
 		writeCode(f, "}")
 		writeCode(f, "")
 	}
@@ -123,11 +133,15 @@ func genWrapper(f *os.File, sname string, s *Struct) {
 	writeCode(f, "    if err != nil {")
 	writeCode(f, "        return nil, err")
 	writeCode(f, "    }")
-	for fname := range s.Fields {
-		writeCode(f, "    err = capnpStruct.Set%s(%s)", Capitalize(fname), fname)
-		writeCode(f, "    if err != nil {")
-		writeCode(f, "        return nil, err")
-		writeCode(f, "    }")
+	for fname, fd := range s.Fields {
+		if fd.Type == "int32" {
+			writeCode(f, "    capnpStruct.Set%s(%s)", Capitalize(fname), fname)
+		} else {
+			writeCode(f, "    err = capnpStruct.Set%s(%s)", Capitalize(fname), fname)
+			writeCode(f, "    if err != nil {")
+			writeCode(f, "        return nil, err")
+			writeCode(f, "    }")
+		}
 	}
 	writeCode(f, "    %s := &%s_{", Uncapitalize(sname), sname)
 	writeCode(f, "        Msg:         msg,")
@@ -146,6 +160,7 @@ func genCode(f *os.File, schema *Schema) {
 	writeCode(f, "    \"context\"")
 	writeCode(f, "    \"capnproto.org/go/capnp/v3\"")
 	writeCode(f, "    \"github.com/appnet-org/arpc/pkg/rpc\"")
+	writeCode(f, "    \"github.com/appnet-org/arpc/pkg/rpc/element\"")
 	writeCode(f, ")")
 	writeCode(f, "")
 
