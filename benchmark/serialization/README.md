@@ -51,7 +51,7 @@ The benchmark uses the following test data:
 
 ## Running the Benchmark
 
-Execute the benchmark script:
+Execute the benchmark script from inside a particular testcase directory:
 
 ```bash
 ./benchmark.sh

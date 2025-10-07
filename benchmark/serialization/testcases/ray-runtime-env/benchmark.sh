@@ -15,7 +15,7 @@ capnp compile -I$(go list -f '{{.Dir}}' capnproto.org/go/capnp/v3)/std -ogo capn
 protoc --go_out=paths=source_relative:. protobuf/benchmark.proto
 
 # Then build the symphony files
-# protoc --go_out=paths=source_relative:. --symphony_out=paths=source_relative:. symphony/benchmark.proto
-# goimports -w symphony/*.syn.go
+protoc --go_out=paths=source_relative:. --symphony_out=paths=source_relative:. symphony/benchmark.proto
+goimports -w symphony/*.syn.go
 
 go run main.go

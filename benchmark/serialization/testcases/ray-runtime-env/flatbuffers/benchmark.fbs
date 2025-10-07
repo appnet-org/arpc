@@ -1,0 +1,20 @@
+namespace benchmark;
+
+table RuntimeEnvUris {
+  working_dir_uri: string;
+  py_modules_uris: [string];
+}
+
+table RuntimeEnvConfig {
+  setup_timeout_seconds: int;
+  eager_install: bool;
+  log_files: [string];
+}
+
+table RuntimeEnvInfo {
+  serialized_runtime_env: string;
+  uris: RuntimeEnvUris;
+  runtime_env_config: RuntimeEnvConfig;
+}
+
+root_type RuntimeEnvInfo;
