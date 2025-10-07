@@ -123,3 +123,41 @@ func (m *BenchmarkMessage) UnmarshalSymphony(data []byte) error {
 
 	return nil
 }
+
+// === HARDCODED DIRECT GETTER FUNCTIONS FOR MAXIMUM PERFORMANCE ===
+// These functions use completely hardcoded byte positions - no calculations whatsoever
+// Based on actual data layout analysis: data[23:28] = "alice", data[28:39] = "hello world"
+
+// GetIdFromBytes directly reads Id from hardcoded byte range
+func GetIdFromBytes(data []byte) int32 {
+	// Id is always at bytes 15-19
+	return int32(binary.LittleEndian.Uint32(data[15:19]))
+}
+
+// GetScoreFromBytes directly reads Score from hardcoded byte range
+func GetScoreFromBytes(data []byte) int32 {
+	// Score is always at bytes 19-23
+	return int32(binary.LittleEndian.Uint32(data[19:23]))
+}
+
+// GetUsernameFromBytes reads Username using offset table for variable length
+func GetUsernameFromBytes(data []byte) string {
+	// First offset table entry: [5] field ID, [6:8] offset, [8:10] length
+	offset := binary.LittleEndian.Uint16(data[6:8])
+	length := binary.LittleEndian.Uint16(data[8:10])
+
+	// Data region starts at byte 15
+	start := 15 + int(offset)
+	return string(data[start : start+int(length)])
+}
+
+// GetContentFromBytes reads Content using offset table for variable length
+func GetContentFromBytes(data []byte) string {
+	// Second offset table entry: [10] field ID, [11:13] offset, [13:15] length
+	offset := binary.LittleEndian.Uint16(data[11:13])
+	length := binary.LittleEndian.Uint16(data[13:15])
+
+	// Data region starts at byte 15
+	start := 15 + int(offset)
+	return string(data[start : start+int(length)])
+}

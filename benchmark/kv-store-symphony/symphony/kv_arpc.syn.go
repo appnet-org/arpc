@@ -3,7 +3,6 @@ package kv
 
 import (
 	"context"
-
 	"github.com/appnet-org/arpc/pkg/rpc"
 	"github.com/appnet-org/arpc/pkg/rpc/element"
 )
@@ -65,23 +64,23 @@ func _KVService_Get_Handler(srv any, ctx context.Context, dec func(any) error, r
 	if err := dec(req.Payload); err != nil {
 		return nil, ctx, err
 	}
-	req, err := chain.ProcessRequest(ctx, req)
+	req, ctx, err := chain.ProcessRequest(ctx, req)
 	if err != nil {
 		return nil, ctx, err
 	}
-	result, newCtx, err := srv.(KVServiceServer).Get(ctx, req.Payload.(*GetRequest))
+	result, ctx, err := srv.(KVServiceServer).Get(ctx, req.Payload.(*GetRequest))
 	if err != nil {
-		return nil, newCtx, err
+		return nil, ctx, err
 	}
 	resp := &element.RPCResponse{
 		ID:     req.ID,
 		Result: result,
 	}
-	resp, err = chain.ProcessResponse(newCtx, resp)
+	resp, ctx, err = chain.ProcessResponse(ctx, resp)
 	if err != nil {
-		return nil, newCtx, err
+		return nil, ctx, err
 	}
-	return resp, newCtx, err
+	return resp, ctx, err
 }
 
 func _KVService_Set_Handler(srv any, ctx context.Context, dec func(any) error, req *element.RPCRequest, chain *element.RPCElementChain) (*element.RPCResponse, context.Context, error) {
@@ -89,21 +88,21 @@ func _KVService_Set_Handler(srv any, ctx context.Context, dec func(any) error, r
 	if err := dec(req.Payload); err != nil {
 		return nil, ctx, err
 	}
-	req, err := chain.ProcessRequest(ctx, req)
+	req, ctx, err := chain.ProcessRequest(ctx, req)
 	if err != nil {
 		return nil, ctx, err
 	}
-	result, newCtx, err := srv.(KVServiceServer).Set(ctx, req.Payload.(*SetRequest))
+	result, ctx, err := srv.(KVServiceServer).Set(ctx, req.Payload.(*SetRequest))
 	if err != nil {
-		return nil, newCtx, err
+		return nil, ctx, err
 	}
 	resp := &element.RPCResponse{
 		ID:     req.ID,
 		Result: result,
 	}
-	resp, err = chain.ProcessResponse(newCtx, resp)
+	resp, ctx, err = chain.ProcessResponse(ctx, resp)
 	if err != nil {
-		return nil, newCtx, err
+		return nil, ctx, err
 	}
-	return resp, newCtx, err
+	return resp, ctx, err
 }

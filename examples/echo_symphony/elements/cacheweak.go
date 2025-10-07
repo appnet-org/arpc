@@ -32,7 +32,7 @@ func NewCacheweakElement() element.RPCElement {
 	return e
 }
 
-func (e *CacheweakElement) ProcessRequest(ctx context.Context, req *element.RPCRequest) (*element.RPCRequest, error) {
+func (e *CacheweakElement) ProcessRequest(ctx context.Context, req *element.RPCRequest) (*element.RPCRequest, context.Context, error) {
 	content := req.Payload.(*echo.EchoRequest).GetContent()
 
 	e.cacheTableLock.RLock()
@@ -40,17 +40,17 @@ func (e *CacheweakElement) ProcessRequest(ctx context.Context, req *element.RPCR
 	e.cacheTableLock.RUnlock()
 	if ok {
 		// cache hit, return an error
-		return nil, &rpc.RPCError{Type: rpc.RPCFailError, Reason: "cached"}
+		return nil, ctx, &rpc.RPCError{Type: rpc.RPCFailError, Reason: "cached"}
 	}
 
 	e.bodyRecordLock.Lock()
 	e.bodyRecord[req.ID] = content
 	e.bodyRecordLock.Unlock()
 
-	return req, nil
+	return req, ctx, nil
 }
 
-func (e *CacheweakElement) ProcessResponse(ctx context.Context, resp *element.RPCResponse) (*element.RPCResponse, error) {
+func (e *CacheweakElement) ProcessResponse(ctx context.Context, resp *element.RPCResponse) (*element.RPCResponse, context.Context, error) {
 	if echoResp, ok := resp.Result.(*echo.EchoResponse); ok {
 		respContent := echoResp.GetContent()
 
@@ -63,7 +63,7 @@ func (e *CacheweakElement) ProcessResponse(ctx context.Context, resp *element.RP
 		e.cacheTableLock.Unlock()
 	}
 
-	return resp, nil
+	return resp, ctx, nil
 }
 
 func (e *CacheweakElement) Name() string {

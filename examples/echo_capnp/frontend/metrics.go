@@ -47,17 +47,17 @@ func (m *MetricsElement) printMetrics() {
 }
 
 // ProcessRequest increments the request counter and passes through the request
-func (m *MetricsElement) ProcessRequest(ctx context.Context, req *element.RPCRequest) (*element.RPCRequest, error) {
+func (m *MetricsElement) ProcessRequest(ctx context.Context, req *element.RPCRequest) (*element.RPCRequest, context.Context, error) {
 	atomic.AddUint64(&m.requestCount, 1)
-	return req, nil
+	return req, ctx, nil
 }
 
 // ProcessResponse passes through the response without modification
-func (m *MetricsElement) ProcessResponse(ctx context.Context, resp *element.RPCResponse) (*element.RPCResponse, error) {
+func (m *MetricsElement) ProcessResponse(ctx context.Context, resp *element.RPCResponse) (*element.RPCResponse, context.Context, error) {
 	if resp.Error != nil {
 		m.cancel() // Stop metrics on error
 	}
-	return resp, nil
+	return resp, ctx, nil
 }
 
 // Name returns the name of the metrics element
