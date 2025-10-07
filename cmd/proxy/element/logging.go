@@ -23,10 +23,10 @@ func NewLoggingElement(verbose bool) *LoggingElement {
 }
 
 // ProcessRequest logs the incoming request and returns it unchanged
-func (l *LoggingElement) ProcessRequest(ctx context.Context, req []byte) ([]byte, error) {
+func (l *LoggingElement) ProcessRequest(ctx context.Context, req []byte) ([]byte, context.Context, error) {
 	if len(req) == 0 {
 		logging.Info("Received empty request")
-		return req, nil
+		return req, ctx, nil
 	}
 
 	// Parse basic packet information
@@ -34,7 +34,7 @@ func (l *LoggingElement) ProcessRequest(ctx context.Context, req []byte) ([]byte
 	rpcID, service, method, err := l.parseMetadata(req)
 	if err != nil {
 		logging.Warn("Error parsing request metadata", zap.Error(err))
-		return req, nil // Continue processing even if parsing fails
+		return req, ctx, nil // Continue processing even if parsing fails
 	}
 
 	logging.Info("REQUEST",
@@ -49,14 +49,14 @@ func (l *LoggingElement) ProcessRequest(ctx context.Context, req []byte) ([]byte
 		logging.Debug("Request payload", zap.String("hex", hex.EncodeToString(req)))
 	}
 
-	return req, nil
+	return req, ctx, nil
 }
 
 // ProcessResponse logs the outgoing response and returns it unchanged
-func (l *LoggingElement) ProcessResponse(ctx context.Context, resp []byte) ([]byte, error) {
+func (l *LoggingElement) ProcessResponse(ctx context.Context, resp []byte) ([]byte, context.Context, error) {
 	if len(resp) == 0 {
 		logging.Info("Received empty response")
-		return resp, nil
+		return resp, ctx, nil
 	}
 
 	// Parse basic packet information
@@ -64,7 +64,7 @@ func (l *LoggingElement) ProcessResponse(ctx context.Context, resp []byte) ([]by
 	rpcID, service, method, err := l.parseMetadata(resp)
 	if err != nil {
 		logging.Warn("Error parsing response metadata", zap.Error(err))
-		return resp, nil // Continue processing even if parsing fails
+		return resp, ctx, nil // Continue processing even if parsing fails
 	}
 
 	logging.Info("RESPONSE",
@@ -79,7 +79,7 @@ func (l *LoggingElement) ProcessResponse(ctx context.Context, resp []byte) ([]by
 		logging.Debug("Response payload", zap.String("hex", hex.EncodeToString(resp)))
 	}
 
-	return resp, nil
+	return resp, ctx, nil
 }
 
 // Name returns the name of this element

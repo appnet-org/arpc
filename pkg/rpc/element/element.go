@@ -22,10 +22,10 @@ type RPCResponse struct {
 // RPCElement defines the interface for RPC elements
 type RPCElement interface {
 	// ProcessRequest processes the request before it's sent to the server
-	ProcessRequest(ctx context.Context, req *RPCRequest) (*RPCRequest, error)
+	ProcessRequest(ctx context.Context, req *RPCRequest) (*RPCRequest, context.Context, error)
 
 	// ProcessResponse processes the response after it's received from the server
-	ProcessResponse(ctx context.Context, resp *RPCResponse) (*RPCResponse, error)
+	ProcessResponse(ctx context.Context, resp *RPCResponse) (*RPCResponse, context.Context, error)
 
 	// Name returns the name of the RPC element
 	Name() string
@@ -44,10 +44,10 @@ func NewRPCElementChain(elements ...RPCElement) *RPCElementChain {
 }
 
 // ProcessRequest processes the request through all RPC elements in the chain
-func (c *RPCElementChain) ProcessRequest(ctx context.Context, req *RPCRequest) (*RPCRequest, error) {
+func (c *RPCElementChain) ProcessRequest(ctx context.Context, req *RPCRequest) (*RPCRequest, context.Context, error) {
 	var err error
 	for idx, element := range c.elements {
-		req, err = element.ProcessRequest(ctx, req)
+		req, ctx, err = element.ProcessRequest(ctx, req)
 		if err != nil {
 			// We mock a RPCResponse struct to go through the ProcessResponse logic of executed elements
 			resp := &RPCResponse{
@@ -55,22 +55,22 @@ func (c *RPCElementChain) ProcessRequest(ctx context.Context, req *RPCRequest) (
 				Error:  err,
 			}
 			for i := idx - 1; i >= 0; i-- {
-				resp, _ = c.elements[i].ProcessResponse(ctx, resp)
+				resp, ctx, _ = c.elements[i].ProcessResponse(ctx, resp)
 			}
-			return nil, err
+			return nil, ctx, err
 		}
 	}
-	return req, nil
+	return req, ctx, nil
 }
 
 // ProcessResponse processes the response through all RPC elements in reverse order
-func (c *RPCElementChain) ProcessResponse(ctx context.Context, resp *RPCResponse) (*RPCResponse, error) {
+func (c *RPCElementChain) ProcessResponse(ctx context.Context, resp *RPCResponse) (*RPCResponse, context.Context, error) {
 	var err error
 	for i := len(c.elements) - 1; i >= 0; i-- {
-		resp, err = c.elements[i].ProcessResponse(ctx, resp)
+		resp, ctx, err = c.elements[i].ProcessResponse(ctx, resp)
 		if err != nil {
-			return nil, err
+			return nil, ctx, err
 		}
 	}
-	return resp, nil
+	return resp, ctx, nil
 }

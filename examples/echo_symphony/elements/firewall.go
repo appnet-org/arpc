@@ -22,16 +22,16 @@ func NewFirewallElement() element.RPCElement {
 	return e
 }
 
-func (e *FirewallElement) ProcessRequest(ctx context.Context, req *element.RPCRequest) (*element.RPCRequest, error) {
+func (e *FirewallElement) ProcessRequest(ctx context.Context, req *element.RPCRequest) (*element.RPCRequest, context.Context, error) {
 	payload := req.Payload.(*echo.EchoRequest)
 	if payload.GetContent() == "bomb" {
-		return nil, &rpc.RPCError{Type: rpc.RPCFailError, Reason: "acl"}
+		return nil, ctx, &rpc.RPCError{Type: rpc.RPCFailError, Reason: "acl"}
 	}
-	return req, nil
+	return req, ctx, nil
 }
 
-func (e *FirewallElement) ProcessResponse(ctx context.Context, resp *element.RPCResponse) (*element.RPCResponse, error) {
-	return resp, nil
+func (e *FirewallElement) ProcessResponse(ctx context.Context, resp *element.RPCResponse) (*element.RPCResponse, context.Context, error) {
+	return resp, ctx, nil
 }
 
 func (e *FirewallElement) Name() string {

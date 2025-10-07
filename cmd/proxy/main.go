@@ -210,10 +210,10 @@ func processPacket(ctx context.Context, state *ProxyState, data []byte, isReques
 	var err error
 	if isRequest {
 		// Process request through element chain
-		data, err = state.elementChain.ProcessRequest(ctx, data)
+		data, _, err = state.elementChain.ProcessRequest(ctx, data)
 	} else {
 		// Process response through element chain (in reverse order)
-		data, err = state.elementChain.ProcessResponse(ctx, data)
+		data, _, err = state.elementChain.ProcessResponse(ctx, data)
 	}
 
 	if err != nil {

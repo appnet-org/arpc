@@ -3,6 +3,7 @@ package pb
 
 import (
 	"context"
+
 	"github.com/appnet-org/arpc/pkg/rpc"
 	"github.com/appnet-org/arpc/pkg/rpc/element"
 )
@@ -49,7 +50,7 @@ func _EchoService_Echo_Handler(srv any, ctx context.Context, dec func(any) error
 	if err := dec(req.Payload); err != nil {
 		return nil, ctx, err
 	}
-	req, err := chain.ProcessRequest(ctx, req)
+	req, ctx, err := chain.ProcessRequest(ctx, req)
 	if err != nil {
 		return nil, ctx, err
 	}
@@ -61,7 +62,7 @@ func _EchoService_Echo_Handler(srv any, ctx context.Context, dec func(any) error
 		ID:     req.ID,
 		Result: result,
 	}
-	resp, err = chain.ProcessResponse(ctx, resp)
+	resp, ctx, err = chain.ProcessResponse(ctx, resp)
 	if err != nil {
 		return nil, ctx, err
 	}
