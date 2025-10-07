@@ -51,21 +51,21 @@ func _EchoService_Echo_Handler(srv any, ctx context.Context, dec func(any) error
 	if err := dec(req.Payload); err != nil {
 		return nil, ctx, err
 	}
-	req, err := chain.ProcessRequest(ctx, req)
+	req, ctx, err := chain.ProcessRequest(ctx, req)
 	if err != nil {
 		return nil, ctx, err
 	}
-	result, newCtx, err := srv.(EchoServiceServer).Echo(ctx, req.Payload.(*EchoRequest))
+	result, ctx, err := srv.(EchoServiceServer).Echo(ctx, req.Payload.(*EchoRequest))
 	if err != nil {
-		return nil, newCtx, err
+		return nil, ctx, err
 	}
 	resp := &element.RPCResponse{
 		ID:     req.ID,
 		Result: result,
 	}
-	resp, err = chain.ProcessResponse(newCtx, resp)
+	resp, ctx, err = chain.ProcessResponse(ctx, resp)
 	if err != nil {
-		return nil, newCtx, err
+		return nil, ctx, err
 	}
-	return resp, newCtx, err
+	return resp, ctx, err
 }

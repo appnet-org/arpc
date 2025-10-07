@@ -28,22 +28,22 @@ func NewCircuitbreakerElement() element.RPCElement {
 	return e
 }
 
-func (e *CircuitbreakerElement) ProcessRequest(ctx context.Context, req *element.RPCRequest) (*element.RPCRequest, error) {
+func (e *CircuitbreakerElement) ProcessRequest(ctx context.Context, req *element.RPCRequest) (*element.RPCRequest, context.Context, error) {
 	e.pendingReqLock.Lock()
 	defer e.pendingReqLock.Unlock()
 	if e.pendingReq < e.maxConcurrentReq {
 		e.pendingReq += 1
-		return req, nil
+		return req, ctx, nil
 	} else {
-		return nil, &rpc.RPCError{Type: rpc.RPCFailError, Reason: "circuit breaker"}
+		return nil, ctx, &rpc.RPCError{Type: rpc.RPCFailError, Reason: "circuit breaker"}
 	}
 }
 
-func (e *CircuitbreakerElement) ProcessResponse(ctx context.Context, resp *element.RPCResponse) (*element.RPCResponse, error) {
+func (e *CircuitbreakerElement) ProcessResponse(ctx context.Context, resp *element.RPCResponse) (*element.RPCResponse, context.Context, error) {
 	e.pendingReqLock.Lock()
 	defer e.pendingReqLock.Unlock()
 	e.pendingReq -= 1
-	return resp, nil
+	return resp, ctx, nil
 }
 
 func (e *CircuitbreakerElement) Name() string {

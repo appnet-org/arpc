@@ -140,7 +140,7 @@ func (c *Client) handleErrorPacket(ctx context.Context, errMsg string, errType p
 	}
 
 	// Process error response through RPC elements
-	_, err := c.rpcElementChain.ProcessResponse(ctx, rpcResp)
+	_, _, err := c.rpcElementChain.ProcessResponse(ctx, rpcResp)
 	if err != nil {
 		return err
 	}
@@ -176,7 +176,7 @@ func (c *Client) handleResponsePacket(ctx context.Context, data []byte, rpcID ui
 	}
 
 	// Process response through RPC elements
-	rpcResp, err = c.rpcElementChain.ProcessResponse(ctx, rpcResp)
+	rpcResp, ctx, err = c.rpcElementChain.ProcessResponse(ctx, rpcResp)
 	if err != nil {
 		return err
 	}
@@ -198,7 +198,7 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 	}
 
 	// Process request through RPC elements
-	rpcReq, err := c.rpcElementChain.ProcessRequest(ctx, rpcReq)
+	rpcReq, ctx, err := c.rpcElementChain.ProcessRequest(ctx, rpcReq)
 	if err != nil {
 		return err
 	}

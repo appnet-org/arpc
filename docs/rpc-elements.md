@@ -11,10 +11,10 @@ The `RPCElement` interface defines the contract that all RPC elements must imple
 ```go
 type RPCElement interface {
     // ProcessRequest processes the request before it's sent to the server
-    ProcessRequest(ctx context.Context, req *RPCRequest) (*RPCRequest, error)
+    ProcessRequest(ctx context.Context, req *RPCRequest) (*RPCRequest, context.Context, error)
 
     // ProcessResponse processes the response after it's received from the server
-    ProcessResponse(ctx context.Context, resp *RPCResponse) (*RPCResponse, error)
+    ProcessResponse(ctx context.Context, resp *RPCResponse) (*RPCResponse, context.Context, error)
 
     // Name returns the name of the RPC element
     Name() string
@@ -75,16 +75,16 @@ type MetricsElement struct {
     cancel       context.CancelFunc
 }
 
-func (m *MetricsElement) ProcessRequest(ctx context.Context, req *RPCRequest) (*RPCRequest, error) {
+func (m *MetricsElement) ProcessRequest(ctx context.Context, req *RPCRequest) (*RPCRequest, context.Context, error) {
     atomic.AddUint64(&m.requestCount, 1)
-    return req, nil
+    return req, ctx, nil
 }
 
-func (m *MetricsElement) ProcessResponse(ctx context.Context, resp *RPCResponse) (*RPCResponse, error) {
+func (m *MetricsElement) ProcessResponse(ctx context.Context, resp *RPCResponse) (*RPCResponse, context.Context, error) {
     if resp.Error != nil {
         m.cancel() // Stop metrics on error
     }
-    return resp, nil
+    return resp, ctx, nil
 }
 
 func (m *MetricsElement) Name() string {

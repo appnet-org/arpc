@@ -38,7 +38,7 @@ func NewBandwidthlimitElement() element.RPCElement {
 	return e
 }
 
-func (e *BandwidthlimitElement) ProcessRequest(ctx context.Context, req *element.RPCRequest) (*element.RPCRequest, error) {
+func (e *BandwidthlimitElement) ProcessRequest(ctx context.Context, req *element.RPCRequest) (*element.RPCRequest, context.Context, error) {
 	nowTs := getNowTs()
 	e.lock.Lock()
 	defer e.lock.Unlock()
@@ -48,14 +48,14 @@ func (e *BandwidthlimitElement) ProcessRequest(ctx context.Context, req *element
 	e.lastTs = nowTs
 	if e.tokenBw >= sizeBw {
 		e.tokenBw -= sizeBw
-		return req, nil
+		return req, ctx, nil
 	} else {
-		return nil, &rpc.RPCError{Type: rpc.RPCFailError, Reason: "bandwidth limit"}
+		return nil, ctx, &rpc.RPCError{Type: rpc.RPCFailError, Reason: "bandwidth limit"}
 	}
 }
 
-func (e *BandwidthlimitElement) ProcessResponse(ctx context.Context, resp *element.RPCResponse) (*element.RPCResponse, error) {
-	return resp, nil
+func (e *BandwidthlimitElement) ProcessResponse(ctx context.Context, resp *element.RPCResponse) (*element.RPCResponse, context.Context, error) {
+	return resp, ctx, nil
 }
 
 func (e *BandwidthlimitElement) Name() string {

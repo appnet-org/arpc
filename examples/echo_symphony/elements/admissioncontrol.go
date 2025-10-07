@@ -33,7 +33,7 @@ func NewAdmissioncontrolElement() element.RPCElement {
 	return e
 }
 
-func (e *AdmissioncontrolElement) ProcessRequest(ctx context.Context, req *element.RPCRequest) (*element.RPCRequest, error) {
+func (e *AdmissioncontrolElement) ProcessRequest(ctx context.Context, req *element.RPCRequest) (*element.RPCRequest, context.Context, error) {
 	e.successLock.RLock()
 	e.totalLock.Lock()
 	// See https://sre.google/sre-book/handling-overload/#eq2101 for details
@@ -44,19 +44,19 @@ func (e *AdmissioncontrolElement) ProcessRequest(ctx context.Context, req *eleme
 	e.successLock.RUnlock()
 
 	if rand.Float64() < prob {
-		return req, nil
+		return req, ctx, nil
 	} else {
-		return nil, &rpc.RPCError{Type: rpc.RPCFailError, Reason: "admission control"}
+		return nil, ctx, &rpc.RPCError{Type: rpc.RPCFailError, Reason: "admission control"}
 	}
 }
 
-func (e *AdmissioncontrolElement) ProcessResponse(ctx context.Context, resp *element.RPCResponse) (*element.RPCResponse, error) {
+func (e *AdmissioncontrolElement) ProcessResponse(ctx context.Context, resp *element.RPCResponse) (*element.RPCResponse, context.Context, error) {
 	if resp.Error == nil {
 		e.successLock.Lock()
 		e.success += 1.0
 		e.successLock.Unlock()
 	}
-	return resp, nil
+	return resp, ctx, nil
 }
 
 func (e *AdmissioncontrolElement) Name() string {
