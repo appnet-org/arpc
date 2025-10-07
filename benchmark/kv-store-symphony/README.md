@@ -16,12 +16,12 @@ go run frontend/*.go
 
 ```bash
 # Set
-curl "http://localhost:8080/?operation=set&key=mykey&value=myvalue"
+curl "http://localhost:8080/?op=SET&key=82131353f9ddc8c6&key_size=48&value_size=87"
 
 # Get 
-curl "http://localhost:8080/?operation=get&key=mykey"
+curl "http://localhost:8080/?op=GET&key=82131353f9ddc8c6&key_size=48&value_size=87"
 
 # For Kubernetes:
-curl "http://10.96.88.88:80/?operation=set&key=mykey&value=myvalue"
-curl "http://10.96.88.88:80/?operation=get&key=mykey"
+curl "http://10.96.88.88:80/?op=SET&key=82131353f9ddc8c6&key_size=48&value_size=87"
+curl "http://10.96.88.88:80/?op=GET&key=82131353f9ddc8c6&key_size=48&value_size=87"
 ```
