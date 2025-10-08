@@ -8,6 +8,7 @@ This is a simple Echo server built using Go and gRPC.
 
 ## Test
 `curl "http://localhost:8080?key=hello&header=1"`
+`curl "http://10.96.88.88:80?key=hello&header=1"`
 
 ## wrk
 `./wrk -d 20s -t 1 -c 1 http://localhost:8080 -s wrk.lua`

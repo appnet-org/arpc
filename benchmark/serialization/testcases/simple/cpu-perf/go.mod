@@ -1,6 +1,6 @@
 module cpu-perf
 
-go 1.23.9
+go 1.24.0
 
 replace github.com/appnet-org/arpc/benchmark/serialization => ..
 

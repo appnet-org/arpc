@@ -1,6 +1,6 @@
 module github.com/appnet-org/arpc/benchmark/kv-store-grpc
 
-go 1.23.9
+go 1.24.0
 
 require (
 	go.uber.org/zap v1.27.0

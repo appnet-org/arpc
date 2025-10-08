@@ -100,7 +100,7 @@ Common pprof commands:
 
 ## Prerequisites
 
-- Go 1.23 or later
+- Go 1.24 or later
 - flatc (FlatBuffers compiler)
 - capnp (Cap'n Proto compiler)
 - protoc (Protocol Buffers compiler)

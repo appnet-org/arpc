@@ -28,7 +28,7 @@ zstdcat kvcache_traces_1.csv.zst | head -n 20
 
 When processing the trace data, the following fields are of interest:
 
-- **op**: Operation (GET, GET_LEASE, SET, DELETE)
+- **op**: Operation (GET, SET, DELETE)
 - **key**: The cache key identifier
 - **Key_size**: Size of the key in bytes
 - **size**: Size of the cached value in bytes

@@ -1,6 +1,6 @@
 module github.com/appnet-org/proxy
 
-go 1.23.9
+go 1.24.0
 
 require (
 	github.com/appnet-org/arpc v0.0.0-20251007042215-eb60bcdde1ca

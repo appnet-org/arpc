@@ -1,7 +1,8 @@
 # Use the official Go image as the base image
-FROM golang:1.23.9-bullseye AS builder
+FROM golang:1.24.0-bullseye AS builder
 
 ENV CGO_ENABLED=0
+ENV GO111MODULE=on
 
 # Set the working directory
 WORKDIR /app
