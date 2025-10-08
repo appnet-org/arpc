@@ -81,7 +81,7 @@ func (r *Resolver) ResolveUDPTarget(addr string) (*net.UDPAddr, error) {
 		return nil, fmt.Errorf("balancer failed to select an IP for %q", host)
 	}
 
-	logging.Info("Balancer selected IP",
+	logging.Debug("Balancer selected IP",
 		zap.String("balancer", r.balancer.Name()),
 		zap.String("original_addr", addr),
 		zap.String("selected_ip", chosen.String()),
