@@ -17,10 +17,8 @@ import (
 	kv "github.com/appnet-org/arpc/benchmark/kv-store-grpc/proto"
 )
 
-var (
-	kvClient kv.KVServiceClient
-	logger   *zap.Logger
-)
+// global logger only
+var logger *zap.Logger
 
 // generateDeterministicString produces a fixed pseudo-random string based on keyID and desired length.
 func generateDeterministicString(keyID string, length int) string {
@@ -36,7 +34,6 @@ func getLoggingConfig() zap.Config {
 	if level == "" {
 		level = "info"
 	}
-
 	format := os.Getenv("LOG_FORMAT")
 	if format == "" {
 		format = "console"
@@ -65,7 +62,6 @@ func getLoggingConfig() zap.Config {
 	} else {
 		config.Encoding = "json"
 	}
-
 	return config
 }
 
@@ -93,6 +89,19 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		zap.Int("key_size", keySize),
 		zap.Int("value_size", valueSize),
 	)
+
+	conn, err := grpc.NewClient(
+		"kvstore.default.svc.cluster.local:11000",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		logger.Error("Failed to dial gRPC server", zap.Error(err))
+		http.Error(w, "Failed to dial gRPC server: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer conn.Close()
+
+	kvClient := kv.NewKVServiceClient(conn)
 
 	switch op {
 	case "get":
@@ -131,20 +140,6 @@ func main() {
 	}
 	defer logger.Sync()
 
-	// Create gRPC client connection
-	conn, err := grpc.Dial(
-		"kvstore.default.svc.cluster.local:11000",
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		logger.Fatal("Failed to create gRPC client", zap.Error(err))
-	}
-	defer conn.Close()
-
-	// Create KVService client
-	kvClient = kv.NewKVServiceClient(conn)
-
-	// Set up HTTP server
 	http.HandleFunc("/", handler)
 	logger.Info("HTTP server listening", zap.String("port", "8080"))
 	if err := http.ListenAndServe(":8080", nil); err != nil {

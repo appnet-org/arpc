@@ -43,11 +43,11 @@ metadata:
   labels:
     app: kvstore
 spec:
-  clusterIP: None
+  clusterIP: None    
   ports:
   - name: kvstore
     port: 11000
-    protocol: UDP
+    protocol: TCP
     targetPort: 11000
   selector:
     app: kvstore
