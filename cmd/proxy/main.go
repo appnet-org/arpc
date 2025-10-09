@@ -9,10 +9,16 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/proxy/element"
 	"go.uber.org/zap"
+)
+
+const (
+	// DefaultBufferSize is the size of the buffer used for reading packets
+	DefaultBufferSize = 2048
 )
 
 // ProxyState manages the state of the UDP proxy
@@ -20,17 +26,22 @@ type ProxyState struct {
 	mu           sync.RWMutex
 	connections  map[string]*net.UDPAddr // key: sender IP:port, value: peer
 	elementChain *element.RPCElementChain
+	packetBuffer *PacketBuffer
 }
 
 // Config holds the proxy configuration
 type Config struct {
-	Ports []int
+	Ports           []int
+	EnableBuffering bool
+	BufferTimeout   time.Duration
 }
 
 // DefaultConfig returns the default proxy configuration
 func DefaultConfig() *Config {
 	return &Config{
-		Ports: []int{15002, 15006},
+		Ports:           []int{15002, 15006},
+		EnableBuffering: false, // Disabled by default
+		BufferTimeout:   30 * time.Second,
 	}
 }
 
@@ -67,9 +78,30 @@ func main() {
 	)
 
 	config := DefaultConfig()
+
+	// Override config from environment variables
+	if enableBuffering := os.Getenv("ENABLE_PACKET_BUFFERING"); enableBuffering != "" {
+		config.EnableBuffering = enableBuffering == "true"
+	}
+	if bufferTimeout := os.Getenv("BUFFER_TIMEOUT"); bufferTimeout != "" {
+		if timeout, err := time.ParseDuration(bufferTimeout); err == nil {
+			config.BufferTimeout = timeout
+		}
+	}
+
+	logging.Info("Proxy configuration",
+		zap.Bool("enableBuffering", config.EnableBuffering),
+		zap.Duration("bufferTimeout", config.BufferTimeout),
+		zap.Ints("ports", config.Ports))
+
+	// Initialize packet buffer
+	packetBuffer := NewPacketBuffer(config.EnableBuffering, config.BufferTimeout)
+	defer packetBuffer.Close()
+
 	state := &ProxyState{
 		connections:  make(map[string]*net.UDPAddr),
 		elementChain: elementChain,
+		packetBuffer: packetBuffer,
 	}
 
 	// Start proxy servers
@@ -120,8 +152,7 @@ func runProxyServer(port int, state *ProxyState) error {
 
 	logging.Info("Listening on UDP port", zap.Int("port", port))
 
-	const bufferSize = 2048
-	buf := make([]byte, bufferSize)
+	buf := make([]byte, DefaultBufferSize)
 
 	for {
 		n, src, err := conn.ReadFromUDP(buf)
@@ -188,18 +219,32 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		}
 	}
 
-	processedData := processPacket(ctx, state, data, peer != nil)
+	// Process packet through buffer (may return nil if still buffering)
+	bufferedPacket, err := state.packetBuffer.ProcessPacket(data, src, peer, peer != nil)
+	if err != nil {
+		logging.Error("Error processing packet through buffer", zap.Error(err))
+		return
+	}
+
+	// If bufferedPacket is nil, we're still waiting for more fragments
+	if bufferedPacket == nil {
+		logging.Debug("Still buffering packet fragments", zap.String("src", src.String()))
+		return
+	}
+
+	processedData := processPacket(ctx, state, bufferedPacket.Data, bufferedPacket.IsRequest)
 
 	// Send the processed packet to the peer
-	if _, err := conn.WriteToUDP(processedData, peer); err != nil {
+	if _, err := conn.WriteToUDP(processedData, bufferedPacket.Peer); err != nil {
 		logging.Error("WriteToUDP error", zap.Error(err))
 		return
 	}
 
 	logging.Debug("Forwarded packet",
 		zap.Int("bytes", len(processedData)),
-		zap.String("src", src.String()),
-		zap.String("peer", peer.String()))
+		zap.String("src", bufferedPacket.Source.String()),
+		zap.String("peer", bufferedPacket.Peer.String()),
+		zap.Uint64("rpcID", bufferedPacket.RPCID))
 }
 
 // processPacket processes the packet through the element chain
