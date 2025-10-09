@@ -34,9 +34,9 @@ def main():
     value_sizes = np.array(value_sizes)
     total_sizes = key_sizes + value_sizes  # combined size
 
-    # Remove top and bottom 5%
+    # Remove top and bottom x%
     def trim_outliers(data):
-        low, high = np.percentile(data, [5, 95])
+        low, high = np.percentile(data, [0, 100])
         trimmed = data[(data >= low) & (data <= high)]
         print(f"Trimmed to {len(trimmed)} values (5th–95th percentile range: {low:.2f}–{high:.2f})")
         return trimmed
@@ -67,7 +67,7 @@ def main():
     plt.xscale("log")
     plt.xlabel("Size (bytes, log scale)")
     plt.ylabel("CDF")
-    plt.title("CDF of Key, Value, and Total Sizes (SET Requests, 5th–95th Percentile)")
+    plt.title("CDF of Key, Value, and Total Sizes")
     plt.legend(loc="upper left") 
     plt.grid(True, which="both", linestyle="--", linewidth=0.5)
     plt.tight_layout()
