@@ -214,7 +214,7 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 	// Add the destination IP address and port to the request payload
 	// Frame the request into binary format
 	framedReq, err := c.frameRequest(rpcReq.ServiceName, rpcReq.Method, metadataBytes, reqPayloadBytes)
-	logging.Debug("Framed request Message", zap.String("message", fmt.Sprintf("%x", framedReq)))
+	// logging.Debug("Framed request Message", zap.String("message", fmt.Sprintf("%x", framedReq)))
 	if err != nil {
 		return fmt.Errorf("failed to frame request: %w", err)
 	}

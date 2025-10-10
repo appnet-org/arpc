@@ -80,8 +80,6 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 	if ip4 := udpAddr.IP.To4(); ip4 != nil {
 		copy(dstIP[:], ip4)
 		dstPort = uint16(udpAddr.Port)
-	} else {
-		return fmt.Errorf("destination IP is not IPv4")
 	}
 
 	// Get source port from local address
@@ -98,7 +96,7 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 	for _, pkt := range packets {
 		// Serialize the packet into a byte slice for transmission
 		packetData, err := packet.SerializePacket(pkt, packetType)
-		logging.Debug("Serialized packet", zap.String("packetData", fmt.Sprintf("%x", packetData)), zap.Uint64("rpcID", rpcID))
+		logging.Debug("Serialized packet", zap.Uint64("rpcID", rpcID))
 		if err != nil {
 			return err
 		}

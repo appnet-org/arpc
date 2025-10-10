@@ -5,6 +5,8 @@ import (
 	"sync"
 
 	protocol "github.com/appnet-org/arpc/internal/packet"
+	"github.com/appnet-org/arpc/pkg/logging"
+	"go.uber.org/zap"
 )
 
 // DataReassembler handles the reassembly of fragmented data (request/response) packets
@@ -23,6 +25,8 @@ func NewDataReassembler() *DataReassembler {
 // ProcessFragment processes a single data packet fragment and returns the reassembled message if complete
 func (r *DataReassembler) ProcessFragment(pkt any, addr *net.UDPAddr) ([]byte, *net.UDPAddr, uint64, bool) {
 	dataPkt := pkt.(*protocol.DataPacket)
+	// log the peer and source port
+	logging.Debug("Processing fragment", zap.String("peer", addr.String()), zap.Uint16("srcPort", dataPkt.SrcPort))
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
