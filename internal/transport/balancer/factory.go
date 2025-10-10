@@ -36,5 +36,5 @@ func NewResolverWithBalancerType(balancerType BalancerType, config map[string]an
 	if err != nil {
 		return nil, err
 	}
-	return NewResolver(balancer), nil
+	return NewResolverWithDefaults(balancer), nil
 }
