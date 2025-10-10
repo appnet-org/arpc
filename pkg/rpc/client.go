@@ -206,7 +206,7 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 
 	// Serialize the request payload
 	reqPayloadBytes, err := c.serializer.Marshal(rpcReq.Payload)
-	logging.Debug("Serialized request payload", zap.String("payload", fmt.Sprintf("%x", reqPayloadBytes)))
+	// logging.Debug("Serialized request payload", zap.String("payload", fmt.Sprintf("%x", reqPayloadBytes)))
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}

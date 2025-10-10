@@ -49,7 +49,7 @@ func DefaultConfig() *Config {
 func getLoggingConfig() *logging.Config {
 	level := os.Getenv("LOG_LEVEL")
 	if level == "" {
-		level = "info"
+		level = "debug"
 	}
 
 	format := os.Getenv("LOG_FORMAT")
@@ -182,9 +182,9 @@ func extractPeer(data []byte) (*net.UDPAddr, uint16) {
 	}
 
 	// Payload starts at index 17 for data packets
-	peerIp := data[17:21]
-	peerPort := binary.LittleEndian.Uint16(data[21:23])
-	localPort := binary.LittleEndian.Uint16(data[23:25])
+	peerIp := data[13:17]
+	peerPort := binary.LittleEndian.Uint16(data[17:19])
+	localPort := binary.LittleEndian.Uint16(data[19:21])
 	return &net.UDPAddr{IP: net.IP(peerIp), Port: int(peerPort)}, localPort
 }
 
@@ -250,7 +250,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 // processPacket processes the packet through the element chain
 func processPacket(ctx context.Context, state *ProxyState, data []byte, isRequest bool) []byte {
 	// Log the packet (in hex)
-	logging.Debug("Received packet", zap.String("hex", fmt.Sprintf("%x", data)))
+	// logging.Debug("Received packet", zap.String("hex", fmt.Sprintf("%x", data)))
 
 	var err error
 	if isRequest {
