@@ -8,7 +8,7 @@ ENV GO111MODULE=on
 WORKDIR /app
 
 COPY cmd/proxy/ ./
-RUN go build -o proxy main.go
+RUN go build -o proxy main.go buffer.go
 
 # Final image
 FROM ubuntu:22.04

@@ -177,8 +177,8 @@ func (pb *PacketBuffer) parsePacketHeader(data []byte) (uint8, uint64, uint16, u
 func (pb *PacketBuffer) reassemblePacket(packetType uint8, rpcID uint64, totalPackets uint16, fragments map[uint16][]byte) ([]byte, error) {
 	// Calculate total payload size
 	var totalPayloadSize int
-	for i := uint16(0); i < totalPackets; i++ {
-		if fragment, exists := fragments[i]; exists {
+	for i := range int(totalPackets) {
+		if fragment, exists := fragments[uint16(i)]; exists {
 			totalPayloadSize += len(fragment)
 		} else {
 			return nil, fmt.Errorf("missing fragment %d for RPC %d", i, rpcID)
@@ -197,8 +197,8 @@ func (pb *PacketBuffer) reassemblePacket(packetType uint8, rpcID uint64, totalPa
 
 	// Concatenate fragments in order
 	offset := 17
-	for i := uint16(0); i < totalPackets; i++ {
-		fragment := fragments[i]
+	for i := range int(totalPackets) {
+		fragment := fragments[uint16(i)]
 		copy(completeData[offset:], fragment)
 		offset += len(fragment)
 	}
@@ -266,11 +266,11 @@ func (pb *PacketBuffer) cleanupExpiredFragments() {
 }
 
 // GetStats returns buffer statistics for monitoring
-func (pb *PacketBuffer) GetStats() map[string]interface{} {
+func (pb *PacketBuffer) GetStats() map[string]any {
 	pb.mu.RLock()
 	defer pb.mu.RUnlock()
 
-	stats := map[string]interface{}{
+	stats := map[string]any{
 		"enabled":           pb.enabled,
 		"timeout":           pb.timeout.String(),
 		"activeConnections": len(pb.incoming),
