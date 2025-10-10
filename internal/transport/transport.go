@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"net"
@@ -75,26 +74,22 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 		return err
 	}
 
-	// TODO(XZ): this is a temporary solution fix issue #5
-	if packetType == packet.PacketTypeRequest {
-		if ip4 := udpAddr.IP.To4(); ip4 != nil {
-			if len(data) < 6 {
-				return fmt.Errorf("data too short to embed IP and port")
-			}
-			copy(data[0:4], ip4)
-			binary.LittleEndian.PutUint16(data[4:6], uint16(udpAddr.Port))
-			logging.Debug("Embedded Peer address and source port",
-				zap.String("ip", ip4.String()),
-				zap.Uint16("port", uint16(udpAddr.Port)),
-				zap.Uint16("sourcePort", binary.LittleEndian.Uint16(data[6:8])),
-			)
-		} else {
-			return fmt.Errorf("destination IP is not IPv4")
-		}
+	// Extract destination IP and port
+	var dstIP [4]byte
+	var dstPort uint16
+	if ip4 := udpAddr.IP.To4(); ip4 != nil {
+		copy(dstIP[:], ip4)
+		dstPort = uint16(udpAddr.Port)
+	} else {
+		return fmt.Errorf("destination IP is not IPv4")
 	}
 
+	// Get source port from local address
+	localAddr := t.LocalAddr()
+	srcPort := uint16(localAddr.Port)
+
 	// Fragment the data into multiple packets if it exceeds the UDP payload limit
-	packets, err := t.reassembler.FragmentData(data, rpcID, packetType)
+	packets, err := t.reassembler.FragmentData(data, rpcID, packetType, dstIP, dstPort, srcPort)
 	if err != nil {
 		return err
 	}

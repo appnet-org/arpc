@@ -31,7 +31,7 @@ var kvClient kv.KVServiceClient
 func getLoggingConfig() *logging.Config {
 	level := os.Getenv("LOG_LEVEL")
 	if level == "" {
-		level = "info"
+		level = "debug"
 	}
 
 	format := os.Getenv("LOG_FORMAT")
@@ -105,7 +105,7 @@ func main() {
 
 	serializer := &serializer.SymphonySerializer{}
 	// client, err := rpc.NewClient(serializer, ":11000", nil)
-	client, err := rpc.NewClient(serializer, "kvstore.default.svc.cluster.local:11000", nil)
+	client, err := rpc.NewClient(serializer, "130.127.133.210:11000", nil)
 	if err != nil {
 		logging.Fatal("Failed to create RPC client", zap.Error(err))
 	}

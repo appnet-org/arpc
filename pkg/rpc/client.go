@@ -64,28 +64,18 @@ func (c *Client) Transport() *transport.UDPTransport {
 }
 
 // frameRequest constructs a binary message with
-// [dst ip(4B)][dst port(2B)][src port(2B)][serviceLen(2B)][service][methodLen(2B)][method][metadataLen(2B)][metadata][payload]
+// [serviceLen(2B)][service][methodLen(2B)][method][metadataLen(2B)][metadata][payload]
 func (c *Client) frameRequest(service, method string, metadataBytes, payload []byte) ([]byte, error) {
-	// Pre-calculate buffer size (headers: 4 + 2 + 2 + 2 + 2 + 2 = 14 bytes)
-	totalSize := 14 + len(service) + len(method) + len(metadataBytes) + len(payload)
+	// Pre-calculate buffer size (headers: 2 + 2 + 2 = 6 bytes)
+	totalSize := 6 + len(service) + len(method) + len(metadataBytes) + len(payload)
 	buf := make([]byte, totalSize)
 
-	// Fixed dst ip (0.0.0.0) — hardcode instead of net.ParseIP
-	copy(buf[0:4], []byte{0, 0, 0, 0})
-
-	// dst port = 0
-	binary.LittleEndian.PutUint16(buf[4:6], 0)
-
-	// source port
-	localAddr := c.transport.LocalAddr()
-	binary.LittleEndian.PutUint16(buf[6:8], uint16(localAddr.Port))
-
 	// service
-	binary.LittleEndian.PutUint16(buf[8:10], uint16(len(service)))
-	copy(buf[10:], service)
+	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(service)))
+	copy(buf[2:], service)
 
 	// method
-	methodStart := 10 + len(service)
+	methodStart := 2 + len(service)
 	binary.LittleEndian.PutUint16(buf[methodStart:methodStart+2], uint16(len(method)))
 	copy(buf[methodStart+2:], method)
 
