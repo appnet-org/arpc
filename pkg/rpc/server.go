@@ -63,8 +63,7 @@ func (s *Server) RegisterService(desc *ServiceDesc, impl any) {
 // parseFramedRequest extracts service, method, metadata, and payload segments from a request frame.
 // Wire format: [dst ip(4B)][dst port(2B)][src port(2B)][serviceLen(2B)][service][methodLen(2B)][method][metadataLen(2B)][metadata][payload]
 func (s *Server) parseFramedRequest(data []byte) (string, string, metadata.Metadata, []byte, error) {
-	// TODO(XZ): this is a temporary solution fix issue #5 (the first 8 bytes are the original IP address and port)
-	offset := 8
+	offset := 0
 
 	// Service
 	if offset+2 > len(data) {
