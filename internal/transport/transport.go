@@ -82,12 +82,33 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 		dstPort = uint16(udpAddr.Port)
 	}
 
-	// Get source port from local address
+	// Get source IP and port from local address
 	localAddr := t.LocalAddr()
+	var srcIP [4]byte
+
+	// Check if bound to unspecified address (0.0.0.0 or ::)
+	if localAddr.IP.IsUnspecified() {
+		// Resolve actual source IP for unspecified bindings
+		if actualSrcIP := getSourceIPForDestination(udpAddr); actualSrcIP != nil {
+			if ip4 := actualSrcIP.To4(); ip4 != nil {
+				copy(srcIP[:], ip4)
+			}
+		}
+	} else if ip4 := localAddr.IP.To4(); ip4 != nil {
+		// Use the bound IPv4 address
+		copy(srcIP[:], ip4)
+	} else {
+		// IPv6 address bound to specific IP - resolve IPv4 equivalent for packet format
+		if actualSrcIP := getSourceIPForDestination(udpAddr); actualSrcIP != nil {
+			if ip4 := actualSrcIP.To4(); ip4 != nil {
+				copy(srcIP[:], ip4)
+			}
+		}
+	}
 	srcPort := uint16(localAddr.Port)
 
 	// Fragment the data into multiple packets if it exceeds the UDP payload limit
-	packets, err := t.reassembler.FragmentData(data, rpcID, packetType, dstIP, dstPort, srcPort)
+	packets, err := t.reassembler.FragmentData(data, rpcID, packetType, dstIP, dstPort, srcIP, srcPort)
 	if err != nil {
 		return err
 	}
@@ -114,7 +135,7 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 // Receive takes a buffer size as input, read data from the UDP socket, and return
 // the following information when receiving the complete data for an RPC message:
 // * complete data for a message (if no message is complete, it will return nil)
-// * source address
+// * original source address from packet headers (for responses)
 // * RPC id
 // * packet type
 // * error
@@ -159,11 +180,16 @@ func (t *UDPTransport) Receive(bufferSize int, role Role) ([]byte, *net.UDPAddr,
 // ReassembleDataPacket processes data packets through the reassembly layer
 func (t *UDPTransport) ReassembleDataPacket(pkt *packet.DataPacket, addr *net.UDPAddr, packetType packet.PacketType) ([]byte, *net.UDPAddr, uint64, packet.PacketType, error) {
 	// Process fragment through reassembly layer
-	fullMessage, reassembledAddr, reassembledRPCID, isComplete := t.reassembler.ProcessFragment(pkt, addr)
+	fullMessage, _, reassembledRPCID, isComplete := t.reassembler.ProcessFragment(pkt, addr)
 
 	if isComplete {
-		// Message is complete, return the reassembled data
-		return fullMessage, reassembledAddr, reassembledRPCID, packetType, nil
+		// For responses, return the original source address from packet headers (SrcIP:SrcPort)
+		// This allows the server to send responses back to the original client
+		originalSrcAddr := &net.UDPAddr{
+			IP:   net.IP(pkt.SrcIP[:]),
+			Port: int(pkt.SrcPort),
+		}
+		return fullMessage, originalSrcAddr, reassembledRPCID, packetType, nil
 	}
 
 	// Still waiting for more fragments
@@ -214,4 +240,21 @@ func (t *UDPTransport) ListRegisteredPackets() []packet.PacketType {
 // LocalAddr returns the local UDP address of the transport
 func (t *UDPTransport) LocalAddr() *net.UDPAddr {
 	return t.conn.LocalAddr().(*net.UDPAddr)
+}
+
+// getSourceIPForDestination determines which local IP would be used to reach the destination
+// This solves the 0.0.0.0 binding issue by asking the OS routing table
+func getSourceIPForDestination(dst *net.UDPAddr) net.IP {
+	// Create a temporary connection to determine the source IP
+	conn, err := net.Dial("udp", dst.String())
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+
+	if udpAddr, ok := conn.LocalAddr().(*net.UDPAddr); ok {
+		return udpAddr.IP
+	}
+
+	return nil
 }

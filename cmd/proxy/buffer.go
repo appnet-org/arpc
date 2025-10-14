@@ -153,7 +153,7 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, peer *net.U
 
 // parsePacketHeader extracts packet information from the binary data
 func (pb *PacketBuffer) parsePacketHeader(data []byte) (uint8, uint64, uint16, uint16, []byte, error) {
-	if len(data) < 17 {
+	if len(data) < 29 {
 		return 0, 0, 0, 0, nil, fmt.Errorf("data too short for packet header: %d bytes", len(data))
 	}
 
@@ -161,14 +161,15 @@ func (pb *PacketBuffer) parsePacketHeader(data []byte) (uint8, uint64, uint16, u
 	rpcID := binary.LittleEndian.Uint64(data[1:9])
 	totalPackets := binary.LittleEndian.Uint16(data[9:11])
 	seqNumber := binary.LittleEndian.Uint16(data[11:13])
-	payloadLen := binary.LittleEndian.Uint32(data[13:17])
+	// Skip DstIP(4B), DstPort(2B), SrcIP(4B), SrcPort(2B) to get to PayloadLen
+	payloadLen := binary.LittleEndian.Uint32(data[25:29])
 
 	// Validate payload length
-	if len(data) < 17+int(payloadLen) {
+	if len(data) < 29+int(payloadLen) {
 		return 0, 0, 0, 0, nil, fmt.Errorf("data too short for declared payload length")
 	}
 
-	payload := data[17 : 17+payloadLen]
+	payload := data[29 : 29+payloadLen]
 
 	return packetType, rpcID, totalPackets, seqNumber, payload, nil
 }

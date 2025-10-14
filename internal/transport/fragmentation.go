@@ -56,7 +56,7 @@ func (r *DataReassembler) ProcessFragment(pkt any, addr *net.UDPAddr) ([]byte, *
 }
 
 // FragmentData splits data into multiple packets for Data (Request/Response) packets
-func (r *DataReassembler) FragmentData(data []byte, rpcID uint64, packetType protocol.PacketType, dstIP [4]byte, dstPort, srcPort uint16) ([]any, error) {
+func (r *DataReassembler) FragmentData(data []byte, rpcID uint64, packetType protocol.PacketType, dstIP [4]byte, dstPort uint16, srcIP [4]byte, srcPort uint16) ([]any, error) {
 	if packetType == protocol.PacketTypeError || packetType == protocol.PacketTypeUnknown {
 		packets := []any{}
 		packets = append(packets, &protocol.ErrorPacket{
@@ -67,8 +67,8 @@ func (r *DataReassembler) FragmentData(data []byte, rpcID uint64, packetType pro
 		return packets, nil
 	}
 	// Calculate chunk size by subtracting header overhead from max UDP payload
-	// New header size: 1+8+2+2+4+2+2+4 = 25 bytes
-	chunkSize := protocol.MaxUDPPayloadSize - 25
+	// New header size: 1+8+2+2+4+2+4+2+4 = 29 bytes
+	chunkSize := protocol.MaxUDPPayloadSize - 29
 	totalPackets := uint16((len(data) + chunkSize - 1) / chunkSize)
 	var packets []any
 
@@ -85,6 +85,7 @@ func (r *DataReassembler) FragmentData(data []byte, rpcID uint64, packetType pro
 			SeqNumber:    uint16(i),
 			DstIP:        dstIP,
 			DstPort:      dstPort,
+			SrcIP:        srcIP,
 			SrcPort:      srcPort,
 			Payload:      data[start:end],
 		}
