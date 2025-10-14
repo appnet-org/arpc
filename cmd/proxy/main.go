@@ -23,8 +23,6 @@ const (
 
 // ProxyState manages the state of the UDP proxy
 type ProxyState struct {
-	mu           sync.RWMutex
-	connections  map[string]*net.UDPAddr // key: sender IP:port, value: peer
 	elementChain *element.RPCElementChain
 	packetBuffer *PacketBuffer
 }
@@ -99,7 +97,6 @@ func main() {
 	defer packetBuffer.Close()
 
 	state := &ProxyState{
-		connections:  make(map[string]*net.UDPAddr),
 		elementChain: elementChain,
 		packetBuffer: packetBuffer,
 	}
@@ -169,58 +166,75 @@ func runProxyServer(port int, state *ProxyState) error {
 	}
 }
 
-// extractPeer extracts peer information from the packet data
-func extractPeer(data []byte) (*net.UDPAddr, uint16) {
-	if len(data) < 19 {
-		return nil, 0
+// PacketRoutingInfo contains routing information extracted from packet headers
+type PacketRoutingInfo struct {
+	DstIP   net.IP
+	DstPort uint16
+	SrcIP   net.IP
+	SrcPort uint16
+}
+
+// extractRoutingInfo extracts routing information from the packet data
+func extractRoutingInfo(data []byte) (*PacketRoutingInfo, error) {
+	if len(data) < 29 {
+		return nil, fmt.Errorf("packet too short for routing info: %d bytes", len(data))
 	}
 
-	// Filter out non-request packets
-	packetType := data[0]
-	if packetType != 1 {
-		return nil, 0
-	}
+	// packet format: [PacketTypeID(1B)][RPCID(8B)][TotalPackets(2B)][SeqNumber(2B)][DstIP(4B)][DstPort(2B)][SrcIP(4B)][SrcPort(2B)][PayloadLen(4B)][Payload]
 
-	// Payload starts at index 17 for data packets
-	peerIp := data[13:17]
-	peerPort := binary.LittleEndian.Uint16(data[17:19])
-	localPort := binary.LittleEndian.Uint16(data[19:21])
-	return &net.UDPAddr{IP: net.IP(peerIp), Port: int(peerPort)}, localPort
+	// Extract destination IP and port
+	dstIP := net.IP(data[13:17])
+	dstPort := binary.LittleEndian.Uint16(data[17:19])
+
+	// Extract source IP and port
+	srcIP := net.IP(data[19:23])
+	srcPort := binary.LittleEndian.Uint16(data[23:25])
+
+	return &PacketRoutingInfo{
+		DstIP:   dstIP,
+		DstPort: dstPort,
+		SrcIP:   srcIP,
+		SrcPort: srcPort,
+	}, nil
+}
+
+// isRequestPacket checks if this is a request packet (type 1)
+func isRequestPacket(data []byte) bool {
+	if len(data) < 1 {
+		return false
+	}
+	return data[0] == 1
 }
 
 // handlePacket processes incoming packets and forwards them to the appropriate peer
 func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte) {
 	ctx := context.Background()
-	peer, localPort := extractPeer(data)
-	logging.Debug("Extracted peer", zap.String("peer", peer.String()), zap.Uint16("localPort", localPort))
 
-	if peer != nil {
-		// It's a request: map src <-> peer
-		state.mu.Lock()
-
-		// TODO(XZ): temp solution for issue #6. We only rewrite the port for client-side proxy.
-		if src.Port != 15002 {
-			src.Port = int(localPort) // hack
-		}
-
-		state.connections[src.String()] = peer
-		state.connections[peer.String()] = src // reverse mapping
-		state.mu.Unlock()
-	} else {
-		// It's a response: look up the reverse mapping
-		state.mu.RLock()
-		var ok bool
-		peer, ok = state.connections[src.String()]
-		state.mu.RUnlock()
-
-		if !ok {
-			logging.Warn("Unknown client for server response, dropping", zap.String("src", src.String()))
-			return
-		}
+	// Extract routing information from packet headers
+	routingInfo, err := extractRoutingInfo(data)
+	if err != nil {
+		logging.Debug("Failed to extract routing info, dropping packet", zap.Error(err))
+		return
 	}
 
+	// Always forward to the destination specified in the packet header (DstIP:DstPort)
+	// This works for both requests and responses since the server now correctly
+	// sets the destination to the original client address
+	forwardTo := &net.UDPAddr{
+		IP:   routingInfo.DstIP,
+		Port: int(routingInfo.DstPort),
+	}
+	isRequest := isRequestPacket(data)
+
+	logging.Debug("Forwarding packet",
+		zap.String("from", src.String()),
+		zap.String("packetSrc", net.JoinHostPort(routingInfo.SrcIP.String(), fmt.Sprintf("%d", routingInfo.SrcPort))),
+		zap.String("packetDst", net.JoinHostPort(routingInfo.DstIP.String(), fmt.Sprintf("%d", routingInfo.DstPort))),
+		zap.String("forwardTo", forwardTo.String()),
+		zap.Bool("isRequest", isRequest))
+
 	// Process packet through buffer (may return nil if still buffering)
-	bufferedPacket, err := state.packetBuffer.ProcessPacket(data, src, peer, peer != nil)
+	bufferedPacket, err := state.packetBuffer.ProcessPacket(data, src, forwardTo, isRequest)
 	if err != nil {
 		logging.Error("Error processing packet through buffer", zap.Error(err))
 		return
@@ -234,7 +248,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 
 	processedData := processPacket(ctx, state, bufferedPacket.Data, bufferedPacket.IsRequest)
 
-	// Send the processed packet to the peer
+	// Forward the packet to the destination (DO NOT modify the packet headers)
 	if _, err := conn.WriteToUDP(processedData, bufferedPacket.Peer); err != nil {
 		logging.Error("WriteToUDP error", zap.Error(err))
 		return
@@ -242,9 +256,9 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 
 	logging.Debug("Forwarded packet",
 		zap.Int("bytes", len(processedData)),
-		zap.String("src", bufferedPacket.Source.String()),
-		zap.String("peer", bufferedPacket.Peer.String()),
-		zap.Uint64("rpcID", bufferedPacket.RPCID))
+		zap.String("from", bufferedPacket.Source.String()),
+		zap.String("to", bufferedPacket.Peer.String()),
+		zap.Bool("isRequest", bufferedPacket.IsRequest))
 }
 
 // processPacket processes the packet through the element chain
