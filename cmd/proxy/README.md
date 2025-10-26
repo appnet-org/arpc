@@ -11,6 +11,9 @@ Build the proxy binary and run it under a dedicated user (e.g., `proxyuser`) to 
 ```bash
 go build -o myproxy main.go buffer.go
 sudo -u proxyuser ./myproxy
+
+# or enable buffering
+sudo -u proxyuser ENABLE_PACKET_BUFFERING=true ./myproxy
 ```
 
 > 💡 Create the `proxyuser` account if it doesn't exist:

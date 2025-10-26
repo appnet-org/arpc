@@ -226,7 +226,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	}
 	isRequest := isRequestPacket(data)
 
-	logging.Debug("Forwarding packet",
+	logging.Debug("Intercepted packet",
 		zap.String("from", src.String()),
 		zap.String("packetSrc", net.JoinHostPort(routingInfo.SrcIP.String(), fmt.Sprintf("%d", routingInfo.SrcPort))),
 		zap.String("packetDst", net.JoinHostPort(routingInfo.DstIP.String(), fmt.Sprintf("%d", routingInfo.DstPort))),
@@ -248,13 +248,23 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 
 	processedData := processPacket(ctx, state, bufferedPacket.Data, bufferedPacket.IsRequest)
 
-	// Forward the packet to the destination (DO NOT modify the packet headers)
-	if _, err := conn.WriteToUDP(processedData, bufferedPacket.Peer); err != nil {
-		logging.Error("WriteToUDP error", zap.Error(err))
+	// Fragment the packet if needed and forward all fragments
+	fragmentedPackets, err := state.packetBuffer.FragmentPacketForForward(processedData, bufferedPacket.Peer, bufferedPacket.IsRequest)
+	if err != nil {
+		logging.Error("Failed to fragment packet for forwarding", zap.Error(err))
 		return
 	}
 
+	// Send all fragments
+	for _, fragment := range fragmentedPackets {
+		if _, err := conn.WriteToUDP(fragment.Data, fragment.Peer); err != nil {
+			logging.Error("WriteToUDP error", zap.Error(err))
+			return
+		}
+	}
+
 	logging.Debug("Forwarded packet",
+		zap.Int("fragments", len(fragmentedPackets)),
 		zap.Int("bytes", len(processedData)),
 		zap.String("from", bufferedPacket.Source.String()),
 		zap.String("to", bufferedPacket.Peer.String()),

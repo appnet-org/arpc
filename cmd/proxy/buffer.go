@@ -282,3 +282,90 @@ func (pb *PacketBuffer) GetStats() map[string]any {
 
 	return stats
 }
+
+// FragmentedPacket represents a fragment ready to be sent
+type FragmentedPacket struct {
+	Data      []byte
+	Peer      *net.UDPAddr
+	IsRequest bool
+}
+
+// FragmentPacketForForward fragments a complete packet if needed
+// Returns a slice of fragmented packets to send
+func (pb *PacketBuffer) FragmentPacketForForward(data []byte, peer *net.UDPAddr, isRequest bool) ([]FragmentedPacket, error) {
+	// Deserialize the packet to extract payload
+	dataPacket, err := pb.deserializePacket(data)
+	if err != nil {
+		// If we can't parse it, treat as single packet and don't fragment
+		return []FragmentedPacket{
+			{
+				Data:      data,
+				Peer:      peer,
+				IsRequest: isRequest,
+			},
+		}, nil
+	}
+
+	// Extract the complete payload from the packet
+	// Note: This could be either:
+	// 1. The original payload of a non-fragmented packet
+	// 2. The reassembled payload of fragments that were combined
+	completePayload := dataPacket.Payload
+	chunkSize := packet.MaxUDPPayloadSize - 29 // 29 bytes for header
+	totalPackets := uint16((len(completePayload) + chunkSize - 1) / chunkSize)
+
+	// If only one packet is needed, return as-is
+	if totalPackets <= 1 {
+		return []FragmentedPacket{
+			{
+				Data:      data,
+				Peer:      peer,
+				IsRequest: isRequest,
+			},
+		}, nil
+	}
+
+	// The complete payload exceeds MTU, need to fragment it for transmission
+
+	// Need to fragment the packet
+	codec := &packet.DataPacketCodec{}
+	fragments := make([]FragmentedPacket, 0, totalPackets)
+
+	for i := range int(totalPackets) {
+		start := i * chunkSize
+		end := min(start+chunkSize, len(completePayload))
+
+		// Create a fragment packet
+		fragment := &packet.DataPacket{
+			PacketTypeID: dataPacket.PacketTypeID,
+			RPCID:        dataPacket.RPCID,
+			TotalPackets: totalPackets,
+			SeqNumber:    uint16(i),
+			DstIP:        dataPacket.DstIP,
+			DstPort:      dataPacket.DstPort,
+			SrcIP:        dataPacket.SrcIP,
+			SrcPort:      dataPacket.SrcPort,
+			Payload:      completePayload[start:end],
+		}
+
+		// Serialize the fragment
+		serialized, err := codec.Serialize(fragment)
+		if err != nil {
+			logging.Error("Failed to serialize fragment", zap.Error(err))
+			return nil, err
+		}
+
+		fragments = append(fragments, FragmentedPacket{
+			Data:      serialized,
+			Peer:      peer,
+			IsRequest: isRequest,
+		})
+	}
+
+	logging.Debug("Fragmented packet for forwarding",
+		zap.Uint64("rpcID", dataPacket.RPCID),
+		zap.Uint16("totalFragments", totalPackets),
+		zap.Int("originalSize", len(completePayload)))
+
+	return fragments, nil
+}
