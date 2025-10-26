@@ -2,6 +2,8 @@
 
 echo "Applying Symphony iptables rules..."
 
+id -u proxyuser >/dev/null 2>&1 || sudo useradd -r -s /sbin/nologin proxyuser
+
 iptables-restore <<EOF
 *mangle
 :PREROUTING ACCEPT [0:0]
