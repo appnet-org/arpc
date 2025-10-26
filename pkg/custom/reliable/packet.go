@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 
-	"github.com/appnet-org/arpc/internal/packet"
+	"github.com/appnet-org/arpc/pkg/packet"
 )
 
 const AckPacketName = "Acknowledgement"

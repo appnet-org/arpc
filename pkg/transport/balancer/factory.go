@@ -3,9 +3,9 @@ package balancer
 import (
 	"fmt"
 
-	"github.com/appnet-org/arpc/internal/transport/balancer/random"
-	"github.com/appnet-org/arpc/internal/transport/balancer/roundrobin"
-	"github.com/appnet-org/arpc/internal/transport/balancer/types"
+	"github.com/appnet-org/arpc/pkg/transport/balancer/random"
+	"github.com/appnet-org/arpc/pkg/transport/balancer/roundrobin"
+	"github.com/appnet-org/arpc/pkg/transport/balancer/types"
 )
 
 // BalancerType represents different types of load balancers

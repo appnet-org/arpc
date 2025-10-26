@@ -3,7 +3,7 @@ package roundrobin
 import (
 	"net"
 
-	"github.com/appnet-org/arpc/internal/transport/balancer/types"
+	"github.com/appnet-org/arpc/pkg/transport/balancer/types"
 )
 
 // RoundRobinBalancer implements round-robin load balancing

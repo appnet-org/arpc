@@ -6,9 +6,9 @@ import (
 	"net"
 	"time"
 
-	"github.com/appnet-org/arpc/internal/packet"
-	"github.com/appnet-org/arpc/internal/transport/balancer"
 	"github.com/appnet-org/arpc/pkg/logging"
+	"github.com/appnet-org/arpc/pkg/packet"
+	"github.com/appnet-org/arpc/pkg/transport/balancer"
 	"go.uber.org/zap"
 )
 

@@ -4,7 +4,7 @@ import (
 	"math/rand"
 	"net"
 
-	"github.com/appnet-org/arpc/internal/transport/balancer/types"
+	"github.com/appnet-org/arpc/pkg/transport/balancer/types"
 )
 
 // RandomBalancer implements random load balancing

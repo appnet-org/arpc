@@ -3,7 +3,7 @@ package transport
 import (
 	"net"
 
-	"github.com/appnet-org/arpc/internal/packet"
+	"github.com/appnet-org/arpc/pkg/packet"
 )
 
 type Role string

@@ -5,12 +5,12 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/appnet-org/arpc/internal/packet"
-	"github.com/appnet-org/arpc/internal/transport"
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/metadata"
+	"github.com/appnet-org/arpc/pkg/packet"
 	"github.com/appnet-org/arpc/pkg/rpc/element"
 	"github.com/appnet-org/arpc/pkg/serializer"
+	"github.com/appnet-org/arpc/pkg/transport"
 	"go.uber.org/zap"
 )
 

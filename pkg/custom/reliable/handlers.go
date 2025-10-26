@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/appnet-org/arpc/internal/packet"
-	"github.com/appnet-org/arpc/internal/transport"
 	"github.com/appnet-org/arpc/pkg/logging"
+	"github.com/appnet-org/arpc/pkg/packet"
+	"github.com/appnet-org/arpc/pkg/transport"
 	"go.uber.org/zap"
 )
 

@@ -1,13 +1,13 @@
 package main
 
 import (
-	"encoding/binary"
 	"fmt"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/appnet-org/arpc/pkg/logging"
+	"github.com/appnet-org/arpc/pkg/packet"
 	"go.uber.org/zap"
 )
 
@@ -72,8 +72,8 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, peer *net.U
 		}, nil
 	}
 
-	// Parse packet header to extract RPC information
-	packetType, rpcID, totalPackets, seqNumber, payload, err := pb.parsePacketHeader(data)
+	// Parse packet using the existing packet codec
+	dataPacket, err := pb.deserializePacket(data)
 	if err != nil {
 		logging.Debug("Failed to parse packet header, treating as single packet", zap.Error(err))
 		// If we can't parse the header, treat it as a complete packet
@@ -97,44 +97,44 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, peer *net.U
 		pb.incoming[connKey] = make(map[uint64]map[uint16][]byte)
 		pb.timeouts[connKey] = make(map[uint64]time.Time)
 	}
-	if _, exists := pb.incoming[connKey][rpcID]; !exists {
-		pb.incoming[connKey][rpcID] = make(map[uint16][]byte)
+	if _, exists := pb.incoming[connKey][dataPacket.RPCID]; !exists {
+		pb.incoming[connKey][dataPacket.RPCID] = make(map[uint16][]byte)
 	}
 
 	// Store the fragment
-	pb.incoming[connKey][rpcID][seqNumber] = payload
-	pb.timeouts[connKey][rpcID] = time.Now()
+	pb.incoming[connKey][dataPacket.RPCID][dataPacket.SeqNumber] = dataPacket.Payload
+	pb.timeouts[connKey][dataPacket.RPCID] = time.Now()
 
 	logging.Debug("Buffered packet fragment",
 		zap.String("connKey", connKey),
-		zap.Uint64("rpcID", rpcID),
-		zap.Uint16("seqNumber", seqNumber),
-		zap.Uint16("totalPackets", totalPackets),
-		zap.Int("fragmentsReceived", len(pb.incoming[connKey][rpcID])))
+		zap.Uint64("rpcID", dataPacket.RPCID),
+		zap.Uint16("seqNumber", dataPacket.SeqNumber),
+		zap.Uint16("totalPackets", dataPacket.TotalPackets),
+		zap.Int("fragmentsReceived", len(pb.incoming[connKey][dataPacket.RPCID])))
 
 	// Check if we have all fragments
-	if len(pb.incoming[connKey][rpcID]) == int(totalPackets) {
+	if len(pb.incoming[connKey][dataPacket.RPCID]) == int(dataPacket.TotalPackets) {
 		// Reassemble the complete message
-		completeData, err := pb.reassemblePacket(packetType, rpcID, totalPackets, pb.incoming[connKey][rpcID])
+		completeData, err := pb.reassemblePacket(dataPacket, pb.incoming[connKey][dataPacket.RPCID])
 		if err != nil {
 			logging.Error("Failed to reassemble packet", zap.Error(err))
 			// Clean up and return original data
-			pb.cleanupFragments(connKey, rpcID)
+			pb.cleanupFragments(connKey, dataPacket.RPCID)
 			return &BufferedPacket{
 				Data:       data,
 				Source:     src,
 				Peer:       peer,
 				IsRequest:  isRequest,
-				PacketType: packetType,
+				PacketType: uint8(dataPacket.PacketTypeID),
 			}, nil
 		}
 
 		// Clean up fragment storage
-		pb.cleanupFragments(connKey, rpcID)
+		pb.cleanupFragments(connKey, dataPacket.RPCID)
 
 		logging.Debug("Complete packet reassembled",
 			zap.String("connKey", connKey),
-			zap.Uint64("rpcID", rpcID),
+			zap.Uint64("rpcID", dataPacket.RPCID),
 			zap.Int("totalSize", len(completeData)))
 
 		return &BufferedPacket{
@@ -142,8 +142,8 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, peer *net.U
 			Source:     src,
 			Peer:       peer,
 			IsRequest:  isRequest,
-			RPCID:      rpcID,
-			PacketType: packetType,
+			RPCID:      dataPacket.RPCID,
+			PacketType: uint8(dataPacket.PacketTypeID),
 		}, nil
 	}
 
@@ -151,60 +151,58 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, peer *net.U
 	return nil, nil
 }
 
-// parsePacketHeader extracts packet information from the binary data
-func (pb *PacketBuffer) parsePacketHeader(data []byte) (uint8, uint64, uint16, uint16, []byte, error) {
-	if len(data) < 29 {
-		return 0, 0, 0, 0, nil, fmt.Errorf("data too short for packet header: %d bytes", len(data))
+// deserializePacket extracts packet information using the existing packet codec
+func (pb *PacketBuffer) deserializePacket(data []byte) (*packet.DataPacket, error) {
+	// Use the existing DataPacketCodec to deserialize
+	codec := &packet.DataPacketCodec{}
+	packetAny, err := codec.Deserialize(data)
+	if err != nil {
+		return nil, err
 	}
 
-	packetType := uint8(data[0])
-	rpcID := binary.LittleEndian.Uint64(data[1:9])
-	totalPackets := binary.LittleEndian.Uint16(data[9:11])
-	seqNumber := binary.LittleEndian.Uint16(data[11:13])
-	// Skip DstIP(4B), DstPort(2B), SrcIP(4B), SrcPort(2B) to get to PayloadLen
-	payloadLen := binary.LittleEndian.Uint32(data[25:29])
-
-	// Validate payload length
-	if len(data) < 29+int(payloadLen) {
-		return 0, 0, 0, 0, nil, fmt.Errorf("data too short for declared payload length")
+	dataPacket, ok := packetAny.(*packet.DataPacket)
+	if !ok {
+		return nil, fmt.Errorf("unexpected packet type")
 	}
 
-	payload := data[29 : 29+payloadLen]
-
-	return packetType, rpcID, totalPackets, seqNumber, payload, nil
+	return dataPacket, nil
 }
 
-// reassemblePacket reconstructs the complete packet from fragments
-func (pb *PacketBuffer) reassemblePacket(packetType uint8, rpcID uint64, totalPackets uint16, fragments map[uint16][]byte) ([]byte, error) {
+// reassemblePacket reconstructs the complete packet from fragments using the codec
+func (pb *PacketBuffer) reassemblePacket(originalPacket *packet.DataPacket, fragments map[uint16][]byte) ([]byte, error) {
 	// Calculate total payload size
 	var totalPayloadSize int
-	for i := range int(totalPackets) {
+	for i := range int(originalPacket.TotalPackets) {
 		if fragment, exists := fragments[uint16(i)]; exists {
 			totalPayloadSize += len(fragment)
 		} else {
-			return nil, fmt.Errorf("missing fragment %d for RPC %d", i, rpcID)
+			return nil, fmt.Errorf("missing fragment %d for RPC %d", i, originalPacket.RPCID)
 		}
 	}
 
-	// Create the complete packet buffer
-	completeData := make([]byte, 17+totalPayloadSize)
-
-	// Write packet header
-	completeData[0] = packetType
-	binary.LittleEndian.PutUint64(completeData[1:9], rpcID)
-	binary.LittleEndian.PutUint16(completeData[9:11], totalPackets)
-	binary.LittleEndian.PutUint16(completeData[11:13], 0) // seqNumber is 0 for complete packet
-	binary.LittleEndian.PutUint32(completeData[13:17], uint32(totalPayloadSize))
-
-	// Concatenate fragments in order
-	offset := 17
-	for i := range int(totalPackets) {
+	// Concatenate fragments in order to create complete payload
+	completePayload := make([]byte, 0, totalPayloadSize)
+	for i := range int(originalPacket.TotalPackets) {
 		fragment := fragments[uint16(i)]
-		copy(completeData[offset:], fragment)
-		offset += len(fragment)
+		completePayload = append(completePayload, fragment...)
 	}
 
-	return completeData, nil
+	// Create a new DataPacket representing the complete, reassembled packet
+	completePacket := &packet.DataPacket{
+		PacketTypeID: originalPacket.PacketTypeID,
+		RPCID:        originalPacket.RPCID,
+		TotalPackets: 1, // Now it's a single complete packet
+		SeqNumber:    0, // Reassembled packet has sequence 0
+		DstIP:        originalPacket.DstIP,
+		DstPort:      originalPacket.DstPort,
+		SrcIP:        originalPacket.SrcIP,
+		SrcPort:      originalPacket.SrcPort,
+		Payload:      completePayload,
+	}
+
+	// Use the codec to serialize the complete packet
+	codec := &packet.DataPacketCodec{}
+	return codec.Serialize(completePacket)
 }
 
 // cleanupFragments removes fragment storage for a completed RPC
