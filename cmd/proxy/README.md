@@ -25,36 +25,8 @@ sudo -u proxyuser ./myproxy
 
 These rules transparently intercept both **outbound** and **inbound** UDP traffic:
 
-#### Outbound Traffic (e.g., app → external server)
-
 ```bash
-# Mark outbound UDP traffic from the app
-sudo iptables -t mangle -A OUTPUT -p udp --dport 10000:65535 -j CONNMARK --set-mark 0x1
-
-# Restore the connmark for incoming responses
-sudo iptables -t mangle -A PREROUTING -p udp -j CONNMARK --restore-mark
-
-# Redirect inbound response packets to proxy (15002)
-sudo iptables -t nat -A PREROUTING -p udp -m connmark --mark 0x1 -j REDIRECT --to-port 15002
-
-# Redirect app-generated outbound packets to proxy (15002)
-sudo iptables -t nat -A OUTPUT -p udp --dport 10000:65535 -m owner ! --uid-owner proxyuser -j REDIRECT --to-ports 15002
-```
-
-#### Inbound Traffic (e.g., external client → app)
-
-```bash
-# Mark inbound UDP traffic to the app
-sudo iptables -t mangle -A PREROUTING -p udp --dport 10000:65535 -j CONNMARK --set-mark 0x2
-
-# Restore the connmark for outbound responses
-sudo iptables -t mangle -A PREROUTING -p udp -j CONNMARK --restore-mark
-
-# Redirect inbound packets to proxy (15006)
-sudo iptables -t nat -A PREROUTING -p udp -m connmark --mark 0x2 -j REDIRECT --to-port 15006
-
-# Redirect app-generated responses to proxy (15006)
-sudo iptables -t nat -A OUTPUT -p udp -m connmark --mark 0x2 -m owner ! --uid-owner proxyuser -j REDIRECT --to-port 15006
+sudo bash apply_symphony_iptables_local.sh
 ```
 
 ---
