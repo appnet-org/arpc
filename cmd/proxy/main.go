@@ -248,8 +248,11 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 
 	processedData := processPacket(ctx, state, bufferedPacket.Data, bufferedPacket.IsRequest)
 
+	// Update the buffered packet with processed data
+	bufferedPacket.Data = processedData
+
 	// Fragment the packet if needed and forward all fragments
-	fragmentedPackets, err := state.packetBuffer.FragmentPacketForForward(processedData, bufferedPacket.Peer, bufferedPacket.IsRequest)
+	fragmentedPackets, err := state.packetBuffer.FragmentPacketForForward(bufferedPacket)
 	if err != nil {
 		logging.Error("Failed to fragment packet for forwarding", zap.Error(err))
 		return
