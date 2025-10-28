@@ -75,6 +75,18 @@ type MsgTx struct {
 	TotalBytes uint64
 }
 
+// TransportSender interface for sending packets
+type TransportSender interface {
+	Send(addr string, rpcID uint64, data []byte, pktType packet.PacketType) error
+	GetPacketRegistry() *packet.PacketRegistry
+}
+
+// TimerScheduler interface for managing timers
+type TimerScheduler interface {
+	SchedulePeriodic(id transport.TimerKey, interval time.Duration, callback transport.TimerCallback)
+	StopTimer(id transport.TimerKey) bool
+}
+
 // ReliableClientHandler implements the client-side reliable transport logic
 type ReliableClientHandler struct {
 	// Client state
@@ -89,12 +101,12 @@ type ReliableClientHandler struct {
 	mu sync.RWMutex
 
 	// Transport reference for sending ACKs and retransmissions
-	transport *transport.UDPTransport
-	timerMgr  *transport.TimerManager
+	transport TransportSender
+	timerMgr  TimerScheduler
 }
 
 // NewReliableClientHandler creates a new reliable client handler
-func NewReliableClientHandler(transport *transport.UDPTransport, timerMgr *transport.TimerManager) *ReliableClientHandler {
+func NewReliableClientHandler(transport TransportSender, timerMgr TimerScheduler) *ReliableClientHandler {
 	handler := &ReliableClientHandler{
 		txReq:           make(map[uint64]*MsgTx),
 		rttMin:          1000000, // 1 second in microseconds
@@ -296,9 +308,13 @@ func (h *ReliableClientHandler) retransmitMessage(kind uint8, rpcID uint64) {
 
 // startRetransmitTimer starts the periodic retransmission timer
 func (h *ReliableClientHandler) startRetransmitTimer() {
-	h.timerMgr.SchedulePeriodic("retransmit_req", 1*time.Millisecond, func() {
-		h.checkRetransmissions()
-	})
+	h.timerMgr.SchedulePeriodic(
+		transport.TimerKey("retransmit_req"),
+		1*time.Millisecond,
+		transport.TimerCallback(func() {
+			h.checkRetransmissions()
+		}),
+	)
 }
 
 // checkRetransmissions checks for messages that need retransmission
@@ -310,7 +326,8 @@ func (h *ReliableClientHandler) checkRetransmissions() {
 	rto := h.rto()
 
 	for rpcID, txState := range h.txReq {
-		if now.Sub(txState.SendTs) > rto {
+		elapsed := now.Sub(txState.SendTs)
+		if elapsed > rto {
 			// Message has timed out, retransmit
 			h.retransmitMessage(0, rpcID) // 0 = REQUEST
 			h.msgsLost++
@@ -319,6 +336,7 @@ func (h *ReliableClientHandler) checkRetransmissions() {
 			logging.Debug("Message retransmitted due to timeout",
 				zap.Uint64("rpcID", rpcID),
 				zap.Duration("rto", rto),
+				zap.Duration("elapsed", elapsed),
 				zap.Int("msgsLost", h.msgsLost))
 		}
 	}
@@ -334,5 +352,5 @@ func (h *ReliableClientHandler) GetStats() (bytesAckedTotal uint64, msgsLost int
 
 // Cleanup cleans up resources
 func (h *ReliableClientHandler) Cleanup() {
-	h.timerMgr.StopTimer("retransmit_req")
+	h.timerMgr.StopTimer(transport.TimerKey("retransmit_req"))
 }
