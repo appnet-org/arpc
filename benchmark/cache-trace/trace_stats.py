@@ -39,7 +39,7 @@ def main():
     def trim_outliers(data):
         low, high = np.percentile(data, [0, 100])
         trimmed = data[(data >= low) & (data <= high)]
-        print(f"Trimmed to {len(trimmed)} values (5th–95th percentile range: {low:.2f}–{high:.2f})")
+        print(f"Trimmed to {len(trimmed)} values (5th-95th percentile range: {low:.2f}-{high:.2f})")
         return trimmed
 
     key_sizes = trim_outliers(key_sizes)

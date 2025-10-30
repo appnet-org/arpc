@@ -5155,7 +5155,7 @@
 /?op=GET&key=93172168bf9456a6&key_size=68&value_size=0
 /?op=SET&key=7a15cbadf0448d99&key_size=77&value_size=1571
 /?op=GET&key=7a15cbadf0448d99&key_size=77&value_size=0
-/?op=SET&key=ac11a4ec83f1bf65&key_size=61&value_size=523288
+/?op=SET&key=ac11a4ec83f1bf65&key_size=61&value_size=52328
 /?op=GET&key=62e57f1d224f6597&key_size=56&value_size=1761
 /?op=SET&key=62e57f1d224f6597&key_size=56&value_size=1761
 /?op=GET&key=621554c0e2eaba30&key_size=89&value_size=3224
@@ -5749,7 +5749,7 @@
 /?op=GET&key=694a17b83b8fbf29&key_size=25&value_size=0
 /?op=SET&key=a1d066bac1591df1&key_size=23&value_size=40397
 /?op=GET&key=a1d066bac1591df1&key_size=23&value_size=0
-/?op=SET&key=11114252d79997f1&key_size=55&value_size=353547
+/?op=SET&key=11114252d79997f1&key_size=55&value_size=35354
 /?op=SET&key=d66594cba627251e&key_size=74&value_size=3693
 /?op=GET&key=d66594cba627251e&key_size=74&value_size=0
 /?op=SET&key=ce0739771ac8babb&key_size=61&value_size=4358
@@ -6924,7 +6924,7 @@
 /?op=GET&key=2307084795c779a7&key_size=62&value_size=0
 /?op=GET&key=ec0134c74adca2ec&key_size=49&value_size=1587
 /?op=SET&key=9030bd9590b73666&key_size=90&value_size=2578
-/?op=SET&key=8bd1495bde698afc&key_size=56&value_size=411890
+/?op=SET&key=8bd1495bde698afc&key_size=56&value_size=41189
 /?op=SET&key=1f8fcf9ceca2e01b&key_size=66&value_size=1721
 /?op=GET&key=1f8fcf9ceca2e01b&key_size=66&value_size=0
 /?op=GET&key=b834462d2e5b59ab&key_size=101&value_size=5701
@@ -8734,7 +8734,6 @@
 /?op=SET&key=d44ed8d74f69fcba&key_size=24&value_size=2327
 /?op=SET&key=1667898a690965fe&key_size=24&value_size=2192
 /?op=GET&key=1667898a690965fe&key_size=24&value_size=2185
-/?op=SET&key=9baf70de7719b4c7&key_size=61&value_size=523288
 /?op=GET&key=c0412e8d6c5daccc&key_size=81&value_size=1905
 /?op=SET&key=ea5d334ba69546db&key_size=80&value_size=7803
 /?op=GET&key=ea5d334ba69546db&key_size=80&value_size=0
@@ -11477,8 +11476,6 @@
 /?op=GET&key=7d9ceca97967792c&key_size=60&value_size=0
 /?op=SET&key=067327d64b64bbb1&key_size=91&value_size=3224
 /?op=GET&key=067327d64b64bbb1&key_size=91&value_size=0
-/?op=SET&key=427274a0caea9912&key_size=56&value_size=371813
-/?op=GET&key=5a7ce28921cd5dd6&key_size=101&value_size=0
 /?op=GET&key=4b5005e83f634fdb&key_size=68&value_size=2353
 /?op=SET&key=57da16f422bbeef8&key_size=69&value_size=4880
 /?op=GET&key=57da16f422bbeef8&key_size=69&value_size=0
@@ -22954,7 +22951,7 @@
 /?op=SET&key=375430f9ac816feb&key_size=50&value_size=3339
 /?op=GET&key=375430f9ac816feb&key_size=50&value_size=0
 /?op=GET&key=8c3f516b4202b1f8&key_size=81&value_size=5589
-/?op=SET&key=f7930e5c0c8d2ab1&key_size=37&value_size=382650
+/?op=SET&key=f7930e5c0c8d2ab1&key_size=37&value_size=38265
 /?op=SET&key=8eb60f033ddabf4b&key_size=70&value_size=1683
 /?op=GET&key=8eb60f033ddabf4b&key_size=70&value_size=0
 /?op=GET&key=f694e973231fabd6&key_size=69&value_size=1463
