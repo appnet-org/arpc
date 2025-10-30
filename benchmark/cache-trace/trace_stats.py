@@ -1,3 +1,4 @@
+# Computes and saves log-scale CDFs of key/value/total sizes from SET ops in a large cache trace CSV, processed in chunks.
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np

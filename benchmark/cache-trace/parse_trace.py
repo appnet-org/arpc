@@ -1,3 +1,13 @@
+"""Parse a CSV trace and emit wrk-style HTTP request lines.
+
+Reads `kvcache_traces_1.csv` in chunks and writes up to `MAX_ROWS` lines to
+`trace.req`. Each output line corresponds to a GET or SET operation in the form:
+
+  /?op=<GET|SET>&key=<key>&key_size=<bytes>&value_size=<bytes>
+
+This format is used by the Lua wrk scripts in `benchmark/cache-trace/`.
+"""
+
 import pandas as pd
 
 TRACE_FILE = "kvcache_traces_1.csv"
