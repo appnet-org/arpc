@@ -5,15 +5,19 @@ for i in range(0, 51, 5):
     
     
     # First generates the kv.lua file
-    number = 1400 * i + 1
+    if i == 0:
+        value_size = 1
+    else: 
+        value_size = 1400 * (i - 1)
+    
     with open("kv.lua", "w") as f:
         f.write(f'wrk.method = "GET"\n')
-        f.write(f'wrk.path = "/?op=SET&key=82131353f9ddc8c6&key_size=48&value_size={number}"\n')
+        f.write(f'wrk.path = "/?op=SET&key=82131353f9ddc8c6&key_size=48&value_size={value_size}"\n')
     
-    num_of_packet = number // 1400 + 1
+    num_of_packet = value_size // 1400 + 1
     print(f"Running wrk for (num_of_packet={num_of_packet})")
     # Run wrk for latency test
-    cmd =[wrk_path, "-d", "60s", "-t", "1", "-c", "1", "http://10.96.88.88:80", "-s", "kv.lua", "-L"]
+    cmd =[wrk_path, "-d", "30s", "-t", "1", "-c", "1", "http://10.96.88.88:80", "-s", "kv.lua", "-L"]
     result = subprocess.run(" ".join(cmd), shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout.decode("utf-8").split('\n')
     
     # Extract 50% latency and convert to milliseconds
@@ -38,3 +42,29 @@ for i in range(0, 51, 5):
                 
                 print(f"50% Latency: {latency_ms:.2f}ms (num_of_packet={num_of_packet})")
                 break
+            
+            
+"""
+Running wrk for (num_of_packet=1)
+50% Latency: 0.33ms (num_of_packet=1)
+Running wrk for (num_of_packet=5)
+50% Latency: 0.72ms (num_of_packet=5)
+Running wrk for (num_of_packet=10)
+50% Latency: 1.21ms (num_of_packet=10)
+Running wrk for (num_of_packet=15)
+50% Latency: 1.77ms (num_of_packet=15)
+Running wrk for (num_of_packet=20)
+50% Latency: 2.39ms (num_of_packet=20)
+Running wrk for (num_of_packet=25)
+50% Latency: 3.00ms (num_of_packet=25)
+Running wrk for (num_of_packet=30)
+50% Latency: 3.49ms (num_of_packet=30)
+Running wrk for (num_of_packet=35)
+50% Latency: 4.11ms (num_of_packet=35)
+Running wrk for (num_of_packet=40)
+50% Latency: 4.55ms (num_of_packet=40)
+Running wrk for (num_of_packet=45)
+50% Latency: 5.10ms (num_of_packet=45)
+Running wrk for (num_of_packet=50)
+50% Latency: 3.11ms (num_of_packet=50)
+"""

@@ -32,3 +32,10 @@ When processing the trace data, the following fields are of interest:
 - **key**: The cache key identifier
 - **Key_size**: Size of the key in bytes
 - **size**: Size of the cached value in bytes
+
+
+## Using Trace
+
+```bash
+./wrk -d 20s -t 1 -c 1 http://10.96.88.88:80 -s kv-store.lua -L
+```
