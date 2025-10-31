@@ -12,3 +12,5 @@ bcc/build/
 # Rust files
 debug/
 target/
+
+Miniconda.sh
