@@ -12,11 +12,13 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"unsafe"
 
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/proxy-http/element"
 	"go.uber.org/zap"
 	"golang.org/x/net/http2"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -30,6 +32,7 @@ const (
 type ProxyState struct {
 	elementChain *element.RPCElementChain
 	// Target server address for proxying (optional, can be configured via env)
+	// Used only if SO_ORIGINAL_DST is unavailable
 	targetAddr string
 }
 
@@ -43,13 +46,83 @@ type Config struct {
 func DefaultConfig() *Config {
 	targetAddr := os.Getenv("TARGET_ADDR")
 	if targetAddr == "" {
-		targetAddr = "localhost:8080" // Default target
+		targetAddr = "" // Empty by default - use iptables interception
 	}
 
 	return &Config{
 		Ports:      []int{15002, 15006},
 		TargetAddr: targetAddr,
 	}
+}
+
+// getOriginalDestination retrieves the original destination address for a TCP connection
+// that was redirected by iptables. Returns the address and true if available.
+func getOriginalDestination(conn net.Conn) (string, bool) {
+	tcpConn, ok := conn.(*net.TCPConn)
+	if !ok {
+		return "", false
+	}
+
+	file, err := tcpConn.File()
+	if err != nil {
+		logging.Debug("Failed to get file from connection", zap.Error(err))
+		return "", false
+	}
+	defer file.Close()
+
+	fd := file.Fd()
+
+	// Try to get the original destination using SO_ORIGINAL_DST
+	// This socket option is set by iptables REDIRECT target
+	return getOriginalDestinationIPv4(fd)
+}
+
+// getOriginalDestinationIPv4 retrieves the original destination for IPv4 connections
+func getOriginalDestinationIPv4(fd uintptr) (string, bool) {
+	// For IPv4, SO_ORIGINAL_DST returns a sockaddr_in structure
+	// Size of sockaddr_in: family (2) + port (2) + addr (4) + zero padding (8) = 16 bytes
+	var sockaddr [128]byte
+	size := uint32(len(sockaddr))
+
+	// SO_ORIGINAL_DST is at IPPROTO_IP level, not SOL_SOCKET
+	// This socket option is set by iptables REDIRECT target
+	err := getSockopt(int(fd), syscall.IPPROTO_IP, unix.SO_ORIGINAL_DST, unsafe.Pointer(&sockaddr[0]), &size)
+	if err != nil {
+		logging.Debug("Failed to get SO_ORIGINAL_DST", zap.Error(err))
+		return "", false
+	}
+
+	// Parse sockaddr_in: [family(2)][port(2)][addr(4)][...]
+	if size < 8 {
+		return "", false
+	}
+
+	family := binary.LittleEndian.Uint16(sockaddr[0:2])
+	if family != syscall.AF_INET {
+		return "", false
+	}
+
+	port := binary.BigEndian.Uint16(sockaddr[2:4])
+	ip := net.IPv4(sockaddr[4], sockaddr[5], sockaddr[6], sockaddr[7])
+
+	return fmt.Sprintf("%s:%d", ip.String(), port), true
+}
+
+// getSockopt performs getsockopt syscall
+func getSockopt(s, level, name int, val unsafe.Pointer, vallen *uint32) (err error) {
+	_, _, e1 := syscall.Syscall6(
+		syscall.SYS_GETSOCKOPT,
+		uintptr(s),
+		uintptr(level),
+		uintptr(name),
+		uintptr(val),
+		uintptr(unsafe.Pointer(vallen)),
+		0,
+	)
+	if e1 != 0 {
+		err = e1
+	}
+	return
 }
 
 // getLoggingConfig reads logging configuration from environment variables with defaults
@@ -186,10 +259,20 @@ func handleConnection(clientConn net.Conn, state *ProxyState) {
 func handleHTTP2Connection(clientConn net.Conn, preface []byte, state *ProxyState) {
 	ctx := context.Background()
 
+	// Get the original destination from iptables interception
+	targetAddr := state.targetAddr
+	if origDst, ok := getOriginalDestination(clientConn); ok {
+		targetAddr = origDst
+		logging.Info("Using iptables original destination", zap.String("original_dst", origDst))
+	} else if targetAddr == "" {
+		logging.Error("No target address available (neither SO_ORIGINAL_DST nor TARGET_ADDR)")
+		return
+	}
+
 	// Connect to target server
-	targetConn, err := net.Dial("tcp", state.targetAddr)
+	targetConn, err := net.Dial("tcp", targetAddr)
 	if err != nil {
-		logging.Error("Failed to connect to target", zap.String("target", state.targetAddr), zap.Error(err))
+		logging.Error("Failed to connect to target", zap.String("target", targetAddr), zap.Error(err))
 		return
 	}
 	defer targetConn.Close()
@@ -384,10 +467,20 @@ func processGRPCMessage(ctx context.Context, state *ProxyState, data []byte, isR
 
 // handlePlainTCPConnection handles plain TCP connections (non-HTTP/2)
 func handlePlainTCPConnection(clientConn net.Conn, peekBytes []byte, state *ProxyState) {
+	// Get the original destination from iptables interception
+	targetAddr := state.targetAddr
+	if origDst, ok := getOriginalDestination(clientConn); ok {
+		targetAddr = origDst
+		logging.Info("Using iptables original destination", zap.String("original_dst", origDst))
+	} else if targetAddr == "" {
+		logging.Error("No target address available (neither SO_ORIGINAL_DST nor TARGET_ADDR)")
+		return
+	}
+
 	// Connect to target server
-	targetConn, err := net.Dial("tcp", state.targetAddr)
+	targetConn, err := net.Dial("tcp", targetAddr)
 	if err != nil {
-		logging.Error("Failed to connect to target", zap.String("target", state.targetAddr), zap.Error(err))
+		logging.Error("Failed to connect to target", zap.String("target", targetAddr), zap.Error(err))
 		return
 	}
 	defer targetConn.Close()
