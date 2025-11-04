@@ -233,8 +233,8 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		zap.String("forwardTo", forwardTo.String()),
 		zap.Bool("isRequest", isRequest))
 
-	// Process packet through buffer (may return nil if still buffering)
-	bufferedPacket, err := state.packetBuffer.ProcessPacket(data, src, forwardTo, isRequest)
+	// Buffer packet (may return nil if still buffering)
+	bufferedPacket, err := state.packetBuffer.BufferPacket(data, src, forwardTo, isRequest)
 	if err != nil {
 		logging.Error("Error processing packet through buffer", zap.Error(err))
 		return
@@ -246,6 +246,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		return
 	}
 
+	// Process packet through the element chain
 	processedData := processPacket(ctx, state, bufferedPacket.Data, bufferedPacket.IsRequest)
 
 	// Update the buffered packet with processed data
@@ -276,8 +277,6 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 
 // processPacket processes the packet through the element chain
 func processPacket(ctx context.Context, state *ProxyState, data []byte, isRequest bool) []byte {
-	// Log the packet (in hex)
-	// logging.Debug("Received packet", zap.String("hex", fmt.Sprintf("%x", data)))
 
 	var err error
 	if isRequest {

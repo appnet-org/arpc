@@ -65,8 +65,8 @@ func (pb *PacketBuffer) Close() {
 	close(pb.done)
 }
 
-// ProcessPacket processes a packet fragment and returns a complete packet if ready
-func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, peer *net.UDPAddr, isRequest bool) (*BufferedPacket, error) {
+// BufferPacket buffers a packet fragment and returns a complete packet if ready
+func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UDPAddr, isRequest bool) (*BufferedPacket, error) {
 	if !pb.enabled {
 		// Buffering disabled, return packet immediately
 		// Try to extract routing info
