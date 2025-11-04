@@ -57,6 +57,11 @@ func (pr *PacketRegistry) RegisterPacketTypeWithID(packetType string, id PacketT
 	pr.types[pt.TypeID] = pt
 	pr.codecs[pt.TypeID] = codec
 
+	// Update nextID to avoid collisions with future RegisterPacketType calls
+	if id >= pr.nextID {
+		pr.nextID = id + 1
+	}
+
 	return pt, nil
 }
 

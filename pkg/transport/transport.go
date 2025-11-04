@@ -115,6 +115,17 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 
 	// Iterate through each fragment and send it via the UDP connection
 	for _, pkt := range packets {
+		// Get the handler chain for this packet type
+		handler, exists := t.handlers.GetHandlerChain(packetType.TypeID, RoleClient)
+		if !exists {
+			return fmt.Errorf("no handler chain found for packet type: %s", packetType.Name)
+		}
+
+		// Process the packet through OnSend handlers before sending
+		if err := handler.OnSend(pkt, udpAddr); err != nil {
+			return fmt.Errorf("handler processing failed: %w", err)
+		}
+
 		// Serialize the packet into a byte slice for transmission
 		packetData, err := packet.SerializePacket(pkt, packetType)
 		logging.Debug("Serialized packet", zap.Uint64("rpcID", rpcID))
@@ -147,11 +158,24 @@ func (t *UDPTransport) Receive(bufferSize int, role Role) ([]byte, *net.UDPAddr,
 		return nil, nil, 0, packet.PacketTypeUnknown, err
 	}
 
-	// Deserialize the received data into a structured packet format
-	pkt, packetType, err := packet.DeserializePacketAny(buffer[:n])
-	if err != nil {
-		return nil, nil, 0, packetType, err
+	// Deserialize the received data using transport's packet registry
+	// (not DefaultRegistry, which doesn't have custom packets like ACK)
+	if n < 1 {
+		return nil, nil, 0, packet.PacketTypeUnknown, fmt.Errorf("data too short to read packet type")
 	}
+
+	packetTypeID := packet.PacketTypeID(buffer[0])
+	codec, exists := t.packets.GetCodec(packetTypeID)
+	if !exists {
+		return nil, nil, 0, packet.PacketTypeUnknown, fmt.Errorf("codec not found for packet type ID %d", packetTypeID)
+	}
+
+	pkt, err := codec.Deserialize(buffer[:n])
+	if err != nil {
+		return nil, nil, 0, packet.PacketTypeUnknown, err
+	}
+
+	packetType, _ := t.packets.GetPacketType(packetTypeID)
 
 	// Use the handler registry to process the packet
 	handler, exists := t.handlers.GetHandlerChain(packetType.TypeID, role)
@@ -230,6 +254,11 @@ func (t *UDPTransport) GetHandlerRegistry() *HandlerRegistry {
 // GetTimerManager returns the timer manager for advanced operations
 func (t *UDPTransport) GetTimerManager() *TimerManager {
 	return t.timerManager
+}
+
+// GetConn returns the underlying UDP connection for direct packet sending
+func (t *UDPTransport) GetConn() *net.UDPConn {
+	return t.conn
 }
 
 // ListRegisteredPackets returns all registered packet types
