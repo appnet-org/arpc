@@ -13,7 +13,6 @@ go run frontend/*.go
 ```
 
 ## 4. Test
-
 ```bash
 # Set
 curl "http://localhost:8080/?op=SET&key=82131353f9ddc8c6&key_size=48&value_size=87"

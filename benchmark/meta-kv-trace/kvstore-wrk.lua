@@ -19,9 +19,13 @@ print(string.format("Loaded %d requests", #lines))
 
 -- Return one request per wrk iteration
 function request()
+  if i > #lines then
+    wrk.thread:stop()
+    return nil
+  end
+  print("Sending request", i)
   local line = lines[i]
   i = i + 1
-  if i > #lines then i = 1 end
 
   -- Always use GET for simplicity
   return wrk.format("GET", line)

@@ -17,7 +17,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// NEW: deterministic random string generator from key_id and desired length
+// Deterministic random string generator from key_id and desired length
 func generateDeterministicString(keyID string, length int) string {
 	hash := sha256.Sum256([]byte(keyID))
 	repeatCount := (length + len(hash)*2 - 1) / (len(hash) * 2)
@@ -59,7 +59,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// NEW: generate deterministic key/value strings
+	// Generate deterministic key/value strings
 	keyStr := generateDeterministicString(keyID+"-key", keySize)
 	valueStr := generateDeterministicString(keyID+"-value", valueSize)
 
@@ -104,8 +104,8 @@ func main() {
 	}
 
 	serializer := &serializer.SymphonySerializer{}
-	client, err := rpc.NewClient(serializer, "130.127.134.7:11000", nil)
-	// client, err := rpc.NewClient(serializer, "kvstore.default.svc.cluster.local:11000", nil)
+	// client, err := rpc.NewClient(serializer, "130.127.134.7:11000", nil)
+	client, err := rpc.NewClient(serializer, "kvstore.default.svc.cluster.local:11000", nil)
 	if err != nil {
 		logging.Fatal("Failed to create RPC client", zap.Error(err))
 	}

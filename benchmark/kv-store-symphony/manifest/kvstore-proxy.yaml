@@ -61,6 +61,8 @@ spec:
         env:
         - name: LOG_LEVEL
           value: info
+        - name: ENABLE_PACKET_BUFFERING
+          value: "true"
 ---
 apiVersion: v1
 kind: Service
@@ -126,3 +128,5 @@ spec:
         env:
         - name: LOG_LEVEL
           value: info
+        - name: ENABLE_PACKET_BUFFERING
+          value: "true"
