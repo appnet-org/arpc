@@ -28,9 +28,8 @@ type BufferedPacket struct {
 	Data       []byte
 	Source     *net.UDPAddr
 	Peer       *net.UDPAddr
-	IsRequest  bool
 	RPCID      uint64
-	PacketType uint8
+	PacketType PacketType
 	// Routing information extracted from the packet
 	DstIP   [4]byte
 	DstPort uint16
@@ -66,20 +65,20 @@ func (pb *PacketBuffer) Close() {
 }
 
 // BufferPacket buffers a packet fragment and returns a complete packet if ready
-func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UDPAddr, isRequest bool) (*BufferedPacket, error) {
+func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UDPAddr, packetType PacketType) (*BufferedPacket, error) {
 	if !pb.enabled {
 		// Buffering disabled, return packet immediately
 		// Try to extract routing info
 		routingInfo := pb.extractRoutingInfoFromData(data)
 		return &BufferedPacket{
-			Data:      data,
-			Source:    src,
-			Peer:      peer,
-			IsRequest: isRequest,
-			DstIP:     routingInfo.DstIP,
-			DstPort:   routingInfo.DstPort,
-			SrcIP:     routingInfo.SrcIP,
-			SrcPort:   routingInfo.SrcPort,
+			Data:       data,
+			Source:     src,
+			Peer:       peer,
+			PacketType: packetType,
+			DstIP:      routingInfo.DstIP,
+			DstPort:    routingInfo.DstPort,
+			SrcIP:      routingInfo.SrcIP,
+			SrcPort:    routingInfo.SrcPort,
 		}, nil
 	}
 
@@ -94,8 +93,7 @@ func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UD
 			Data:       data,
 			Source:     src,
 			Peer:       peer,
-			IsRequest:  isRequest,
-			PacketType: uint8(data[0]),
+			PacketType: packetType,
 			DstIP:      routingInfo.DstIP,
 			DstPort:    routingInfo.DstPort,
 			SrcIP:      routingInfo.SrcIP,
@@ -141,8 +139,7 @@ func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UD
 				Data:       data,
 				Source:     src,
 				Peer:       peer,
-				IsRequest:  isRequest,
-				PacketType: uint8(dataPacket.PacketTypeID),
+				PacketType: packetType,
 				DstIP:      dataPacket.DstIP,
 				DstPort:    dataPacket.DstPort,
 				SrcIP:      dataPacket.SrcIP,
@@ -162,9 +159,8 @@ func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UD
 			Data:       completeData,
 			Source:     src,
 			Peer:       peer,
-			IsRequest:  isRequest,
+			PacketType: packetType,
 			RPCID:      dataPacket.RPCID,
-			PacketType: uint8(dataPacket.PacketTypeID),
 			DstIP:      dataPacket.DstIP,
 			DstPort:    dataPacket.DstPort,
 			SrcIP:      dataPacket.SrcIP,
@@ -201,7 +197,7 @@ func (pb *PacketBuffer) extractRoutingInfoFromData(data []byte) *BufferedPacket 
 	dataPacket, err := pb.deserializePacket(data)
 	if err == nil {
 		routingInfo.RPCID = dataPacket.RPCID
-		routingInfo.PacketType = uint8(dataPacket.PacketTypeID)
+		routingInfo.PacketType = PacketType(dataPacket.PacketTypeID)
 		routingInfo.DstIP = dataPacket.DstIP
 		routingInfo.DstPort = dataPacket.DstPort
 		routingInfo.SrcIP = dataPacket.SrcIP
@@ -328,9 +324,9 @@ func (pb *PacketBuffer) GetStats() map[string]any {
 
 // FragmentedPacket represents a fragment ready to be sent
 type FragmentedPacket struct {
-	Data      []byte
-	Peer      *net.UDPAddr
-	IsRequest bool
+	Data       []byte
+	Peer       *net.UDPAddr
+	PacketType PacketType
 }
 
 // FragmentPacketForForward fragments a complete packet if needed
@@ -342,9 +338,9 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *BufferedPacket)
 		// If we can't parse it, treat as single packet and don't fragment
 		return []FragmentedPacket{
 			{
-				Data:      bufferedPacket.Data,
-				Peer:      bufferedPacket.Peer,
-				IsRequest: bufferedPacket.IsRequest,
+				Data:       bufferedPacket.Data,
+				Peer:       bufferedPacket.Peer,
+				PacketType: bufferedPacket.PacketType,
 			},
 		}, nil
 	}
@@ -361,9 +357,9 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *BufferedPacket)
 	if totalPackets <= 1 {
 		return []FragmentedPacket{
 			{
-				Data:      bufferedPacket.Data,
-				Peer:      bufferedPacket.Peer,
-				IsRequest: bufferedPacket.IsRequest,
+				Data:       bufferedPacket.Data,
+				Peer:       bufferedPacket.Peer,
+				PacketType: bufferedPacket.PacketType,
 			},
 		}, nil
 	}
@@ -399,9 +395,9 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *BufferedPacket)
 		}
 
 		fragments = append(fragments, FragmentedPacket{
-			Data:      serialized,
-			Peer:      bufferedPacket.Peer,
-			IsRequest: bufferedPacket.IsRequest,
+			Data:       serialized,
+			Peer:       bufferedPacket.Peer,
+			PacketType: bufferedPacket.PacketType,
 		})
 	}
 

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
@@ -72,7 +71,7 @@ func main() {
 
 	// Create element chain with logging
 	elementChain := element.NewRPCElementChain(
-	// element.NewLoggingElement(true), // Enable verbose logging
+		element.NewLoggingElement(), // Enable verbose logging
 	)
 
 	config := DefaultConfig()
@@ -166,46 +165,6 @@ func runProxyServer(port int, state *ProxyState) error {
 	}
 }
 
-// PacketRoutingInfo contains routing information extracted from packet headers
-type PacketRoutingInfo struct {
-	DstIP   net.IP
-	DstPort uint16
-	SrcIP   net.IP
-	SrcPort uint16
-}
-
-// extractRoutingInfo extracts routing information from the packet data
-func extractRoutingInfo(data []byte) (*PacketRoutingInfo, error) {
-	if len(data) < 29 {
-		return nil, fmt.Errorf("packet too short for routing info: %d bytes", len(data))
-	}
-
-	// packet format: [PacketTypeID(1B)][RPCID(8B)][TotalPackets(2B)][SeqNumber(2B)][DstIP(4B)][DstPort(2B)][SrcIP(4B)][SrcPort(2B)][PayloadLen(4B)][Payload]
-
-	// Extract destination IP and port
-	dstIP := net.IP(data[13:17])
-	dstPort := binary.LittleEndian.Uint16(data[17:19])
-
-	// Extract source IP and port
-	srcIP := net.IP(data[19:23])
-	srcPort := binary.LittleEndian.Uint16(data[23:25])
-
-	return &PacketRoutingInfo{
-		DstIP:   dstIP,
-		DstPort: dstPort,
-		SrcIP:   srcIP,
-		SrcPort: srcPort,
-	}, nil
-}
-
-// isRequestPacket checks if this is a request packet (type 1)
-func isRequestPacket(data []byte) bool {
-	if len(data) < 1 {
-		return false
-	}
-	return data[0] == 1
-}
-
 // handlePacket processes incoming packets and forwards them to the appropriate peer
 func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte) {
 	ctx := context.Background()
@@ -224,17 +183,21 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		IP:   routingInfo.DstIP,
 		Port: int(routingInfo.DstPort),
 	}
-	isRequest := isRequestPacket(data)
+	packetType, err := extractPacketType(data)
+	if err != nil {
+		logging.Error("Failed to extract packet type", zap.Error(err))
+		return
+	}
 
 	logging.Debug("Intercepted packet",
 		zap.String("from", src.String()),
 		zap.String("packetSrc", net.JoinHostPort(routingInfo.SrcIP.String(), fmt.Sprintf("%d", routingInfo.SrcPort))),
 		zap.String("packetDst", net.JoinHostPort(routingInfo.DstIP.String(), fmt.Sprintf("%d", routingInfo.DstPort))),
 		zap.String("forwardTo", forwardTo.String()),
-		zap.Bool("isRequest", isRequest))
+		zap.String("packetType", packetType.String()))
 
 	// Buffer packet (may return nil if still buffering)
-	bufferedPacket, err := state.packetBuffer.BufferPacket(data, src, forwardTo, isRequest)
+	bufferedPacket, err := state.packetBuffer.BufferPacket(data, src, forwardTo, packetType)
 	if err != nil {
 		logging.Error("Error processing packet through buffer", zap.Error(err))
 		return
@@ -247,7 +210,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	}
 
 	// Process packet through the element chain
-	processedData := processPacket(ctx, state, bufferedPacket.Data, bufferedPacket.IsRequest)
+	processedData := processDataThroughElementsChain(ctx, state, bufferedPacket.Data, bufferedPacket.PacketType)
 
 	// Update the buffered packet with processed data
 	bufferedPacket.Data = processedData
@@ -272,19 +235,24 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		zap.Int("bytes", len(processedData)),
 		zap.String("from", bufferedPacket.Source.String()),
 		zap.String("to", bufferedPacket.Peer.String()),
-		zap.Bool("isRequest", bufferedPacket.IsRequest))
+		zap.String("packetType", bufferedPacket.PacketType.String()))
 }
 
-// processPacket processes the packet through the element chain
-func processPacket(ctx context.Context, state *ProxyState, data []byte, isRequest bool) []byte {
+// processDataThroughElementsChain processes the Message Data through the element chain
+func processDataThroughElementsChain(ctx context.Context, state *ProxyState, data []byte, packetType PacketType) []byte {
 
 	var err error
-	if isRequest {
+	switch packetType {
+	case PacketTypeRequest:
 		// Process request through element chain
 		data, _, err = state.elementChain.ProcessRequest(ctx, data)
-	} else {
+	case PacketTypeResponse:
 		// Process response through element chain (in reverse order)
 		data, _, err = state.elementChain.ProcessResponse(ctx, data)
+	default:
+		// For other packet types (Error, Unknown, etc.), skip processing
+		// TODO: Add handler for error packets
+		logging.Debug("Skipping element chain processing for packet type", zap.String("packetType", packetType.String()))
 	}
 
 	if err != nil {
