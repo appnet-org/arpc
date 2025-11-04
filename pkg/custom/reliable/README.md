@@ -27,7 +27,7 @@ udpTransport, _ := transport.NewUDPTransport(":0")
 defer udpTransport.Close()
 
 // Register ACK packet type
-udpTransport.RegisterPacketType(reliable.AckPacketName, &reliable.ACKPacketCodec{})
+ackPacketType, _ := udpTransport.RegisterPacketType(reliable.AckPacketName, &reliable.ACKPacketCodec{})
 
 // Create reliable client handler (default 30s connection timeout)
 clientHandler := reliable.NewReliableClientHandler(
@@ -56,6 +56,11 @@ responseChain, _ := udpTransport.GetHandlerRegistry().GetHandlerChain(
     transport.RoleClient,
 )
 responseChain.AddHandler(clientHandler)
+
+// Register handler chain for ACK packets
+// Note: Custom packet types need handler chains created and registered
+ackChain := transport.NewHandlerChain("ClientACKHandlerChain", clientHandler)
+udpTransport.RegisterHandlerChain(ackPacketType.TypeID, ackChain, transport.RoleClient)
 ```
 
 ### Server-Side Setup
@@ -66,7 +71,7 @@ udpTransport, _ := transport.NewUDPTransport(":8080")
 defer udpTransport.Close()
 
 // Register ACK packet type
-udpTransport.RegisterPacketType(reliable.AckPacketName, &reliable.ACKPacketCodec{})
+ackPacketType, _ := udpTransport.RegisterPacketType(reliable.AckPacketName, &reliable.ACKPacketCodec{})
 
 // Create reliable server handler (default 30s connection timeout)
 serverHandler := reliable.NewReliableServerHandler(
@@ -88,6 +93,11 @@ responseChain, _ := udpTransport.GetHandlerRegistry().GetHandlerChain(
     transport.RoleServer,
 )
 responseChain.AddHandler(serverHandler)
+
+// Register handler chain for ACK packets
+// Note: Custom packet types need handler chains created and registered
+ackChain := transport.NewHandlerChain("ServerACKHandlerChain", serverHandler)
+udpTransport.RegisterHandlerChain(ackPacketType.TypeID, ackChain, transport.RoleServer)
 ```
 
 ### Handler Behavior
