@@ -22,7 +22,7 @@ const (
 
 // ProxyState manages the state of the UDP proxy
 type ProxyState struct {
-	elementChain *element.RPCElementChain
+	elementChain *RPCElementChain
 	packetBuffer *PacketBuffer
 }
 
@@ -70,7 +70,7 @@ func main() {
 	logging.Info("Starting bidirectional UDP proxy on :15002 and :15006...")
 
 	// Create element chain with logging
-	elementChain := element.NewRPCElementChain(
+	elementChain := NewRPCElementChain(
 		element.NewLoggingElement(), // Enable verbose logging
 	)
 
@@ -210,10 +210,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	}
 
 	// Process packet through the element chain
-	processedPayload := processDataThroughElementsChain(ctx, state, bufferedPacket.Payload, bufferedPacket.PacketType)
-
-	// Update the buffered packet with processed payload
-	bufferedPacket.Payload = processedPayload
+	processDataThroughElementsChain(ctx, state, bufferedPacket)
 
 	// Fragment the packet if needed and forward all fragments
 	fragmentedPackets, err := state.packetBuffer.FragmentPacketForForward(bufferedPacket)
@@ -232,35 +229,34 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 
 	logging.Debug("Forwarded packet",
 		zap.Int("fragments", len(fragmentedPackets)),
-		zap.Int("bytes", len(processedPayload)),
+		zap.Int("bytes", len(bufferedPacket.Payload)),
 		zap.String("from", bufferedPacket.Source.String()),
 		zap.String("to", bufferedPacket.Peer.String()),
 		zap.String("packetType", bufferedPacket.PacketType.String()))
 }
 
 // processDataThroughElementsChain processes the Message Data through the element chain
-func processDataThroughElementsChain(ctx context.Context, state *ProxyState, data []byte, packetType PacketType) []byte {
+// Modifications to the packet are made in place
+func processDataThroughElementsChain(ctx context.Context, state *ProxyState, packet *BufferedPacket) {
 
 	var err error
-	switch packetType {
+	switch packet.PacketType {
 	case PacketTypeRequest:
 		// Process request through element chain
-		data, _, err = state.elementChain.ProcessRequest(ctx, data)
+		packet.Payload, _, err = state.elementChain.ProcessRequest(ctx, packet.Payload)
 	case PacketTypeResponse:
 		// Process response through element chain (in reverse order)
-		data, _, err = state.elementChain.ProcessResponse(ctx, data)
+		packet.Payload, _, err = state.elementChain.ProcessResponse(ctx, packet.Payload)
 	default:
 		// For other packet types (Error, Unknown, etc.), skip processing
 		// TODO: Add handler for error packets
-		logging.Debug("Skipping element chain processing for packet type", zap.String("packetType", packetType.String()))
+		logging.Debug("Skipping element chain processing for packet type", zap.String("packetType", packet.PacketType.String()))
 	}
 
 	if err != nil {
 		logging.Error("Error processing packet through element chain", zap.Error(err))
-		return data // Return original data on error
+		// Payload remains unchanged on error
 	}
-
-	return data
 }
 
 // waitForShutdown waits for a shutdown signal
