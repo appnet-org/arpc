@@ -35,6 +35,10 @@ type BufferedPacket struct {
 	DstPort uint16
 	SrcIP   [4]byte
 	SrcPort uint16
+	// Fragmentation information
+	IsFull       bool   // true for full messages, false for partial messages
+	SeqNumber    uint16 // sequence number (0 for full messages)
+	TotalPackets uint16 // total number of packets (0 for full messages)
 }
 
 // NewPacketBuffer creates a new packet buffer
@@ -72,19 +76,31 @@ func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UD
 		// Extract payload from the packet
 		dataPacket, err := pb.deserializePacket(data)
 		payload := data
+		isFull := true
+		seqNumber := uint16(0)
+		totalPackets := uint16(1) // Default to 1 for single packet
 		if err == nil {
 			payload = dataPacket.Payload
+			// Check if this is actually a fragment
+			if dataPacket.TotalPackets > 1 {
+				isFull = false
+				seqNumber = dataPacket.SeqNumber
+				totalPackets = dataPacket.TotalPackets
+			}
 		}
 		return &BufferedPacket{
-			Payload:    payload,
-			Source:     src,
-			Peer:       peer,
-			PacketType: packetType,
-			RPCID:      routingInfo.RPCID,
-			DstIP:      routingInfo.DstIP,
-			DstPort:    routingInfo.DstPort,
-			SrcIP:      routingInfo.SrcIP,
-			SrcPort:    routingInfo.SrcPort,
+			Payload:      payload,
+			Source:       src,
+			Peer:         peer,
+			PacketType:   packetType,
+			RPCID:        routingInfo.RPCID,
+			DstIP:        routingInfo.DstIP,
+			DstPort:      routingInfo.DstPort,
+			SrcIP:        routingInfo.SrcIP,
+			SrcPort:      routingInfo.SrcPort,
+			IsFull:       isFull,
+			SeqNumber:    seqNumber,
+			TotalPackets: totalPackets,
 		}, nil
 	}
 
@@ -96,15 +112,18 @@ func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UD
 		// Try to extract routing info from raw data
 		routingInfo := pb.extractRoutingInfoFromData(data)
 		return &BufferedPacket{
-			Payload:    data,
-			Source:     src,
-			Peer:       peer,
-			PacketType: packetType,
-			RPCID:      routingInfo.RPCID,
-			DstIP:      routingInfo.DstIP,
-			DstPort:    routingInfo.DstPort,
-			SrcIP:      routingInfo.SrcIP,
-			SrcPort:    routingInfo.SrcPort,
+			Payload:      data,
+			Source:       src,
+			Peer:         peer,
+			PacketType:   packetType,
+			RPCID:        routingInfo.RPCID,
+			DstIP:        routingInfo.DstIP,
+			DstPort:      routingInfo.DstPort,
+			SrcIP:        routingInfo.SrcIP,
+			SrcPort:      routingInfo.SrcPort,
+			IsFull:       true,
+			SeqNumber:    0,
+			TotalPackets: 1,
 		}, nil
 	}
 
@@ -144,15 +163,18 @@ func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UD
 			pb.cleanupFragments(connKey, dataPacket.RPCID)
 			payload := dataPacket.Payload
 			return &BufferedPacket{
-				Payload:    payload,
-				Source:     src,
-				Peer:       peer,
-				PacketType: packetType,
-				RPCID:      dataPacket.RPCID,
-				DstIP:      dataPacket.DstIP,
-				DstPort:    dataPacket.DstPort,
-				SrcIP:      dataPacket.SrcIP,
-				SrcPort:    dataPacket.SrcPort,
+				Payload:      payload,
+				Source:       src,
+				Peer:         peer,
+				PacketType:   packetType,
+				RPCID:        dataPacket.RPCID,
+				DstIP:        dataPacket.DstIP,
+				DstPort:      dataPacket.DstPort,
+				SrcIP:        dataPacket.SrcIP,
+				SrcPort:      dataPacket.SrcPort,
+				IsFull:       false,
+				SeqNumber:    dataPacket.SeqNumber,
+				TotalPackets: dataPacket.TotalPackets,
 			}, nil
 		}
 
@@ -165,15 +187,18 @@ func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UD
 			zap.Int("totalSize", len(completePayload)))
 
 		return &BufferedPacket{
-			Payload:    completePayload,
-			Source:     src,
-			Peer:       peer,
-			PacketType: packetType,
-			RPCID:      dataPacket.RPCID,
-			DstIP:      dataPacket.DstIP,
-			DstPort:    dataPacket.DstPort,
-			SrcIP:      dataPacket.SrcIP,
-			SrcPort:    dataPacket.SrcPort,
+			Payload:      completePayload,
+			Source:       src,
+			Peer:         peer,
+			PacketType:   packetType,
+			RPCID:        dataPacket.RPCID,
+			DstIP:        dataPacket.DstIP,
+			DstPort:      dataPacket.DstPort,
+			SrcIP:        dataPacket.SrcIP,
+			SrcPort:      dataPacket.SrcPort,
+			IsFull:       true,
+			SeqNumber:    0,
+			TotalPackets: dataPacket.TotalPackets, // Actual number of packets that were reassembled
 		}, nil
 	}
 
