@@ -4,28 +4,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+
+	"github.com/appnet-org/proxy/types"
 )
-
-type PacketType uint8
-
-const (
-	PacketTypeRequest  PacketType = 1
-	PacketTypeResponse PacketType = 2
-	PacketTypeError    PacketType = 3
-	PacketTypeOther    PacketType = 4
-)
-
-func (p PacketType) String() string {
-	switch p {
-	case PacketTypeRequest:
-		return "REQUEST"
-	case PacketTypeResponse:
-		return "RESPONSE"
-	case PacketTypeError:
-		return "ERROR"
-	}
-	return "UNKNOWN"
-}
 
 // PacketRoutingInfo contains routing information extracted from packet headers
 type PacketRoutingInfo struct {
@@ -60,9 +41,9 @@ func extractRoutingInfo(data []byte) (*PacketRoutingInfo, error) {
 }
 
 // extractPacketType extracts the packet type from the packet data
-func extractPacketType(data []byte) (PacketType, error) {
+func extractPacketType(data []byte) (types.PacketType, error) {
 	if len(data) < 1 {
 		return 0, fmt.Errorf("packet too short for packet type: %d bytes", len(data))
 	}
-	return PacketType(data[0]), nil
+	return types.PacketType(data[0]), nil
 }

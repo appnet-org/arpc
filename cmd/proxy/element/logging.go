@@ -8,6 +8,7 @@ import (
 
 	kv "github.com/appnet-org/arpc/benchmark/kv-store-symphony/symphony"
 	"github.com/appnet-org/arpc/pkg/logging"
+	"github.com/appnet-org/proxy/types"
 	"go.uber.org/zap"
 )
 
@@ -186,20 +187,20 @@ func parseFramedResponse(data []byte) (service string, method string, payload []
 }
 
 // ProcessRequest logs the incoming request and returns it unchanged
-func (l *LoggingElement) ProcessRequest(ctx context.Context, req []byte) ([]byte, context.Context, error) {
-	if len(req) == 0 {
+func (l *LoggingElement) ProcessRequest(ctx context.Context, packet *types.BufferedPacket) (*types.BufferedPacket, context.Context, error) {
+	if packet == nil || len(packet.Payload) == 0 {
 		logging.Info("Received empty request")
-		return req, ctx, nil
+		return packet, ctx, nil
 	}
 
 	// Parse the request
-	service, method, metadataLen, payload, err := parseFramedRequest(req)
+	service, method, metadataLen, payload, err := parseFramedRequest(packet.Payload)
 	if err != nil {
 		// If parsing fails, fall back to hex dump
 		logging.Debug("Request payload (parse failed)",
 			zap.Error(err),
-			zap.String("hex", hex.EncodeToString(req)))
-		return req, ctx, nil
+			zap.String("hex", hex.EncodeToString(packet.Payload)))
+		return packet, ctx, nil
 	}
 
 	// Log parsed request information
@@ -208,7 +209,9 @@ func (l *LoggingElement) ProcessRequest(ctx context.Context, req []byte) ([]byte
 		zap.String("method", method),
 		zap.Int("payload_size", len(payload)),
 		zap.Int("metadata_size", metadataLen),
-		zap.Int("total_size", len(req)),
+		zap.Int("total_size", len(packet.Payload)),
+		zap.Uint64("rpcID", packet.RPCID),
+		zap.String("packetType", packet.PacketType.String()),
 	}
 
 	// Try to parse KV payload for structured logging
@@ -224,24 +227,24 @@ func (l *LoggingElement) ProcessRequest(ctx context.Context, req []byte) ([]byte
 
 	logging.Debug("Request received", logFields...)
 
-	return req, ctx, nil
+	return packet, ctx, nil
 }
 
 // ProcessResponse logs the outgoing response and returns it unchanged
-func (l *LoggingElement) ProcessResponse(ctx context.Context, resp []byte) ([]byte, context.Context, error) {
-	if len(resp) == 0 {
+func (l *LoggingElement) ProcessResponse(ctx context.Context, packet *types.BufferedPacket) (*types.BufferedPacket, context.Context, error) {
+	if packet == nil || len(packet.Payload) == 0 {
 		logging.Info("Received empty response")
-		return resp, ctx, nil
+		return packet, ctx, nil
 	}
 
 	// Parse the response
-	service, method, payload, err := parseFramedResponse(resp)
+	service, method, payload, err := parseFramedResponse(packet.Payload)
 	if err != nil {
 		// If parsing fails, fall back to hex dump
 		logging.Debug("Response payload (parse failed)",
 			zap.Error(err),
-			zap.String("hex", hex.EncodeToString(resp)))
-		return resp, ctx, nil
+			zap.String("hex", hex.EncodeToString(packet.Payload)))
+		return packet, ctx, nil
 	}
 
 	// Log parsed response information
@@ -249,7 +252,9 @@ func (l *LoggingElement) ProcessResponse(ctx context.Context, resp []byte) ([]by
 		zap.String("service", service),
 		zap.String("method", method),
 		zap.Int("payload_size", len(payload)),
-		zap.Int("total_size", len(resp)),
+		zap.Int("total_size", len(packet.Payload)),
+		zap.Uint64("rpcID", packet.RPCID),
+		zap.String("packetType", packet.PacketType.String()),
 	}
 
 	// Try to parse KV payload for structured logging
@@ -265,7 +270,7 @@ func (l *LoggingElement) ProcessResponse(ctx context.Context, resp []byte) ([]by
 
 	logging.Debug("Response sent", logFields...)
 
-	return resp, ctx, nil
+	return packet, ctx, nil
 }
 
 // Name returns the name of this element

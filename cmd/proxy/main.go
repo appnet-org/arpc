@@ -12,6 +12,7 @@ import (
 
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/proxy/element"
+	"github.com/appnet-org/proxy/types"
 	"go.uber.org/zap"
 )
 
@@ -237,25 +238,33 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 
 // processDataThroughElementsChain processes the Message Data through the element chain
 // Modifications to the packet are made in place
-func processDataThroughElementsChain(ctx context.Context, state *ProxyState, packet *BufferedPacket) {
+func processDataThroughElementsChain(ctx context.Context, state *ProxyState, packet *types.BufferedPacket) {
 
 	var err error
+	var processedPacket *types.BufferedPacket
 	switch packet.PacketType {
-	case PacketTypeRequest:
+	case types.PacketTypeRequest:
 		// Process request through element chain
-		packet.Payload, _, err = state.elementChain.ProcessRequest(ctx, packet.Payload)
-	case PacketTypeResponse:
+		processedPacket, _, err = state.elementChain.ProcessRequest(ctx, packet)
+	case types.PacketTypeResponse:
 		// Process response through element chain (in reverse order)
-		packet.Payload, _, err = state.elementChain.ProcessResponse(ctx, packet.Payload)
+		processedPacket, _, err = state.elementChain.ProcessResponse(ctx, packet)
 	default:
 		// For other packet types (Error, Unknown, etc.), skip processing
 		// TODO: Add handler for error packets
 		logging.Debug("Skipping element chain processing for packet type", zap.String("packetType", packet.PacketType.String()))
+		return
 	}
 
 	if err != nil {
 		logging.Error("Error processing packet through element chain", zap.Error(err))
-		// Payload remains unchanged on error
+		// Packet remains unchanged on error
+		return
+	}
+
+	// Update the packet with any changes made by the element chain
+	if processedPacket != nil {
+		*packet = *processedPacket
 	}
 }
 

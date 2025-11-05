@@ -8,6 +8,7 @@ import (
 
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/packet"
+	"github.com/appnet-org/proxy/types"
 	"go.uber.org/zap"
 )
 
@@ -21,24 +22,6 @@ type PacketBuffer struct {
 	timeout       time.Duration
 	cleanupTicker *time.Ticker
 	done          chan struct{}
-}
-
-// BufferedPacket represents a complete packet ready for processing
-type BufferedPacket struct {
-	Payload    []byte
-	Source     *net.UDPAddr
-	Peer       *net.UDPAddr
-	RPCID      uint64
-	PacketType PacketType
-	// Routing information extracted from the packet
-	DstIP   [4]byte
-	DstPort uint16
-	SrcIP   [4]byte
-	SrcPort uint16
-	// Fragmentation information
-	IsFull       bool   // true for full messages, false for partial messages
-	SeqNumber    uint16 // sequence number (0 for full messages)
-	TotalPackets uint16 // total number of packets (0 for full messages)
 }
 
 // NewPacketBuffer creates a new packet buffer
@@ -69,7 +52,7 @@ func (pb *PacketBuffer) Close() {
 }
 
 // BufferPacket buffers a packet fragment and returns a complete packet if ready
-func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UDPAddr, packetType PacketType) (*BufferedPacket, error) {
+func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UDPAddr, packetType types.PacketType) (*types.BufferedPacket, error) {
 	if !pb.enabled {
 		// Buffering disabled, return packet immediately
 		routingInfo := pb.extractRoutingInfoFromData(data)
@@ -88,7 +71,7 @@ func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UD
 				totalPackets = dataPacket.TotalPackets
 			}
 		}
-		return &BufferedPacket{
+		return &types.BufferedPacket{
 			Payload:      payload,
 			Source:       src,
 			Peer:         peer,
@@ -111,7 +94,7 @@ func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UD
 		// If we can't parse the header, treat it as a complete packet
 		// Try to extract routing info from raw data
 		routingInfo := pb.extractRoutingInfoFromData(data)
-		return &BufferedPacket{
+		return &types.BufferedPacket{
 			Payload:      data,
 			Source:       src,
 			Peer:         peer,
@@ -162,7 +145,7 @@ func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UD
 			// Clean up and return original payload
 			pb.cleanupFragments(connKey, dataPacket.RPCID)
 			payload := dataPacket.Payload
-			return &BufferedPacket{
+			return &types.BufferedPacket{
 				Payload:      payload,
 				Source:       src,
 				Peer:         peer,
@@ -186,7 +169,7 @@ func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UD
 			zap.Uint64("rpcID", dataPacket.RPCID),
 			zap.Int("totalSize", len(completePayload)))
 
-		return &BufferedPacket{
+		return &types.BufferedPacket{
 			Payload:      completePayload,
 			Source:       src,
 			Peer:         peer,
@@ -224,14 +207,14 @@ func (pb *PacketBuffer) deserializePacket(data []byte) (*packet.DataPacket, erro
 }
 
 // extractRoutingInfoFromData extracts routing information from raw packet data
-func (pb *PacketBuffer) extractRoutingInfoFromData(data []byte) *BufferedPacket {
-	routingInfo := &BufferedPacket{}
+func (pb *PacketBuffer) extractRoutingInfoFromData(data []byte) *types.BufferedPacket {
+	routingInfo := &types.BufferedPacket{}
 
 	// Try to deserialize and get routing info
 	dataPacket, err := pb.deserializePacket(data)
 	if err == nil {
 		routingInfo.RPCID = dataPacket.RPCID
-		routingInfo.PacketType = PacketType(dataPacket.PacketTypeID)
+		routingInfo.PacketType = types.PacketType(dataPacket.PacketTypeID)
 		routingInfo.DstIP = dataPacket.DstIP
 		routingInfo.DstPort = dataPacket.DstPort
 		routingInfo.SrcIP = dataPacket.SrcIP
@@ -345,12 +328,12 @@ func (pb *PacketBuffer) GetStats() map[string]any {
 type FragmentedPacket struct {
 	Data       []byte
 	Peer       *net.UDPAddr
-	PacketType PacketType
+	PacketType types.PacketType
 }
 
 // FragmentPacketForForward fragments a complete packet if needed
 // Returns a slice of fragmented packets to send
-func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *BufferedPacket) ([]FragmentedPacket, error) {
+func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *types.BufferedPacket) ([]FragmentedPacket, error) {
 	// Use the payload directly from bufferedPacket
 	completePayload := bufferedPacket.Payload
 	chunkSize := packet.MaxUDPPayloadSize - 29 // 29 bytes for header
@@ -361,7 +344,7 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *BufferedPacket)
 		// Reconstruct the full packet from payload
 		codec := &packet.DataPacketCodec{}
 		singlePacket := &packet.DataPacket{
-			PacketTypeID: packet.PacketTypeID(bufferedPacket.PacketType),
+			PacketTypeID: packet.PacketTypeID(uint8(bufferedPacket.PacketType)),
 			RPCID:        bufferedPacket.RPCID,
 			TotalPackets: 1,
 			SeqNumber:    0,
@@ -399,7 +382,7 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *BufferedPacket)
 
 		// Create a fragment packet using routing info from bufferedPacket
 		fragment := &packet.DataPacket{
-			PacketTypeID: packet.PacketTypeID(bufferedPacket.PacketType),
+			PacketTypeID: packet.PacketTypeID(uint8(bufferedPacket.PacketType)),
 			RPCID:        bufferedPacket.RPCID,
 			TotalPackets: totalPackets,
 			SeqNumber:    uint16(i),
