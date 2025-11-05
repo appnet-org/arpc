@@ -210,10 +210,10 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	}
 
 	// Process packet through the element chain
-	processedData := processDataThroughElementsChain(ctx, state, bufferedPacket.Data, bufferedPacket.PacketType)
+	processedPayload := processDataThroughElementsChain(ctx, state, bufferedPacket.Payload, bufferedPacket.PacketType)
 
-	// Update the buffered packet with processed data
-	bufferedPacket.Data = processedData
+	// Update the buffered packet with processed payload
+	bufferedPacket.Payload = processedPayload
 
 	// Fragment the packet if needed and forward all fragments
 	fragmentedPackets, err := state.packetBuffer.FragmentPacketForForward(bufferedPacket)
@@ -232,7 +232,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 
 	logging.Debug("Forwarded packet",
 		zap.Int("fragments", len(fragmentedPackets)),
-		zap.Int("bytes", len(processedData)),
+		zap.Int("bytes", len(processedPayload)),
 		zap.String("from", bufferedPacket.Source.String()),
 		zap.String("to", bufferedPacket.Peer.String()),
 		zap.String("packetType", bufferedPacket.PacketType.String()))

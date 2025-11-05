@@ -25,7 +25,7 @@ type PacketBuffer struct {
 
 // BufferedPacket represents a complete packet ready for processing
 type BufferedPacket struct {
-	Data       []byte
+	Payload    []byte
 	Source     *net.UDPAddr
 	Peer       *net.UDPAddr
 	RPCID      uint64
@@ -68,13 +68,19 @@ func (pb *PacketBuffer) Close() {
 func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UDPAddr, packetType PacketType) (*BufferedPacket, error) {
 	if !pb.enabled {
 		// Buffering disabled, return packet immediately
-		// Try to extract routing info
 		routingInfo := pb.extractRoutingInfoFromData(data)
+		// Extract payload from the packet
+		dataPacket, err := pb.deserializePacket(data)
+		payload := data
+		if err == nil {
+			payload = dataPacket.Payload
+		}
 		return &BufferedPacket{
-			Data:       data,
+			Payload:    payload,
 			Source:     src,
 			Peer:       peer,
 			PacketType: packetType,
+			RPCID:      routingInfo.RPCID,
 			DstIP:      routingInfo.DstIP,
 			DstPort:    routingInfo.DstPort,
 			SrcIP:      routingInfo.SrcIP,
@@ -90,10 +96,11 @@ func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UD
 		// Try to extract routing info from raw data
 		routingInfo := pb.extractRoutingInfoFromData(data)
 		return &BufferedPacket{
-			Data:       data,
+			Payload:    data,
 			Source:     src,
 			Peer:       peer,
 			PacketType: packetType,
+			RPCID:      routingInfo.RPCID,
 			DstIP:      routingInfo.DstIP,
 			DstPort:    routingInfo.DstPort,
 			SrcIP:      routingInfo.SrcIP,
@@ -129,17 +136,19 @@ func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UD
 
 	// Check if we have all fragments
 	if len(pb.incoming[connKey][dataPacket.RPCID]) == int(dataPacket.TotalPackets) {
-		// Reassemble the complete message
-		completeData, err := pb.reassemblePacket(dataPacket, pb.incoming[connKey][dataPacket.RPCID])
+		// Reassemble the complete message payload
+		completePayload, err := pb.reassemblePayload(dataPacket, pb.incoming[connKey][dataPacket.RPCID])
 		if err != nil {
 			logging.Error("Failed to reassemble packet", zap.Error(err))
-			// Clean up and return original data
+			// Clean up and return original payload
 			pb.cleanupFragments(connKey, dataPacket.RPCID)
+			payload := dataPacket.Payload
 			return &BufferedPacket{
-				Data:       data,
+				Payload:    payload,
 				Source:     src,
 				Peer:       peer,
 				PacketType: packetType,
+				RPCID:      dataPacket.RPCID,
 				DstIP:      dataPacket.DstIP,
 				DstPort:    dataPacket.DstPort,
 				SrcIP:      dataPacket.SrcIP,
@@ -153,10 +162,10 @@ func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr, peer *net.UD
 		logging.Debug("Complete packet reassembled",
 			zap.String("connKey", connKey),
 			zap.Uint64("rpcID", dataPacket.RPCID),
-			zap.Int("totalSize", len(completeData)))
+			zap.Int("totalSize", len(completePayload)))
 
 		return &BufferedPacket{
-			Data:       completeData,
+			Payload:    completePayload,
 			Source:     src,
 			Peer:       peer,
 			PacketType: packetType,
@@ -207,8 +216,8 @@ func (pb *PacketBuffer) extractRoutingInfoFromData(data []byte) *BufferedPacket 
 	return routingInfo
 }
 
-// reassemblePacket reconstructs the complete packet from fragments using the codec
-func (pb *PacketBuffer) reassemblePacket(originalPacket *packet.DataPacket, fragments map[uint16][]byte) ([]byte, error) {
+// reassemblePayload reconstructs the complete payload from fragments
+func (pb *PacketBuffer) reassemblePayload(originalPacket *packet.DataPacket, fragments map[uint16][]byte) ([]byte, error) {
 	// Calculate total payload size
 	var totalPayloadSize int
 	for i := range int(originalPacket.TotalPackets) {
@@ -226,22 +235,7 @@ func (pb *PacketBuffer) reassemblePacket(originalPacket *packet.DataPacket, frag
 		completePayload = append(completePayload, fragment...)
 	}
 
-	// Create a new DataPacket representing the complete, reassembled packet
-	completePacket := &packet.DataPacket{
-		PacketTypeID: originalPacket.PacketTypeID,
-		RPCID:        originalPacket.RPCID,
-		TotalPackets: 1, // Now it's a single complete packet
-		SeqNumber:    0, // Reassembled packet has sequence 0
-		DstIP:        originalPacket.DstIP,
-		DstPort:      originalPacket.DstPort,
-		SrcIP:        originalPacket.SrcIP,
-		SrcPort:      originalPacket.SrcPort,
-		Payload:      completePayload,
-	}
-
-	// Use the codec to serialize the complete packet
-	codec := &packet.DataPacketCodec{}
-	return codec.Serialize(completePacket)
+	return completePayload, nil
 }
 
 // cleanupFragments removes fragment storage for a completed RPC
@@ -332,32 +326,36 @@ type FragmentedPacket struct {
 // FragmentPacketForForward fragments a complete packet if needed
 // Returns a slice of fragmented packets to send
 func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *BufferedPacket) ([]FragmentedPacket, error) {
-	// Deserialize the packet to extract payload
-	dataPacket, err := pb.deserializePacket(bufferedPacket.Data)
-	if err != nil {
-		// If we can't parse it, treat as single packet and don't fragment
-		return []FragmentedPacket{
-			{
-				Data:       bufferedPacket.Data,
-				Peer:       bufferedPacket.Peer,
-				PacketType: bufferedPacket.PacketType,
-			},
-		}, nil
-	}
-
-	// Extract the complete payload from the packet
-	// Note: This could be either:
-	// 1. The original payload of a non-fragmented packet
-	// 2. The reassembled payload of fragments that were combined
-	completePayload := dataPacket.Payload
+	// Use the payload directly from bufferedPacket
+	completePayload := bufferedPacket.Payload
 	chunkSize := packet.MaxUDPPayloadSize - 29 // 29 bytes for header
 	totalPackets := uint16((len(completePayload) + chunkSize - 1) / chunkSize)
 
-	// If only one packet is needed, return as-is
+	// If only one packet is needed, create a single packet and return it
 	if totalPackets <= 1 {
+		// Reconstruct the full packet from payload
+		codec := &packet.DataPacketCodec{}
+		singlePacket := &packet.DataPacket{
+			PacketTypeID: packet.PacketTypeID(bufferedPacket.PacketType),
+			RPCID:        bufferedPacket.RPCID,
+			TotalPackets: 1,
+			SeqNumber:    0,
+			DstIP:        bufferedPacket.DstIP,
+			DstPort:      bufferedPacket.DstPort,
+			SrcIP:        bufferedPacket.SrcIP,
+			SrcPort:      bufferedPacket.SrcPort,
+			Payload:      completePayload,
+		}
+
+		serialized, err := codec.Serialize(singlePacket)
+		if err != nil {
+			logging.Error("Failed to serialize packet", zap.Error(err))
+			return nil, err
+		}
+
 		return []FragmentedPacket{
 			{
-				Data:       bufferedPacket.Data,
+				Data:       serialized,
 				Peer:       bufferedPacket.Peer,
 				PacketType: bufferedPacket.PacketType,
 			},
