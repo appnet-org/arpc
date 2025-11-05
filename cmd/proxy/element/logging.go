@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	kv "github.com/appnet-org/arpc/benchmark/kv-store-symphony/symphony"
 	"github.com/appnet-org/arpc/pkg/logging"
 	"go.uber.org/zap"
 )
@@ -16,6 +17,88 @@ type LoggingElement struct{}
 // NewLoggingElement creates a new logging element
 func NewLoggingElement() *LoggingElement {
 	return &LoggingElement{}
+}
+
+// parseKVPayload parses the payload as a KV service message in Symphony format
+// Returns fields for logging, or nil if parsing fails
+func parseKVPayload(service, method string, payload []byte, isRequest bool) []zap.Field {
+	if len(payload) == 0 {
+		return nil
+	}
+
+	// Only handle KVService
+	if service != "KVService" {
+		return nil
+	}
+
+	var fields []zap.Field
+	parseErr := parseKVSymphonyPayload(service, method, payload, isRequest, &fields)
+
+	if parseErr != nil {
+		// Parsing failed, log the error
+		return []zap.Field{
+			zap.String("parse_error", parseErr.Error()),
+		}
+	}
+
+	return fields
+}
+
+// parseKVSymphonyPayload parses KV messages in Symphony format using generated UnmarshalSymphony methods
+func parseKVSymphonyPayload(service, method string, payload []byte, isRequest bool, fields *[]zap.Field) error {
+	if service != "KVService" {
+		return fmt.Errorf("not a KV service")
+	}
+
+	// Use the generated UnmarshalSymphony methods to parse the payload
+	if isRequest {
+		switch method {
+		case "Get":
+			req := &kv.GetRequest{}
+			if err := req.UnmarshalSymphony(payload); err != nil {
+				return fmt.Errorf("failed to unmarshal GetRequest: %w", err)
+			}
+			*fields = append(*fields, zap.String("key", req.Key))
+		case "Set":
+			req := &kv.SetRequest{}
+			if err := req.UnmarshalSymphony(payload); err != nil {
+				return fmt.Errorf("failed to unmarshal SetRequest: %w", err)
+			}
+			*fields = append(*fields, zap.String("key", req.Key))
+			*fields = append(*fields, zap.Int("value_len", len(req.Value)))
+			if len(req.Value) <= 64 {
+				*fields = append(*fields, zap.String("value", req.Value))
+			}
+		default:
+			return fmt.Errorf("unknown method: %s", method)
+		}
+	} else {
+		// Response: GetResponse or SetResponse both have field 1 (Value)
+		switch method {
+		case "Get", "Set":
+			resp := &kv.GetResponse{} // Both GetResponse and SetResponse have the same structure (field 1: Value)
+			if err := resp.UnmarshalSymphony(payload); err != nil {
+				// Try SetResponse if GetResponse fails (though they should be the same)
+				setResp := &kv.SetResponse{}
+				if err2 := setResp.UnmarshalSymphony(payload); err2 != nil {
+					return fmt.Errorf("failed to unmarshal response: GetResponse error: %w, SetResponse error: %v", err, err2)
+				}
+				*fields = append(*fields, zap.Int("value_len", len(setResp.Value)))
+				if len(setResp.Value) <= 64 {
+					*fields = append(*fields, zap.String("value", setResp.Value))
+				}
+			} else {
+				*fields = append(*fields, zap.Int("value_len", len(resp.Value)))
+				if len(resp.Value) <= 64 {
+					*fields = append(*fields, zap.String("value", resp.Value))
+				}
+			}
+		default:
+			return fmt.Errorf("unknown method: %s", method)
+		}
+	}
+
+	return nil
 }
 
 // parseFramedRequest parses a framed request into its components
@@ -128,10 +211,15 @@ func (l *LoggingElement) ProcessRequest(ctx context.Context, req []byte) ([]byte
 		zap.Int("total_size", len(req)),
 	}
 
-	// Include payload hex for debugging (first 128 bytes to avoid huge logs)
-	if len(payload) > 0 {
-		hexLen := min(len(payload), 128)
-		logFields = append(logFields, zap.String("payload_hex_preview", hex.EncodeToString(payload[:hexLen])))
+	// Try to parse KV payload for structured logging
+	if kvFields := parseKVPayload(service, method, payload, true); kvFields != nil {
+		logFields = append(logFields, kvFields...)
+	} else {
+		// Fallback: Include payload hex for debugging (first 128 bytes to avoid huge logs)
+		if len(payload) > 0 {
+			hexLen := min(len(payload), 128)
+			logFields = append(logFields, zap.String("payload_hex_preview", hex.EncodeToString(payload[:hexLen])))
+		}
 	}
 
 	logging.Debug("Request received", logFields...)
@@ -164,10 +252,15 @@ func (l *LoggingElement) ProcessResponse(ctx context.Context, resp []byte) ([]by
 		zap.Int("total_size", len(resp)),
 	}
 
-	// Include payload hex for debugging (first 128 bytes to avoid huge logs)
-	if len(payload) > 0 {
-		hexLen := min(len(payload), 128)
-		logFields = append(logFields, zap.String("payload_hex_preview", hex.EncodeToString(payload[:hexLen])))
+	// Try to parse KV payload for structured logging
+	if kvFields := parseKVPayload(service, method, payload, false); kvFields != nil {
+		logFields = append(logFields, kvFields...)
+	} else {
+		// Fallback: Include payload hex for debugging (first 128 bytes to avoid huge logs)
+		if len(payload) > 0 {
+			hexLen := min(len(payload), 128)
+			logFields = append(logFields, zap.String("payload_hex_preview", hex.EncodeToString(payload[:hexLen])))
+		}
 	}
 
 	logging.Debug("Response sent", logFields...)
