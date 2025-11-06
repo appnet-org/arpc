@@ -55,7 +55,11 @@ func (pb *PacketBuffer) Close() {
 // and returns a complete packet when all fragments are received. If buffering is disabled
 // or the packet is already complete, it returns immediately. Returns nil, nil if still
 // waiting for more fragments.
-func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*types.BufferedPacket, error) {
+func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, requestMode, responseMode types.ExecutionMode) (*types.BufferedPacket, error) {
+	logging.Debug("Processing packet with buffering mode",
+		zap.String("requestMode", requestMode.String()),
+		zap.String("responseMode", responseMode.String()))
+
 	// Parse packet using the packet codec
 	dataPacket, err := pb.deserializePacket(data)
 	if err != nil {

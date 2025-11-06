@@ -170,13 +170,11 @@ func runProxyServer(port int, state *ProxyState) error {
 func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte) {
 	ctx := context.Background()
 
+	// Determine the required buffering mode for the element chain
 	requestMode, responseMode := state.elementChain.RequiredBufferingMode()
-	logging.Debug("Required buffering mode",
-		zap.String("requestMode", requestMode.String()),
-		zap.String("responseMode", responseMode.String()))
 
 	// Process packet (may return nil if still buffering fragments)
-	bufferedPacket, err := state.packetBuffer.ProcessPacket(data, src)
+	bufferedPacket, err := state.packetBuffer.ProcessPacket(data, src, requestMode, responseMode)
 	if err != nil {
 		logging.Error("Error processing packet through buffer", zap.Error(err))
 		return
