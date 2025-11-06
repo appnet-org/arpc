@@ -170,35 +170,8 @@ func runProxyServer(port int, state *ProxyState) error {
 func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte) {
 	ctx := context.Background()
 
-	// Extract routing information from packet headers
-	routingInfo, err := extractRoutingInfo(data)
-	if err != nil {
-		logging.Debug("Failed to extract routing info, dropping packet", zap.Error(err))
-		return
-	}
-
-	// Always forward to the destination specified in the packet header (DstIP:DstPort)
-	// This works for both requests and responses since the server now correctly
-	// sets the destination to the original client address
-	forwardTo := &net.UDPAddr{
-		IP:   routingInfo.DstIP,
-		Port: int(routingInfo.DstPort),
-	}
-	packetType, err := extractPacketType(data)
-	if err != nil {
-		logging.Error("Failed to extract packet type", zap.Error(err))
-		return
-	}
-
-	logging.Debug("Intercepted packet",
-		zap.String("from", src.String()),
-		zap.String("packetSrc", net.JoinHostPort(routingInfo.SrcIP.String(), fmt.Sprintf("%d", routingInfo.SrcPort))),
-		zap.String("packetDst", net.JoinHostPort(routingInfo.DstIP.String(), fmt.Sprintf("%d", routingInfo.DstPort))),
-		zap.String("forwardTo", forwardTo.String()),
-		zap.String("packetType", packetType.String()))
-
 	// Buffer packet (may return nil if still buffering)
-	bufferedPacket, err := state.packetBuffer.BufferPacket(data, src, forwardTo, packetType)
+	bufferedPacket, err := state.packetBuffer.BufferPacket(data, src)
 	if err != nil {
 		logging.Error("Error processing packet through buffer", zap.Error(err))
 		return
