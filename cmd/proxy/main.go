@@ -170,11 +170,13 @@ func runProxyServer(port int, state *ProxyState) error {
 func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte) {
 	ctx := context.Background()
 
-	requiredBufferingMode := state.elementChain.RequiredBufferingMode()
-	logging.Debug("Required buffering mode", zap.String("mode", requiredBufferingMode.String()))
+	requestMode, responseMode := state.elementChain.RequiredBufferingMode()
+	logging.Debug("Required buffering mode",
+		zap.String("requestMode", requestMode.String()),
+		zap.String("responseMode", responseMode.String()))
 
-	// Buffer packet (may return nil if still buffering)
-	bufferedPacket, err := state.packetBuffer.BufferPacket(data, src)
+	// Process packet (may return nil if still buffering fragments)
+	bufferedPacket, err := state.packetBuffer.ProcessPacket(data, src)
 	if err != nil {
 		logging.Error("Error processing packet through buffer", zap.Error(err))
 		return
@@ -187,7 +189,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	}
 
 	// Process packet through the element chain
-	processDataThroughElementsChain(ctx, state, bufferedPacket)
+	runElementsChain(ctx, state, bufferedPacket)
 
 	// Fragment the packet if needed and forward all fragments
 	fragmentedPackets, err := state.packetBuffer.FragmentPacketForForward(bufferedPacket)
@@ -212,9 +214,9 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		zap.String("packetType", bufferedPacket.PacketType.String()))
 }
 
-// processDataThroughElementsChain processes the Message Data through the element chain
+// runElementsChain processes the Message Data through the element chain
 // Modifications to the packet are made in place
-func processDataThroughElementsChain(ctx context.Context, state *ProxyState, packet *types.BufferedPacket) {
+func runElementsChain(ctx context.Context, state *ProxyState, packet *types.BufferedPacket) {
 
 	var err error
 	var processedPacket *types.BufferedPacket

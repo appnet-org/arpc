@@ -23,8 +23,13 @@ func NewMetricsElement() *MetricsElement {
 	return &MetricsElement{}
 }
 
-// Mode returns the execution mode for this element
-func (m *MetricsElement) Mode() types.ExecutionMode {
+// RequestMode returns the execution mode for processing requests
+func (m *MetricsElement) RequestMode() types.ExecutionMode {
+	return types.StreamingMode
+}
+
+// ResponseMode returns the execution mode for processing responses
+func (m *MetricsElement) ResponseMode() types.ExecutionMode {
 	return types.StreamingMode
 }
 

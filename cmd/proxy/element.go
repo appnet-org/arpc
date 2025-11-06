@@ -17,8 +17,11 @@ type RPCElement interface {
 	// Name returns the name of the RPC element.
 	Name() string
 
-	// Mode returns the required execution mode for this element.
-	Mode() types.ExecutionMode
+	// RequestMode returns the required execution mode for processing requests.
+	RequestMode() types.ExecutionMode
+
+	// ResponseMode returns the required execution mode for processing responses.
+	ResponseMode() types.ExecutionMode
 }
 
 // RPCElementChain represents a chain of RPC elements.
@@ -59,17 +62,34 @@ func (c *RPCElementChain) ProcessResponse(ctx context.Context, packet *types.Buf
 
 // RequiredBufferingMode determines the required execution mode for the chain.
 // Priority: FullBuffering > StreamingWithBuffering > Streaming.
-func (c *RPCElementChain) RequiredBufferingMode() types.ExecutionMode {
-	mode := types.StreamingMode
+// Returns separate modes for request and response processing.
+func (c *RPCElementChain) RequiredBufferingMode() (requestMode, responseMode types.ExecutionMode) {
+	requestMode = types.StreamingMode
+	responseMode = types.StreamingMode
+
 	for _, e := range c.elements {
-		switch e.Mode() {
+		// Check request mode
+		switch e.RequestMode() {
 		case types.FullBufferingMode:
-			// Highest priority, return immediately
-			return types.FullBufferingMode
+			// Highest priority, set and continue checking other elements
+			requestMode = types.FullBufferingMode
 		case types.StreamingWithBufferingMode:
 			// Keep track if we see this, unless a FullBuffering appears later
-			mode = types.StreamingWithBufferingMode
+			if requestMode != types.FullBufferingMode {
+				requestMode = types.StreamingWithBufferingMode
+			}
+		}
+		// Check response mode
+		switch e.ResponseMode() {
+		case types.FullBufferingMode:
+			// Highest priority, set and continue checking other elements
+			responseMode = types.FullBufferingMode
+		case types.StreamingWithBufferingMode:
+			// Keep track if we see this, unless a FullBuffering appears later
+			if responseMode != types.FullBufferingMode {
+				responseMode = types.StreamingWithBufferingMode
+			}
 		}
 	}
-	return mode
+	return requestMode, responseMode
 }

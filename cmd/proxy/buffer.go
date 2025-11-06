@@ -51,8 +51,11 @@ func (pb *PacketBuffer) Close() {
 	close(pb.done)
 }
 
-// BufferPacket buffers a packet fragment and returns a complete packet if ready
-func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr) (*types.BufferedPacket, error) {
+// ProcessPacket processes a packet fragment. If buffering is enabled, it buffers fragments
+// and returns a complete packet when all fragments are received. If buffering is disabled
+// or the packet is already complete, it returns immediately. Returns nil, nil if still
+// waiting for more fragments.
+func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*types.BufferedPacket, error) {
 	// Parse packet using the packet codec
 	dataPacket, err := pb.deserializePacket(data)
 	if err != nil {

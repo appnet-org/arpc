@@ -20,8 +20,13 @@ func NewLoggingElement() *LoggingElement {
 	return &LoggingElement{}
 }
 
-// Mode returns the execution mode for this element
-func (l *LoggingElement) Mode() types.ExecutionMode {
+// RequestMode returns the execution mode for processing requests
+func (l *LoggingElement) RequestMode() types.ExecutionMode {
+	return types.StreamingWithBufferingMode
+}
+
+// ResponseMode returns the execution mode for processing responses
+func (l *LoggingElement) ResponseMode() types.ExecutionMode {
 	return types.StreamingWithBufferingMode
 }
 
