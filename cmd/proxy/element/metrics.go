@@ -5,7 +5,9 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/proxy/types"
+	"go.uber.org/zap"
 )
 
 // MetricsElement implements RPCElement to provide metrics functionality
@@ -43,6 +45,7 @@ func (m *MetricsElement) ProcessRequest(ctx context.Context, packet *types.Buffe
 
 	if _, alreadySeen := m.seenRequests.LoadOrStore(packet.RPCID, struct{}{}); !alreadySeen {
 		atomic.AddUint64(&m.requestCount, 1)
+		logging.Debug("Request count", zap.Uint64("count", atomic.LoadUint64(&m.requestCount)))
 	}
 	return packet, ctx, nil
 }
@@ -55,6 +58,7 @@ func (m *MetricsElement) ProcessResponse(ctx context.Context, packet *types.Buff
 
 	if _, alreadySeen := m.seenResponses.LoadOrStore(packet.RPCID, struct{}{}); !alreadySeen {
 		atomic.AddUint64(&m.responseCount, 1)
+		logging.Debug("Response count", zap.Uint64("count", atomic.LoadUint64(&m.responseCount)))
 	}
 	return packet, ctx, nil
 }

@@ -72,7 +72,7 @@ func main() {
 
 	// Create element chain with logging
 	elementChain := NewRPCElementChain(
-		element.NewLoggingElement(),
+		element.NewMetricsElement(),
 	)
 
 	config := DefaultConfig()
@@ -169,6 +169,9 @@ func runProxyServer(port int, state *ProxyState) error {
 // handlePacket processes incoming packets and forwards them to the appropriate peer
 func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte) {
 	ctx := context.Background()
+
+	requiredBufferingMode := state.elementChain.RequiredBufferingMode()
+	logging.Debug("Required buffering mode", zap.String("mode", requiredBufferingMode.String()))
 
 	// Buffer packet (may return nil if still buffering)
 	bufferedPacket, err := state.packetBuffer.BufferPacket(data, src)

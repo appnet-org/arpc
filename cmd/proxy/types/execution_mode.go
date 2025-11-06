@@ -13,3 +13,17 @@ const (
 	// FullBufferingMode buffers the entire message before forwarding.
 	FullBufferingMode
 )
+
+// String returns the string representation of the ExecutionMode.
+func (e ExecutionMode) String() string {
+	switch e {
+	case StreamingMode:
+		return "streaming"
+	case StreamingWithBufferingMode:
+		return "streaming-with-buffering"
+	case FullBufferingMode:
+		return "full-buffering"
+	default:
+		return "unknown"
+	}
+}

@@ -56,7 +56,8 @@ func (pb *PacketBuffer) BufferPacket(data []byte, src *net.UDPAddr) (*types.Buff
 	// Parse packet using the packet codec
 	dataPacket, err := pb.deserializePacket(data)
 	if err != nil {
-		logging.Error("Failed to deserialize packet", zap.Error(err))
+		// Try to print packet type
+		logging.Error("Failed to deserialize packet", zap.String("packetType", string(data[0])))
 		return nil, err
 	}
 

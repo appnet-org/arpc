@@ -56,3 +56,20 @@ func (c *RPCElementChain) ProcessResponse(ctx context.Context, packet *types.Buf
 	}
 	return packet, ctx, nil
 }
+
+// RequiredBufferingMode determines the required execution mode for the chain.
+// Priority: FullBuffering > StreamingWithBuffering > Streaming.
+func (c *RPCElementChain) RequiredBufferingMode() types.ExecutionMode {
+	mode := types.StreamingMode
+	for _, e := range c.elements {
+		switch e.Mode() {
+		case types.FullBufferingMode:
+			// Highest priority, return immediately
+			return types.FullBufferingMode
+		case types.StreamingWithBufferingMode:
+			// Keep track if we see this, unless a FullBuffering appears later
+			mode = types.StreamingWithBufferingMode
+		}
+	}
+	return mode
+}
