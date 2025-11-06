@@ -72,7 +72,7 @@ func main() {
 
 	// Create element chain with logging
 	elementChain := NewRPCElementChain(
-		element.NewLoggingElement(), // Enable verbose logging
+		element.NewLoggingElement(),
 	)
 
 	config := DefaultConfig()
