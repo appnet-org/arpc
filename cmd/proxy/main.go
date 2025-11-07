@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/proxy/element"
+	"github.com/appnet-org/proxy/types"
 	"go.uber.org/zap"
 )
 
@@ -23,7 +23,7 @@ const (
 
 // ProxyState manages the state of the UDP proxy
 type ProxyState struct {
-	elementChain *element.RPCElementChain
+	elementChain *RPCElementChain
 	packetBuffer *PacketBuffer
 }
 
@@ -71,8 +71,8 @@ func main() {
 	logging.Info("Starting bidirectional UDP proxy on :15002 and :15006...")
 
 	// Create element chain with logging
-	elementChain := element.NewRPCElementChain(
-	// element.NewLoggingElement(true), // Enable verbose logging
+	elementChain := NewRPCElementChain(
+		element.NewLoggingElement(), // Enable verbose logging
 	)
 
 	config := DefaultConfig()
@@ -166,46 +166,6 @@ func runProxyServer(port int, state *ProxyState) error {
 	}
 }
 
-// PacketRoutingInfo contains routing information extracted from packet headers
-type PacketRoutingInfo struct {
-	DstIP   net.IP
-	DstPort uint16
-	SrcIP   net.IP
-	SrcPort uint16
-}
-
-// extractRoutingInfo extracts routing information from the packet data
-func extractRoutingInfo(data []byte) (*PacketRoutingInfo, error) {
-	if len(data) < 29 {
-		return nil, fmt.Errorf("packet too short for routing info: %d bytes", len(data))
-	}
-
-	// packet format: [PacketTypeID(1B)][RPCID(8B)][TotalPackets(2B)][SeqNumber(2B)][DstIP(4B)][DstPort(2B)][SrcIP(4B)][SrcPort(2B)][PayloadLen(4B)][Payload]
-
-	// Extract destination IP and port
-	dstIP := net.IP(data[13:17])
-	dstPort := binary.LittleEndian.Uint16(data[17:19])
-
-	// Extract source IP and port
-	srcIP := net.IP(data[19:23])
-	srcPort := binary.LittleEndian.Uint16(data[23:25])
-
-	return &PacketRoutingInfo{
-		DstIP:   dstIP,
-		DstPort: dstPort,
-		SrcIP:   srcIP,
-		SrcPort: srcPort,
-	}, nil
-}
-
-// isRequestPacket checks if this is a request packet (type 1)
-func isRequestPacket(data []byte) bool {
-	if len(data) < 1 {
-		return false
-	}
-	return data[0] == 1
-}
-
 // handlePacket processes incoming packets and forwards them to the appropriate peer
 func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte) {
 	ctx := context.Background()
@@ -224,17 +184,21 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		IP:   routingInfo.DstIP,
 		Port: int(routingInfo.DstPort),
 	}
-	isRequest := isRequestPacket(data)
+	packetType, err := extractPacketType(data)
+	if err != nil {
+		logging.Error("Failed to extract packet type", zap.Error(err))
+		return
+	}
 
 	logging.Debug("Intercepted packet",
 		zap.String("from", src.String()),
 		zap.String("packetSrc", net.JoinHostPort(routingInfo.SrcIP.String(), fmt.Sprintf("%d", routingInfo.SrcPort))),
 		zap.String("packetDst", net.JoinHostPort(routingInfo.DstIP.String(), fmt.Sprintf("%d", routingInfo.DstPort))),
 		zap.String("forwardTo", forwardTo.String()),
-		zap.Bool("isRequest", isRequest))
+		zap.String("packetType", packetType.String()))
 
-	// Process packet through buffer (may return nil if still buffering)
-	bufferedPacket, err := state.packetBuffer.ProcessPacket(data, src, forwardTo, isRequest)
+	// Buffer packet (may return nil if still buffering)
+	bufferedPacket, err := state.packetBuffer.BufferPacket(data, src, forwardTo, packetType)
 	if err != nil {
 		logging.Error("Error processing packet through buffer", zap.Error(err))
 		return
@@ -246,10 +210,8 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		return
 	}
 
-	processedData := processPacket(ctx, state, bufferedPacket.Data, bufferedPacket.IsRequest)
-
-	// Update the buffered packet with processed data
-	bufferedPacket.Data = processedData
+	// Process packet through the element chain
+	processDataThroughElementsChain(ctx, state, bufferedPacket)
 
 	// Fragment the packet if needed and forward all fragments
 	fragmentedPackets, err := state.packetBuffer.FragmentPacketForForward(bufferedPacket)
@@ -268,32 +230,42 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 
 	logging.Debug("Forwarded packet",
 		zap.Int("fragments", len(fragmentedPackets)),
-		zap.Int("bytes", len(processedData)),
+		zap.Int("bytes", len(bufferedPacket.Payload)),
 		zap.String("from", bufferedPacket.Source.String()),
 		zap.String("to", bufferedPacket.Peer.String()),
-		zap.Bool("isRequest", bufferedPacket.IsRequest))
+		zap.String("packetType", bufferedPacket.PacketType.String()))
 }
 
-// processPacket processes the packet through the element chain
-func processPacket(ctx context.Context, state *ProxyState, data []byte, isRequest bool) []byte {
-	// Log the packet (in hex)
-	// logging.Debug("Received packet", zap.String("hex", fmt.Sprintf("%x", data)))
+// processDataThroughElementsChain processes the Message Data through the element chain
+// Modifications to the packet are made in place
+func processDataThroughElementsChain(ctx context.Context, state *ProxyState, packet *types.BufferedPacket) {
 
 	var err error
-	if isRequest {
+	var processedPacket *types.BufferedPacket
+	switch packet.PacketType {
+	case types.PacketTypeRequest:
 		// Process request through element chain
-		data, _, err = state.elementChain.ProcessRequest(ctx, data)
-	} else {
+		processedPacket, _, err = state.elementChain.ProcessRequest(ctx, packet)
+	case types.PacketTypeResponse:
 		// Process response through element chain (in reverse order)
-		data, _, err = state.elementChain.ProcessResponse(ctx, data)
+		processedPacket, _, err = state.elementChain.ProcessResponse(ctx, packet)
+	default:
+		// For other packet types (Error, Unknown, etc.), skip processing
+		// TODO: Add handler for error packets
+		logging.Debug("Skipping element chain processing for packet type", zap.String("packetType", packet.PacketType.String()))
+		return
 	}
 
 	if err != nil {
 		logging.Error("Error processing packet through element chain", zap.Error(err))
-		return data // Return original data on error
+		// Packet remains unchanged on error
+		return
 	}
 
-	return data
+	// Update the packet with any changes made by the element chain
+	if processedPacket != nil {
+		*packet = *processedPacket
+	}
 }
 
 // waitForShutdown waits for a shutdown signal

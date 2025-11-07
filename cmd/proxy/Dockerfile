@@ -14,7 +14,7 @@ COPY cmd/proxy/ ./cmd/proxy/
 
 # Build from the cmd/proxy directory
 WORKDIR /app/cmd/proxy
-RUN go build -o proxy main.go buffer.go
+RUN go build -o myproxy
 
 # Final image
 FROM ubuntu:22.04
