@@ -20,6 +20,16 @@ func NewLoggingElement() *LoggingElement {
 	return &LoggingElement{}
 }
 
+// RequestMode returns the execution mode for processing requests
+func (l *LoggingElement) RequestMode() types.ExecutionMode {
+	return types.StreamingWithBufferingMode
+}
+
+// ResponseMode returns the execution mode for processing responses
+func (l *LoggingElement) ResponseMode() types.ExecutionMode {
+	return types.StreamingWithBufferingMode
+}
+
 // parseKVPayload parses the payload as a KV service message in Symphony format
 // Returns fields for logging, or nil if parsing fails
 func parseKVPayload(service, method string, payload []byte, isRequest bool) []zap.Field {

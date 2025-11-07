@@ -72,7 +72,7 @@ func main() {
 
 	// Create element chain with logging
 	elementChain := NewRPCElementChain(
-		element.NewLoggingElement(), // Enable verbose logging
+		element.NewMetricsElement(),
 	)
 
 	config := DefaultConfig()
@@ -170,35 +170,11 @@ func runProxyServer(port int, state *ProxyState) error {
 func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte) {
 	ctx := context.Background()
 
-	// Extract routing information from packet headers
-	routingInfo, err := extractRoutingInfo(data)
-	if err != nil {
-		logging.Debug("Failed to extract routing info, dropping packet", zap.Error(err))
-		return
-	}
+	// Determine the required buffering mode for the element chain
+	requestMode, responseMode := state.elementChain.RequiredBufferingMode()
 
-	// Always forward to the destination specified in the packet header (DstIP:DstPort)
-	// This works for both requests and responses since the server now correctly
-	// sets the destination to the original client address
-	forwardTo := &net.UDPAddr{
-		IP:   routingInfo.DstIP,
-		Port: int(routingInfo.DstPort),
-	}
-	packetType, err := extractPacketType(data)
-	if err != nil {
-		logging.Error("Failed to extract packet type", zap.Error(err))
-		return
-	}
-
-	logging.Debug("Intercepted packet",
-		zap.String("from", src.String()),
-		zap.String("packetSrc", net.JoinHostPort(routingInfo.SrcIP.String(), fmt.Sprintf("%d", routingInfo.SrcPort))),
-		zap.String("packetDst", net.JoinHostPort(routingInfo.DstIP.String(), fmt.Sprintf("%d", routingInfo.DstPort))),
-		zap.String("forwardTo", forwardTo.String()),
-		zap.String("packetType", packetType.String()))
-
-	// Buffer packet (may return nil if still buffering)
-	bufferedPacket, err := state.packetBuffer.BufferPacket(data, src, forwardTo, packetType)
+	// Process packet (may return nil if still buffering fragments)
+	bufferedPacket, err := state.packetBuffer.ProcessPacket(data, src, requestMode, responseMode)
 	if err != nil {
 		logging.Error("Error processing packet through buffer", zap.Error(err))
 		return
@@ -211,7 +187,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	}
 
 	// Process packet through the element chain
-	processDataThroughElementsChain(ctx, state, bufferedPacket)
+	runElementsChain(ctx, state, bufferedPacket)
 
 	// Fragment the packet if needed and forward all fragments
 	fragmentedPackets, err := state.packetBuffer.FragmentPacketForForward(bufferedPacket)
@@ -236,9 +212,9 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		zap.String("packetType", bufferedPacket.PacketType.String()))
 }
 
-// processDataThroughElementsChain processes the Message Data through the element chain
+// runElementsChain processes the Message Data through the element chain
 // Modifications to the packet are made in place
-func processDataThroughElementsChain(ctx context.Context, state *ProxyState, packet *types.BufferedPacket) {
+func runElementsChain(ctx context.Context, state *ProxyState, packet *types.BufferedPacket) {
 
 	var err error
 	var processedPacket *types.BufferedPacket
