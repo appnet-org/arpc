@@ -2,7 +2,6 @@ package transport
 
 import (
 	"fmt"
-	"math/rand"
 	"net"
 	"time"
 
@@ -14,7 +13,7 @@ import (
 
 // GenerateRPCID creates a unique RPC ID
 func GenerateRPCID() uint64 {
-	return uint64(time.Now().UnixNano()) + uint64(rand.Intn(1000))
+	return uint64(time.Now().UnixNano())
 }
 
 type UDPTransport struct {
