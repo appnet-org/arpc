@@ -16,8 +16,8 @@ WORKDIR /app/benchmark/kv-store-symphony
 RUN go mod tidy
 
 # Build binaries
-RUN go build -trimpath -ldflags="-s -w" -o frontend ./frontend
-RUN go build -trimpath -ldflags="-s -w" -o kvstore ./kvstore
+RUN go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend.go
+RUN go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore.go
 
 # Final image
 FROM ubuntu:22.04
@@ -31,8 +31,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy built binaries
-COPY --from=builder /app/benchmark/kv-store-symphony/frontend /app/frontend
-COPY --from=builder /app/benchmark/kv-store-symphony/kvstore /app/kvstore
+COPY --from=builder /app/benchmark/kv-store-symphony/bin/frontend /app/frontend
+COPY --from=builder /app/benchmark/kv-store-symphony/bin/kvstore /app/kvstore
 
 # Make binaries executable
 RUN chmod +x /app/frontend /app/kvstore

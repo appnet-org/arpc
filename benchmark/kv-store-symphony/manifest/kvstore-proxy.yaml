@@ -43,7 +43,7 @@ spec:
       containers:
       - name: frontend-kvstore-symphony
         image: appnetorg/kvstore-symphony:latest
-        command: ["/app/frontend/frontend"]
+        command: ["/app/frontend"]
         securityContext:
           runAsUser: 0
           capabilities:
@@ -110,7 +110,7 @@ spec:
       containers:
       - image: appnetorg/kvstore-symphony:latest
         name: kvstore-kvstore-symphony
-        command: ["/app/kvstore/kvstore"]
+        command: ["/app/kvstore"]
         securityContext:
           runAsUser: 0
           capabilities:

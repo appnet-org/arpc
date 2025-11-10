@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"sync"
 
-	kv "github.com/appnet-org/arpc/benchmark/kv-store-symphony/symphony"
+	kv "github.com/appnet-org/arpc/benchmark/kv-store-symphony-transport/symphony"
 	"github.com/appnet-org/arpc/pkg/custom/reliable"
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/packet"
@@ -153,9 +153,12 @@ func main() {
 	}
 
 	// Create reliable server handler
+	// Use dummy timer to test timer overhead (comment out to use real timer)
+	// dummyTimer := NewDummyTimerManager()
 	serverHandler := reliable.NewReliableServerHandler(
 		udpTransport,
 		udpTransport.GetTimerManager(),
+		// dummyTimer,
 	)
 	defer serverHandler.Cleanup()
 

@@ -1,4 +1,4 @@
-module github.com/appnet-org/arpc/benchmark/kv-store-symphony
+module github.com/appnet-org/arpc/benchmark/kv-store-symphony-transport
 
 go 1.24.0
 

@@ -125,6 +125,7 @@ type TransportSender interface {
 
 // TimerScheduler interface for managing timers
 type TimerScheduler interface {
+	Schedule(id transport.TimerKey, duration time.Duration, callback transport.TimerCallback)
 	SchedulePeriodic(id transport.TimerKey, interval time.Duration, callback transport.TimerCallback)
 	StopTimer(id transport.TimerKey) bool
 }
@@ -149,10 +150,16 @@ func newReliableHandler(transportSender TransportSender, timerMgr TimerScheduler
 }
 
 // getOrCreateConnection gets or creates a connection state, updating LastActivity
+// This is the public version that acquires its own lock
 func (h *ReliableHandler) getOrCreateConnection(key string, connID ConnectionID) *ConnectionState {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	return h.getOrCreateConnectionLocked(key, connID)
+}
 
+// getOrCreateConnectionLocked gets or creates a connection state, updating LastActivity
+// This is the internal version that assumes the lock is already held
+func (h *ReliableHandler) getOrCreateConnectionLocked(key string, connID ConnectionID) *ConnectionState {
 	if conn, exists := h.connections[key]; exists {
 		conn.LastActivity = time.Now()
 		return conn
@@ -248,65 +255,281 @@ func (h *ReliableHandler) startCleanupTimer(timerKey transport.TimerKey) {
 	)
 }
 
-// startRetransmitTimer starts the periodic retransmission check timer
-func (h *ReliableHandler) startRetransmitTimer(timerKey transport.TimerKey, retransmitTimeout time.Duration) {
-	h.timerMgr.SchedulePeriodic(
-		timerKey,
-		100*time.Millisecond, // Check every 100ms for responsiveness
-		transport.TimerCallback(func() {
-			h.checkRetransmissions(retransmitTimeout)
-		}),
-	)
-}
-
-// checkRetransmissions checks for messages that need retransmission
-func (h *ReliableHandler) checkRetransmissions(timeout time.Duration) {
+// checkRetransmission checks if a specific message needs retransmission
+func (h *ReliableHandler) checkRetransmission(connKey string, rpcID uint64, timeout time.Duration) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	conn := h.connections[connKey]
+	if conn == nil {
+		return
+	}
+
+	msgTx, exists := conn.TxMsg[rpcID]
+	if !exists {
+		// Message was already ACKed or removed
+		return
+	}
+
+	// SendTs.IsZero() means message has been ACKed
+	if msgTx.SendTs.IsZero() {
+		return
+	}
+
+	// Check if message has timed out
 	now := time.Now()
-	for connKey, conn := range h.connections {
-		for rpcID, msgTx := range conn.TxMsg {
-			// SendTs.IsZero() means message has been ACKed
-			if msgTx.SendTs.IsZero() {
-				continue
-			}
+	if now.Sub(msgTx.SendTs) > timeout {
+		logging.Debug("Message retransmission timeout detected",
+			zap.Uint64("rpcID", rpcID),
+			zap.String("connection", connKey),
+			zap.Duration("elapsed", now.Sub(msgTx.SendTs)),
+			zap.Duration("timeout", timeout),
+			zap.Int("segments", len(msgTx.Segments)))
 
-			// Check if message has timed out
-			if now.Sub(msgTx.SendTs) > timeout {
-				logging.Debug("Message retransmission timeout detected",
+		// Retransmit all segments
+		for seqNum, segmentData := range msgTx.Segments {
+			err := h.transport.Send(msgTx.DstAddr, rpcID, segmentData, msgTx.PacketType)
+			if err != nil {
+				logging.Error("Failed to retransmit segment",
 					zap.Uint64("rpcID", rpcID),
+					zap.Uint16("seqNumber", seqNum),
 					zap.String("connection", connKey),
-					zap.Duration("elapsed", now.Sub(msgTx.SendTs)),
-					zap.Duration("timeout", timeout),
-					zap.Int("segments", len(msgTx.Segments)))
-
-				// Retransmit all segments
-				for seqNum, segmentData := range msgTx.Segments {
-					err := h.transport.Send(msgTx.DstAddr, rpcID, segmentData, msgTx.PacketType)
-					if err != nil {
-						logging.Error("Failed to retransmit segment",
-							zap.Uint64("rpcID", rpcID),
-							zap.Uint16("seqNumber", seqNum),
-							zap.String("connection", connKey),
-							zap.Error(err))
-					} else {
-						logging.Debug("Retransmitted segment",
-							zap.Uint64("rpcID", rpcID),
-							zap.Uint16("seqNumber", seqNum),
-							zap.String("connection", connKey))
-					}
-				}
-
-				// Update SendTs to current time for next retry check
-				msgTx.SendTs = now
+					zap.Error(err))
+			} else {
+				logging.Debug("Retransmitted segment",
+					zap.Uint64("rpcID", rpcID),
+					zap.Uint16("seqNumber", seqNum),
+					zap.String("connection", connKey))
 			}
 		}
+
+		// Update SendTs to current time and reschedule timeout for next retry
+		msgTx.SendTs = now
+
+		// Reschedule timeout for next retry
+		timerKey := transport.TimerKey(fmt.Sprintf("reliable_msg_timeout_%d", rpcID))
+		h.timerMgr.Schedule(
+			timerKey,
+			timeout,
+			transport.TimerCallback(func() {
+				h.checkRetransmission(connKey, rpcID, timeout)
+			}),
+		)
 	}
 }
 
+// handleSendDataPacket tracks outgoing data packets (REQUEST or RESPONSE)
+// This is a common function used by both client and server handlers
+func (h *ReliableHandler) handleSendDataPacket(pkt *packet.DataPacket, packetTypeName string) error {
+
+	// Extract connection ID from destination
+	connID := ConnectionID{IP: pkt.DstIP, Port: pkt.DstPort}
+	key := connID.String()
+
+	// Serialize packet for buffering (do this before acquiring lock to minimize lock time)
+	serializedData, err := h.serializeDataPacket(pkt)
+	if err != nil {
+		logging.Error("Failed to serialize packet for buffering",
+			zap.String("packetType", packetTypeName),
+			zap.Uint64("rpcID", pkt.RPCID),
+			zap.Error(err))
+		return err
+	}
+
+	// Get packet type for retransmission (do this before acquiring lock)
+	packetType, exists := h.transport.GetPacketRegistry().GetPacketType(pkt.PacketTypeID)
+	if !exists {
+		logging.Error("Packet type not found in registry",
+			zap.Uint8("packetTypeID", uint8(pkt.PacketTypeID)))
+		return nil // Continue even if we can't buffer for retransmission
+	}
+
+	// Acquire lock once for all operations
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Get or create connection (lock already held)
+	conn := h.getOrCreateConnectionLocked(key, connID)
+
+	// Track this packet in TxMsg
+	isNewMessage := false
+	if _, exists := conn.TxMsg[pkt.RPCID]; !exists {
+		conn.TxMsg[pkt.RPCID] = &MsgTx{
+			Count:      uint32(pkt.TotalPackets),
+			SendTs:     time.Now(),
+			DstAddr:    key,
+			PacketType: packetType,
+			Segments:   make(map[uint16][]byte),
+		}
+		isNewMessage = true
+	}
+
+	// Buffer this segment
+	conn.TxMsg[pkt.RPCID].Segments[pkt.SeqNumber] = serializedData
+
+	// Schedule timeout for this message (only for first segment)
+	if isNewMessage {
+		retransmitTimeout := 1 * time.Second // Default retransmit timeout
+		timerKey := transport.TimerKey(fmt.Sprintf("reliable_msg_timeout_%d", pkt.RPCID))
+		h.timerMgr.Schedule(
+			timerKey,
+			retransmitTimeout,
+			transport.TimerCallback(func() {
+				h.checkRetransmission(key, pkt.RPCID, retransmitTimeout)
+			}),
+		)
+	}
+
+	logging.Debug("Tracking sent packet",
+		zap.String("packetType", packetTypeName),
+		zap.Uint64("rpcID", pkt.RPCID),
+		zap.Uint16("seqNumber", pkt.SeqNumber),
+		zap.Uint16("totalPackets", pkt.TotalPackets),
+		zap.String("connection", key))
+
+	return nil
+}
+
+// handleSendACK handles sending ACK packets (already formed, just update activity)
+// This is a common function used by both client and server handlers
+func (h *ReliableHandler) handleSendACK(ack *ACKPacket, addr *net.UDPAddr, packetTypeName string, peerType string) error {
+	// Extract connection ID from destination
+	// Note: ACK packet doesn't have DstIP/Port, so we use addr
+	var connID ConnectionID
+	if ip4 := addr.IP.To4(); ip4 != nil {
+		copy(connID.IP[:], ip4)
+	}
+	connID.Port = uint16(addr.Port)
+	key := connID.String()
+
+	// Just update activity timestamp
+	h.getOrCreateConnection(key, connID)
+
+	logging.Debug("Sending ACK",
+		zap.String("packetType", packetTypeName),
+		zap.Uint64("rpcID", ack.RPCID),
+		zap.String("peer", peerType),
+		zap.String("connection", key))
+
+	return nil
+}
+
+// handleReceiveDataPacket processes incoming data packets (REQUEST or RESPONSE)
+// This is a common function used by both client and server handlers
+func (h *ReliableHandler) handleReceiveDataPacket(pkt *packet.DataPacket, addr *net.UDPAddr, ackKind uint8, packetTypeName string, peerType string) error {
+	// Extract connection ID from source
+	connID := ConnectionID{IP: pkt.SrcIP, Port: pkt.SrcPort}
+	key := connID.String()
+
+	// Acquire lock once for all operations
+	h.mu.Lock()
+
+	// Get or create connection (lock already held)
+	conn := h.getOrCreateConnectionLocked(key, connID)
+
+	// Check for duplicate (message already complete)
+	if conn.RxMsgComplete[pkt.RPCID] {
+		logging.Debug("Received duplicate packet, resending ACK",
+			zap.String("packetType", packetTypeName),
+			zap.Uint64("rpcID", pkt.RPCID),
+			zap.String("peer", peerType),
+			zap.String("connection", key))
+
+		// Release lock before sending ACK
+		h.mu.Unlock()
+		err := h.sendACK(pkt.RPCID, ackKind, addr)
+		if err != nil {
+			logging.Error("Failed to resend ACK for duplicate", zap.Error(err))
+		}
+		return err
+	}
+
+	// Initialize tracking if first segment
+	if _, exists := conn.RxMsgSeen[pkt.RPCID]; !exists {
+		conn.RxMsgSeen[pkt.RPCID] = NewBitset(uint32(pkt.TotalPackets))
+		conn.RxMsgCount[pkt.RPCID] = uint32(pkt.TotalPackets)
+	}
+
+	// Mark segment received
+	conn.RxMsgSeen[pkt.RPCID].Set(uint32(pkt.SeqNumber), true)
+
+	// Check if complete (calculate count once)
+	receivedCount := conn.RxMsgSeen[pkt.RPCID].PopCount()
+	isComplete := receivedCount == conn.RxMsgCount[pkt.RPCID]
+
+	if isComplete {
+		conn.RxMsgComplete[pkt.RPCID] = true
+	}
+
+	logging.Debug("Received packet segment",
+		zap.String("packetType", packetTypeName),
+		zap.Uint64("rpcID", pkt.RPCID),
+		zap.Uint16("seqNumber", pkt.SeqNumber),
+		zap.Uint16("totalPackets", pkt.TotalPackets),
+		zap.Uint32("receivedCount", receivedCount),
+		zap.String("peer", peerType),
+		zap.String("connection", key))
+
+	// Release lock before sending ACK (if complete)
+	if isComplete {
+		logging.Debug("Received complete packet, sending ACK",
+			zap.String("packetType", packetTypeName),
+			zap.Uint64("rpcID", pkt.RPCID),
+			zap.String("peer", peerType),
+			zap.String("connection", key))
+
+		h.mu.Unlock()
+		err := h.sendACK(pkt.RPCID, ackKind, addr)
+		if err != nil {
+			logging.Error("Failed to send ACK", zap.Error(err))
+			return err
+		}
+	} else {
+		h.mu.Unlock()
+	}
+
+	return nil
+}
+
+// handleReceiveACK processes ACK packets
+// This is a common function used by both client and server handlers
+func (h *ReliableHandler) handleReceiveACK(ack *ACKPacket, addr *net.UDPAddr, packetTypeName string, peerType string) error {
+	// Extract connection ID from source
+	var connID ConnectionID
+	if ip4 := addr.IP.To4(); ip4 != nil {
+		copy(connID.IP[:], ip4)
+	}
+	connID.Port = uint16(addr.Port)
+	key := connID.String()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Check if we're tracking this connection
+	if conn, exists := h.connections[key]; exists {
+		// Mark message as ACKed by zeroing SendTs and clear buffered segments
+		if msgTx, msgExists := conn.TxMsg[ack.RPCID]; msgExists {
+			msgTx.SendTs = time.Time{} // Zero time indicates ACKed
+			msgTx.Segments = nil       // Clear buffered data to save memory
+
+			// Stop the timeout timer for this message
+			timerKey := transport.TimerKey(fmt.Sprintf("reliable_msg_timeout_%d", ack.RPCID))
+			h.timerMgr.StopTimer(timerKey)
+
+			logging.Debug("Received ACK",
+				zap.String("packetType", packetTypeName),
+				zap.Uint64("rpcID", ack.RPCID),
+				zap.String("peer", peerType),
+				zap.String("connection", key))
+		}
+	}
+
+	return nil
+}
+
 // Cleanup stops all timers and cleans up resources
-func (h *ReliableHandler) Cleanup(cleanupTimerKey, retransmitTimerKey transport.TimerKey) {
+func (h *ReliableHandler) Cleanup(cleanupTimerKey transport.TimerKey) {
 	h.timerMgr.StopTimer(cleanupTimerKey)
-	h.timerMgr.StopTimer(retransmitTimerKey)
+	// Note: Individual message timeout timers are automatically cleaned up when they fire
+	// or when messages are ACKed. We don't need to stop them here.
 }

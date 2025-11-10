@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	kv "github.com/appnet-org/arpc/benchmark/kv-store-symphony/symphony"
+	kv "github.com/appnet-org/arpc/benchmark/kv-store-symphony-transport/symphony"
 	"github.com/appnet-org/arpc/pkg/custom/congestion"
 	"github.com/appnet-org/arpc/pkg/custom/reliable"
 	"github.com/appnet-org/arpc/pkg/logging"
@@ -109,8 +109,8 @@ func main() {
 
 	// Create RPC client (creates UDP transport internally)
 	serializer := &serializer.SymphonySerializer{}
-	// client, err := rpc.NewClient(serializer, "130.127.134.7:11000", nil)
 	client, err := rpc.NewClient(serializer, "localhost:11000", nil)
+	// client, err := rpc.NewClient(serializer, "kvstore.default.svc.cluster.local:11000", nil)
 	if err != nil {
 		logging.Fatal("Failed to create RPC client", zap.Error(err))
 	}
