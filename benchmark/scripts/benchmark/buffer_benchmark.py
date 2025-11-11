@@ -2,8 +2,6 @@ import subprocess
 wrk_path = "/users/xzhu/arpc/benchmark/scripts/wrk/wrk"
 
 for i in range(0, 51, 5): 
-    
-    
     # First generates the kv.lua file
     if i == 0:
         value_size = 1
