@@ -80,6 +80,7 @@ type TransportSender interface {
 
 // TimerScheduler interface for managing timers
 type TimerScheduler interface {
+	Schedule(id transport.TimerKey, duration time.Duration, callback transport.TimerCallback)
 	SchedulePeriodic(id transport.TimerKey, interval time.Duration, callback transport.TimerCallback)
 	StopTimer(id transport.TimerKey) bool
 }
@@ -175,6 +176,16 @@ func (h *CCHandler) trackSentPacket(dataPkt *packet.DataPacket, connKey string) 
 		sendTime: now,
 	}
 	conn.SentPackets[packetID] = packetInfo
+
+	// Schedule timeout for this packet
+	timerKey := transport.TimerKey(fmt.Sprintf("cc_packet_timeout_%d", packetID))
+	h.timerMgr.Schedule(
+		timerKey,
+		h.packetTimeout,
+		transport.TimerCallback(func() {
+			h.checkTimeoutPacket(connKey, packetID)
+		}),
+	)
 
 	// Call CUBIC: OnPacketSent
 	h.ccAlgorithm.OnPacketSent(
@@ -334,6 +345,10 @@ func (h *CCHandler) processFeedback(feedback *CCFeedbackPacket, connKey string) 
 			)
 			h.ccAlgorithm.MaybeExitSlowStart()
 			priorInFlight -= info.bytes
+			// Stop the timeout timer for this packet
+			timerKey := transport.TimerKey(fmt.Sprintf("cc_packet_timeout_%d", packetID))
+			h.timerMgr.StopTimer(timerKey)
+
 			// Remove acked packet
 			delete(conn.SentPackets, packetID)
 		}
@@ -342,6 +357,10 @@ func (h *CCHandler) processFeedback(feedback *CCFeedbackPacket, connKey string) 
 	// Call CUBIC OnCongestionEvent for each lost packet
 	for _, packetID := range lostPackets {
 		if info := conn.SentPackets[packetID]; info != nil {
+			// Stop the timeout timer for this packet
+			timerKey := transport.TimerKey(fmt.Sprintf("cc_packet_timeout_%d", packetID))
+			h.timerMgr.StopTimer(timerKey)
+
 			h.ccAlgorithm.OnCongestionEvent(
 				protocol.PacketNumber(packetID),
 				protocol.ByteCount(info.bytes),
@@ -421,42 +440,40 @@ func (h *CCHandler) cleanupExpiredConnections() {
 	}
 }
 
-// checkTimeoutPackets checks for packets that haven't received feedback and assumes loss
-func (h *CCHandler) checkTimeoutPackets() {
+// checkTimeoutPacket checks if a specific packet has timed out and assumes loss
+func (h *CCHandler) checkTimeoutPacket(connKey string, packetID uint64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	conn := h.connections[connKey]
+	if conn == nil {
+		return
+	}
+
+	info, exists := conn.SentPackets[packetID]
+	if !exists {
+		// Packet was already ACKed or removed
+		return
+	}
+
+	// Check if packet has timed out
 	now := time.Now()
-	for connKey, conn := range h.connections {
-		var timeoutPackets []uint64
-		var totalTimeoutBytes uint64
+	if now.Sub(info.sendTime) > h.packetTimeout {
+		// Packet timeout - assume loss
+		logging.Debug("Packet timeout - assuming loss",
+			zap.String("connKey", connKey),
+			zap.Uint64("packetID", packetID),
+			zap.Uint64("timeoutBytes", info.bytes),
+			zap.Duration("elapsed", now.Sub(info.sendTime)))
 
-		// Check each sent packet for timeout
-		for packetID, info := range conn.SentPackets {
-			if now.Sub(info.sendTime) > h.packetTimeout {
-				// Packet timeout - assume loss
-				timeoutPackets = append(timeoutPackets, packetID)
-				totalTimeoutBytes += info.bytes
-			}
-		}
+		// Call CUBIC: OnRetransmissionTimeout
+		h.ccAlgorithm.OnRetransmissionTimeout(
+			false, // packetsRetransmitted is false because we are not retransmitting packets
+		)
+		h.ccAlgorithm.MaybeExitSlowStart()
 
-		// Process timeout packets
-		if len(timeoutPackets) > 0 {
-			logging.Debug("Packet timeout - assuming loss",
-				zap.String("connKey", connKey),
-				zap.Uint64("timeoutBytes", totalTimeoutBytes),
-				zap.Int("timeoutCount", len(timeoutPackets)))
-
-			// Call CUBIC: OnRetransmissionTimeout for timeout packets
-			h.ccAlgorithm.OnRetransmissionTimeout(
-				false, // packetsRetransmitted is false because we are not retransmitting packets
-			)
-			h.ccAlgorithm.MaybeExitSlowStart()
-			// Remove timeout packets
-			for _, packetID := range timeoutPackets {
-				delete(conn.SentPackets, packetID)
-			}
-		}
+		// Remove timeout packet
+		delete(conn.SentPackets, packetID)
 	}
 }
 
@@ -471,19 +488,9 @@ func (h *CCHandler) startCleanupTimer(timerKey transport.TimerKey) {
 	)
 }
 
-// startTimeoutCheckTimer starts the periodic timeout check timer
-func (h *CCHandler) startTimeoutCheckTimer(timerKey transport.TimerKey) {
-	h.timerMgr.SchedulePeriodic(
-		timerKey,
-		100*time.Millisecond, // Check every 100ms for responsiveness
-		transport.TimerCallback(func() {
-			h.checkTimeoutPackets()
-		}),
-	)
-}
-
 // Cleanup cleans up resources
-func (h *CCHandler) Cleanup(cleanupTimerKey, timeoutCheckTimerKey transport.TimerKey) {
+func (h *CCHandler) Cleanup(cleanupTimerKey transport.TimerKey) {
 	h.timerMgr.StopTimer(cleanupTimerKey)
-	h.timerMgr.StopTimer(timeoutCheckTimerKey)
+	// Note: Individual packet timeout timers are automatically cleaned up when they fire
+	// or when packets are ACKed. We don't need to stop them here.
 }

@@ -55,7 +55,6 @@ func NewCCServerHandlerWithConfig(
 
 	// Start periodic timers
 	handler.startCleanupTimer(transport.TimerKey("cc_server_cleanup"))
-	handler.startTimeoutCheckTimer(transport.TimerKey("cc_server_timeout_check"))
 
 	logging.Debug("CC server handler created",
 		zap.Uint32("feedbackInterval", feedbackInterval))
@@ -121,8 +120,5 @@ func (h *CCServerHandler) OnReceive(pkt any, addr *net.UDPAddr) error {
 
 // Cleanup cleans up resources
 func (h *CCServerHandler) Cleanup() {
-	h.CCHandler.Cleanup(
-		transport.TimerKey("cc_server_cleanup"),
-		transport.TimerKey("cc_server_timeout_check"),
-	)
+	h.CCHandler.Cleanup(transport.TimerKey("cc_server_cleanup"))
 }

@@ -10,14 +10,15 @@ WORKDIR /app
 # Copy the entire repo, assuming your context is ~/arpc
 COPY . .
 
-# Go to kv-store-symphony subdir
-WORKDIR /app/benchmark/kv-store-symphony
+# Go to kv-store-symphony-transport subdir
+WORKDIR /app/benchmark/kv-store-symphony-transport
 
 RUN go mod tidy
 
 # Build binaries
-RUN go build -trimpath -ldflags="-s -w" -o frontend ./frontend
-RUN go build -trimpath -ldflags="-s -w" -o kvstore ./kvstore
+RUN mkdir -p ./bin
+RUN go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_reliable_cc.go
+RUN go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_reliable_cc.go
 
 # Final image
 FROM ubuntu:22.04
@@ -31,8 +32,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy built binaries
-COPY --from=builder /app/benchmark/kv-store-symphony/frontend /app/frontend
-COPY --from=builder /app/benchmark/kv-store-symphony/kvstore /app/kvstore
+COPY --from=builder /app/benchmark/kv-store-symphony-transport/bin/frontend /app/frontend
+COPY --from=builder /app/benchmark/kv-store-symphony-transport/bin/kvstore /app/kvstore
 
 # Make binaries executable
 RUN chmod +x /app/frontend /app/kvstore

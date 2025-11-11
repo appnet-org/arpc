@@ -28,7 +28,7 @@ spec:
       containers:
       - image: appnetorg/kvstore-symphony:latest
         name: frontend-kvstore-symphony
-        command: ["/app/frontend/frontend"]
+        command: ["/app/frontend"]
         env:
         - name: LOG_LEVEL
           value: info
@@ -67,7 +67,7 @@ spec:
       containers:
       - image: appnetorg/kvstore-symphony:latest
         name: kvstore-kvstore-symphony
-        command: ["/app/kvstore/kvstore"]
+        command: ["/app/kvstore"]
         env:
         - name: LOG_LEVEL
           value: info

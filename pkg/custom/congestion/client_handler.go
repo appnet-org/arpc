@@ -55,7 +55,6 @@ func NewCCClientHandlerWithConfig(
 
 	// Start periodic timers
 	handler.startCleanupTimer(transport.TimerKey("cc_client_cleanup"))
-	handler.startTimeoutCheckTimer(transport.TimerKey("cc_client_timeout_check"))
 
 	logging.Debug("CC client handler created",
 		zap.Uint32("feedbackInterval", feedbackInterval))
@@ -121,8 +120,5 @@ func (h *CCClientHandler) OnReceive(pkt any, addr *net.UDPAddr) error {
 
 // Cleanup cleans up resources
 func (h *CCClientHandler) Cleanup() {
-	h.CCHandler.Cleanup(
-		transport.TimerKey("cc_client_cleanup"),
-		transport.TimerKey("cc_client_timeout_check"),
-	)
+	h.CCHandler.Cleanup(transport.TimerKey("cc_client_cleanup"))
 }
