@@ -91,6 +91,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	)
 
 	// Create Thrift HTTP transport
+	// Use localhost since we're running locally; in production this would be a service URL
 	transport, err := thrift.NewTHttpClient("http://kvstore.default.svc.cluster.local:11000")
 	if err != nil {
 		logger.Error("Failed to create HTTP transport", zap.Error(err))

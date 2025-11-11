@@ -156,14 +156,14 @@ func (s *kvServer) evictLRU() {
 
 // httpTransport wraps HTTP request/response to implement TTransport
 type httpTransport struct {
-	reqBody  io.Reader
+	reqBody  *bytes.Buffer
 	respBody *bytes.Buffer
 	closed   bool
 }
 
-func newHTTPTransport(r *http.Request) *httpTransport {
+func newHTTPTransport(reqBodyData []byte) *httpTransport {
 	return &httpTransport{
-		reqBody:  r.Body,
+		reqBody:  bytes.NewBuffer(reqBodyData),
 		respBody: &bytes.Buffer{},
 		closed:   false,
 	}
@@ -214,9 +214,6 @@ func (t *httpTransport) Close() error {
 		return nil
 	}
 	t.closed = true
-	if closer, ok := t.reqBody.(io.Closer); ok {
-		return closer.Close()
-	}
 	return nil
 }
 
@@ -225,8 +222,11 @@ func (t *httpTransport) Flush(ctx context.Context) error {
 }
 
 func (t *httpTransport) RemainingBytes() uint64 {
-	const maxSize = ^uint64(0)
-	return maxSize
+	if t.closed || t.reqBody == nil {
+		return 0
+	}
+	// Return the number of bytes remaining in the request buffer
+	return uint64(t.reqBody.Len())
 }
 
 func (t *httpTransport) Open() error {
@@ -249,8 +249,23 @@ func thriftHTTPHandler(processor thrift.TProcessor, protocolFactory thrift.TProt
 		// Set content type for Thrift binary protocol
 		w.Header().Set("Content-Type", "application/x-thrift")
 
-		// Create HTTP transport from request
-		transport := newHTTPTransport(r)
+		// Read the entire request body into a buffer first
+		// This is necessary because HTTP request bodies can only be read once
+		reqBodyData, err := io.ReadAll(r.Body)
+		if err != nil {
+			logger.Error("Failed to read request body", zap.Error(err))
+			http.Error(w, "Failed to read request body", http.StatusBadRequest)
+			return
+		}
+		defer r.Body.Close()
+
+		logger.Debug("Received Thrift HTTP request",
+			zap.Int("body_size", len(reqBodyData)),
+			zap.String("content_type", r.Header.Get("Content-Type")),
+			zap.String("url", r.URL.String()))
+
+		// Create HTTP transport from buffered request data
+		transport := newHTTPTransport(reqBodyData)
 		defer transport.Close()
 
 		// Create input and output protocols
@@ -259,16 +274,45 @@ func thriftHTTPHandler(processor thrift.TProcessor, protocolFactory thrift.TProt
 
 		// Process the request
 		ctx := r.Context()
-		_, err := processor.Process(ctx, iprot, oprot)
-		if err != nil {
+		success, err := processor.Process(ctx, iprot, oprot)
+
+		// Flush the output protocol to ensure all data is written to the buffer
+		if flushable, ok := oprot.(interface{ Flush(context.Context) error }); ok {
+			if flushErr := flushable.Flush(ctx); flushErr != nil {
+				logger.Warn("Failed to flush output protocol", zap.Error(flushErr))
+			}
+		}
+
+		// If processing failed at the protocol level (success == false), return HTTP 500
+		if !success {
 			logger.Error("Failed to process Thrift request", zap.Error(err))
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			// If there's any response data written, try to send it (Thrift may have written an exception)
+			// Otherwise, send a generic error
+			if transport.respBody.Len() > 0 {
+				w.WriteHeader(http.StatusOK)
+				if _, writeErr := w.Write(transport.respBody.Bytes()); writeErr != nil {
+					logger.Error("Failed to write error response", zap.Error(writeErr))
+				}
+			} else {
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+			}
 			return
 		}
 
-		// Write response body to HTTP response
+		// If success == true, Thrift has written a response (success or exception) to the output protocol
+		// Write it to the HTTP response. In Thrift over HTTP, both success and exceptions use HTTP 200.
+		// The Thrift protocol itself encodes whether it's a success or exception response.
+		if err != nil {
+			logger.Debug("Thrift request processed with application error (exception written to response)", zap.Error(err))
+		}
+
+		// Write the response body (Thrift protocol response)
 		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write(transport.respBody.Bytes()); err != nil {
+		responseData := transport.respBody.Bytes()
+		if len(responseData) == 0 {
+			logger.Warn("Thrift processor returned success but response body is empty")
+		}
+		if _, err := w.Write(responseData); err != nil {
 			logger.Error("Failed to write response", zap.Error(err))
 		}
 	}
