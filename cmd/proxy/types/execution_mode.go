@@ -10,6 +10,9 @@ const (
 	// StreamingWithBufferingMode forwards packets immediately but retains a copy for logging or analysis.
 	StreamingWithBufferingMode
 
+	// MaybeBufferingMode may buffer the packet if the message needs.
+	MaybeBufferingMode
+
 	// FullBufferingMode buffers the entire message before forwarding.
 	FullBufferingMode
 )
@@ -23,6 +26,8 @@ func (e ExecutionMode) String() string {
 		return "streaming-with-buffering"
 	case FullBufferingMode:
 		return "full-buffering"
+	case MaybeBufferingMode:
+		return "maybe-buffering"
 	default:
 		return "unknown"
 	}

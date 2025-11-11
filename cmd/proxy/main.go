@@ -37,9 +37,8 @@ type Config struct {
 // DefaultConfig returns the default proxy configuration
 func DefaultConfig() *Config {
 	return &Config{
-		Ports:           []int{15002, 15006},
-		EnableBuffering: false, // Disabled by default
-		BufferTimeout:   30 * time.Second,
+		Ports:         []int{15002, 15006},
+		BufferTimeout: 30 * time.Second,
 	}
 }
 
@@ -78,9 +77,6 @@ func main() {
 	config := DefaultConfig()
 
 	// Override config from environment variables
-	if enableBuffering := os.Getenv("ENABLE_PACKET_BUFFERING"); enableBuffering != "" {
-		config.EnableBuffering = enableBuffering == "true"
-	}
 	if bufferTimeout := os.Getenv("BUFFER_TIMEOUT"); bufferTimeout != "" {
 		if timeout, err := time.ParseDuration(bufferTimeout); err == nil {
 			config.BufferTimeout = timeout
@@ -93,7 +89,7 @@ func main() {
 		zap.Ints("ports", config.Ports))
 
 	// Initialize packet buffer
-	packetBuffer := NewPacketBuffer(config.EnableBuffering, config.BufferTimeout)
+	packetBuffer := NewPacketBuffer(config.BufferTimeout)
 	defer packetBuffer.Close()
 
 	state := &ProxyState{

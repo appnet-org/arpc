@@ -25,20 +25,17 @@ type PacketBuffer struct {
 }
 
 // NewPacketBuffer creates a new packet buffer
-func NewPacketBuffer(enabled bool, timeout time.Duration) *PacketBuffer {
+func NewPacketBuffer(timeout time.Duration) *PacketBuffer {
 	pb := &PacketBuffer{
-		enabled:  enabled,
 		timeout:  timeout,
 		incoming: make(map[string]map[uint64]map[uint16][]byte),
 		timeouts: make(map[string]map[uint64]time.Time),
 		done:     make(chan struct{}),
 	}
 
-	if enabled {
-		// Start cleanup routine
-		pb.cleanupTicker = time.NewTicker(timeout / 2)
-		go pb.cleanupRoutine()
-	}
+	// Start cleanup routine
+	pb.cleanupTicker = time.NewTicker(timeout / 2)
+	go pb.cleanupRoutine()
 
 	return pb
 }
@@ -56,7 +53,7 @@ func (pb *PacketBuffer) Close() {
 // or the packet is already complete, it returns immediately. Returns nil, nil if still
 // waiting for more fragments.
 func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, requestMode, responseMode types.ExecutionMode) (*types.BufferedPacket, error) {
-	logging.Debug("Processing packet with buffering mode",
+	logging.Debug("Processing packet with execution modes",
 		zap.String("requestMode", requestMode.String()),
 		zap.String("responseMode", responseMode.String()))
 
@@ -70,8 +67,22 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, requestMode
 
 	peer := &net.UDPAddr{IP: net.IP(dataPacket.DstIP[:]), Port: int(dataPacket.DstPort)}
 
-	// If buffering is disabled, return the packet as is
-	if !pb.enabled {
+	// Determine which execution mode to check based on packet type
+	packetType := types.PacketType(dataPacket.PacketTypeID)
+	var executionMode types.ExecutionMode
+
+	switch packetType {
+	case types.PacketTypeRequest:
+		executionMode = requestMode
+	case types.PacketTypeResponse, types.PacketTypeError:
+		executionMode = responseMode
+	default:
+		// For unknown/other packet types, default to requestMode
+		executionMode = requestMode
+	}
+
+	// If the appropriate mode is StreamingMode, return the packet as is
+	if executionMode == types.StreamingMode {
 		isFull := true
 		seqNumber := uint16(0)
 		totalPackets := uint16(1)
@@ -85,7 +96,7 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, requestMode
 			Payload:      dataPacket.Payload,
 			Source:       src,
 			Peer:         peer,
-			PacketType:   types.PacketType(dataPacket.PacketTypeID),
+			PacketType:   packetType,
 			RPCID:        dataPacket.RPCID,
 			DstIP:        dataPacket.DstIP,
 			DstPort:      dataPacket.DstPort,

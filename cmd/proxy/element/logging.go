@@ -22,12 +22,12 @@ func NewLoggingElement() *LoggingElement {
 
 // RequestMode returns the execution mode for processing requests
 func (l *LoggingElement) RequestMode() types.ExecutionMode {
-	return types.StreamingWithBufferingMode
+	return types.FullBufferingMode
 }
 
 // ResponseMode returns the execution mode for processing responses
 func (l *LoggingElement) ResponseMode() types.ExecutionMode {
-	return types.StreamingWithBufferingMode
+	return types.FullBufferingMode
 }
 
 // parseKVPayload parses the payload as a KV service message in Symphony format
