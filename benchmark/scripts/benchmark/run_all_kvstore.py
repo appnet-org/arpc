@@ -3,16 +3,22 @@ import time
 import json
 import logging
 import sys
+import os
 from datetime import datetime
 
+# Create logs directory if it doesn't exist
+log_dir = "logs"
+os.makedirs(log_dir, exist_ok=True)
+
 # Configure logging
+log_file = os.path.join(log_dir, f'benchmark_run_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(message)s',
     datefmt='%H:%M:%S',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(f'benchmark_run_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
+        logging.FileHandler(log_file)
     ]
 )
 logger = logging.getLogger(__name__)
@@ -21,12 +27,12 @@ wrk_path = "/users/xzhu/arpc/benchmark/scripts/wrk/wrk"
 lua_path = "/users/xzhu/arpc/benchmark/meta-kv-trace/kvstore-wrk.lua"
 
 manifest_dict = {
-    "kv-store-thrift-tcp": "/users/xzhu/arpc/benchmark/kv-store-thrift-tcp/manifest/kvstore.yaml",
-    "kv-store-thrift-http": "/users/xzhu/arpc/benchmark/kv-store-thrift-http/manifest/kvstore.yaml",
     "kv-store-grpc": "/users/xzhu/arpc/benchmark/kv-store-grpc/manifest/kvstore.yaml",
-    "kv-store-grpc-istio": "/users/xzhu/arpc/benchmark/kv-store-grpc/manifest/kvstore-istio.yaml",
-    "kv-store-symphony": "/users/xzhu/arpc/benchmark/kv-store-symphony/manifest/kvstore.yaml",
-    "kv-store-symphony-proxy": "/users/xzhu/arpc/benchmark/kv-store-symphony/manifest/kvstore-proxy.yaml",
+    # "kv-store-grpc-istio": "/users/xzhu/arpc/benchmark/kv-store-grpc/manifest/kvstore-istio.yaml",
+    # "kv-store-thrift-tcp": "/users/xzhu/arpc/benchmark/kv-store-thrift-tcp/manifest/kvstore.yaml",
+    # "kv-store-thrift-http": "/users/xzhu/arpc/benchmark/kv-store-thrift-http/manifest/kvstore.yaml",
+    # "kv-store-symphony": "/users/xzhu/arpc/benchmark/kv-store-symphony/manifest/kvstore.yaml",
+    # "kv-store-symphony-proxy": "/users/xzhu/arpc/benchmark/kv-store-symphony/manifest/kvstore-proxy.yaml",
 }
 
 def deploy_manifest(manifest_path):
@@ -113,11 +119,13 @@ def test_application(num_requests=10, timeout_duration=1):
 
 def run_wrk_and_collect_latency(application_name):
     """Run wrk benchmark and collect latency metrics."""
+    time.sleep(15)
     
     logger.info(f"Running wrk for {application_name}")
     
     # Run wrk for latency test
     cmd = [wrk_path, "-d", "60s", "-t", "1", "-c", "1", "http://10.96.88.88:80", "-s", lua_path, "-L"]
+    print(" ".join(cmd))
     result = subprocess.run(
         " ".join(cmd),
         shell=True,
@@ -134,7 +142,19 @@ def run_wrk_and_collect_latency(application_name):
     
     # Extract latency metrics
     latency_metrics = {}
+    error_count = 0
     for line in output_lines:
+        # Check for non-2xx or 3xx responses
+        if "Non-2xx or 3xx responses:" in line:
+            try:
+                # Extract the number after the colon
+                parts = line.split("Non-2xx or 3xx responses:")
+                if len(parts) == 2:
+                    error_count = int(parts[1].strip())
+                    logger.info(f"Found {error_count} non-2xx or 3xx responses")
+            except (ValueError, IndexError):
+                logger.warning(f"Could not parse error count from line: {line}")
+        
         # Look for percentile latencies (50%, 75%, 90%, 99%, etc.)
         # Format: "    50%   49.00us" - first token ends with %, second is latency
         parts = line.strip().split()
@@ -172,7 +192,11 @@ def run_wrk_and_collect_latency(application_name):
         for p in sorted_percentiles:
             logger.info(f"  {p}%: {latency_metrics[p]:.2f}ms")
     
-    return latency_metrics
+    # Return dict with latency_metrics and error_count
+    return {
+        "latency_metrics": latency_metrics,
+        "error_count": error_count
+    }
 
 def cleanup_all_resources():
     """Delete all Kubernetes resources in the current namespace."""
@@ -249,18 +273,26 @@ for manifest_name, manifest_path in manifest_dict.items():
     
     # Step 4: Run wrk and collect latency
     # Using value_size=1 for the first test (can be modified to test multiple sizes)
-    latency_metrics = run_wrk_and_collect_latency(manifest_name)
+    wrk_result = run_wrk_and_collect_latency(manifest_name)
     
     # Step 5: Store results
-    if latency_metrics:
+    if wrk_result is None:
         results[manifest_name] = {
-            "status": "success",
-            "latency_metrics": latency_metrics,
-            "value_size": 1
+            "status": "wrk_failed"
+        }
+    elif wrk_result.get("error_count", 0) > 0:
+        # If there are non-2xx or 3xx responses, set status to failure
+        logger.error(f"Benchmark failed: {wrk_result['error_count']} non-2xx or 3xx responses detected")
+        results[manifest_name] = {
+            "status": "failure",
+            "latency_metrics": wrk_result.get("latency_metrics", {}),
+            "error_count": wrk_result.get("error_count", 0),
         }
     else:
         results[manifest_name] = {
-            "status": "wrk_failed"
+            "status": "success",
+            "latency_metrics": wrk_result.get("latency_metrics", {}),
+            "error_count": wrk_result.get("error_count", 0),
         }
     
     # Step 6: Cleanup
@@ -277,7 +309,8 @@ logger.info("=" * 60)
 logger.info("")
 for manifest_name, result in results.items():
     logger.info(f"{manifest_name}:")
-    if result.get("status") == "success":
+    status = result.get("status")
+    if status == "success":
         latency = result.get("latency_metrics", {})
         if latency:
             logger.info(f"  Latency metrics:")
@@ -285,12 +318,23 @@ for manifest_name, result in results.items():
             sorted_percentiles = sorted(latency.keys(), key=lambda x: float(x))
             for p in sorted_percentiles:
                 logger.info(f"    {p}%: {latency[p]:.2f}ms")
-        logger.info(f"  Status: {result['status']}")
+        logger.info(f"  Status: {status}")
+    elif status == "failure":
+        latency = result.get("latency_metrics", {})
+        error_count = result.get("error_count", 0)
+        logger.error(f"  Status: {status}")
+        logger.error(f"  Non-2xx or 3xx responses: {error_count}")
+        if latency:
+            logger.info(f"  Latency metrics:")
+            # Sort percentiles numerically for better display
+            sorted_percentiles = sorted(latency.keys(), key=lambda x: float(x))
+            for p in sorted_percentiles:
+                logger.info(f"    {p}%: {latency[p]:.2f}ms")
     else:
-        logger.info(f"  Status: {result['status']}")
+        logger.info(f"  Status: {status}")
     logger.info("")
 
 # Optionally save results to a file
-with open("benchmark_results.json", "w") as f:
+with open(f"logs/benchmark_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json", "w") as f:
     json.dump(results, f, indent=2)
-logger.info("Results saved to benchmark_results.json")
+logger.info(f"Results saved to logs/benchmark_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
