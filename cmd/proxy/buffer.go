@@ -8,7 +8,7 @@ import (
 
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/packet"
-	"github.com/appnet-org/proxy/types"
+	"github.com/appnet-org/proxy/util"
 	"go.uber.org/zap"
 )
 
@@ -52,7 +52,7 @@ func (pb *PacketBuffer) Close() {
 // and returns a complete packet when all fragments are received. If buffering is disabled
 // or the packet is already complete, it returns immediately. Returns nil, nil if still
 // waiting for more fragments.
-func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, requestMode, responseMode types.ExecutionMode) (*types.BufferedPacket, error) {
+func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, requestMode, responseMode util.ExecutionMode) (*util.BufferedPacket, error) {
 	logging.Debug("Processing packet with execution modes",
 		zap.String("requestMode", requestMode.String()),
 		zap.String("responseMode", responseMode.String()))
@@ -68,13 +68,13 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, requestMode
 	peer := &net.UDPAddr{IP: net.IP(dataPacket.DstIP[:]), Port: int(dataPacket.DstPort)}
 
 	// Determine which execution mode to check based on packet type
-	packetType := types.PacketType(dataPacket.PacketTypeID)
-	var executionMode types.ExecutionMode
+	packetType := util.PacketType(dataPacket.PacketTypeID)
+	var executionMode util.ExecutionMode
 
 	switch packetType {
-	case types.PacketTypeRequest:
+	case util.PacketTypeRequest:
 		executionMode = requestMode
-	case types.PacketTypeResponse, types.PacketTypeError:
+	case util.PacketTypeResponse, util.PacketTypeError:
 		executionMode = responseMode
 	default:
 		// For unknown/other packet types, default to requestMode
@@ -82,7 +82,7 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, requestMode
 	}
 
 	// If the appropriate mode is StreamingMode, return the packet as is
-	if executionMode == types.StreamingMode {
+	if executionMode == util.StreamingMode {
 		isFull := true
 		seqNumber := uint16(0)
 		totalPackets := uint16(1)
@@ -92,7 +92,7 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, requestMode
 			seqNumber = dataPacket.SeqNumber
 			totalPackets = dataPacket.TotalPackets
 		}
-		return &types.BufferedPacket{
+		return &util.BufferedPacket{
 			Payload:      dataPacket.Payload,
 			Source:       src,
 			Peer:         peer,
@@ -143,11 +143,11 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, requestMode
 			// Clean up and return original payload
 			pb.cleanupFragments(connKey, dataPacket.RPCID)
 			payload := dataPacket.Payload
-			return &types.BufferedPacket{
+			return &util.BufferedPacket{
 				Payload:      payload,
 				Source:       src,
 				Peer:         peer,
-				PacketType:   types.PacketType(dataPacket.PacketTypeID),
+				PacketType:   util.PacketType(dataPacket.PacketTypeID),
 				RPCID:        dataPacket.RPCID,
 				DstIP:        dataPacket.DstIP,
 				DstPort:      dataPacket.DstPort,
@@ -167,11 +167,11 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, requestMode
 			zap.Uint64("rpcID", dataPacket.RPCID),
 			zap.Int("totalSize", len(completePayload)))
 
-		return &types.BufferedPacket{
+		return &util.BufferedPacket{
 			Payload:      completePayload,
 			Source:       src,
 			Peer:         peer,
-			PacketType:   types.PacketType(dataPacket.PacketTypeID),
+			PacketType:   util.PacketType(dataPacket.PacketTypeID),
 			RPCID:        dataPacket.RPCID,
 			DstIP:        dataPacket.DstIP,
 			DstPort:      dataPacket.DstPort,
@@ -308,12 +308,12 @@ func (pb *PacketBuffer) GetStats() map[string]any {
 type FragmentedPacket struct {
 	Data       []byte
 	Peer       *net.UDPAddr
-	PacketType types.PacketType
+	PacketType util.PacketType
 }
 
 // FragmentPacketForForward fragments a complete packet if needed
 // Returns a slice of fragmented packets to send
-func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *types.BufferedPacket) ([]FragmentedPacket, error) {
+func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPacket) ([]FragmentedPacket, error) {
 	// Use the payload directly from bufferedPacket
 	completePayload := bufferedPacket.Payload
 	chunkSize := packet.MaxUDPPayloadSize - 29 // 29 bytes for header

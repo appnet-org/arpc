@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 
 	"github.com/appnet-org/arpc/pkg/logging"
-	"github.com/appnet-org/proxy/types"
+	"github.com/appnet-org/proxy/util"
 	"go.uber.org/zap"
 )
 
@@ -24,17 +24,17 @@ func NewMetricsElement() *MetricsElement {
 }
 
 // RequestMode returns the execution mode for processing requests
-func (m *MetricsElement) RequestMode() types.ExecutionMode {
-	return types.StreamingMode
+func (m *MetricsElement) RequestMode() util.ExecutionMode {
+	return util.StreamingMode
 }
 
 // ResponseMode returns the execution mode for processing responses
-func (m *MetricsElement) ResponseMode() types.ExecutionMode {
-	return types.StreamingMode
+func (m *MetricsElement) ResponseMode() util.ExecutionMode {
+	return util.StreamingMode
 }
 
 // shouldCount determines if we should count this packet (only count first fragment or full packets)
-func shouldCount(packet *types.BufferedPacket) bool {
+func shouldCount(packet *util.BufferedPacket) bool {
 	if packet == nil {
 		return false
 	}
@@ -43,29 +43,29 @@ func shouldCount(packet *types.BufferedPacket) bool {
 }
 
 // ProcessRequest increments the request counter (once per message) and returns the request unchanged
-func (m *MetricsElement) ProcessRequest(ctx context.Context, packet *types.BufferedPacket) (*types.BufferedPacket, context.Context, error) {
+func (m *MetricsElement) ProcessRequest(ctx context.Context, packet *util.BufferedPacket) (*util.BufferedPacket, util.PacketVerdict, context.Context, error) {
 	if !shouldCount(packet) {
-		return packet, ctx, nil
+		return packet, util.PacketVerdictPass, ctx, nil
 	}
 
 	if _, alreadySeen := m.seenRequests.LoadOrStore(packet.RPCID, struct{}{}); !alreadySeen {
 		atomic.AddUint64(&m.requestCount, 1)
 		logging.Debug("Request count", zap.Uint64("count", atomic.LoadUint64(&m.requestCount)))
 	}
-	return packet, ctx, nil
+	return packet, util.PacketVerdictPass, ctx, nil
 }
 
 // ProcessResponse increments the response counter (once per message) and returns the response unchanged
-func (m *MetricsElement) ProcessResponse(ctx context.Context, packet *types.BufferedPacket) (*types.BufferedPacket, context.Context, error) {
+func (m *MetricsElement) ProcessResponse(ctx context.Context, packet *util.BufferedPacket) (*util.BufferedPacket, util.PacketVerdict, context.Context, error) {
 	if !shouldCount(packet) {
-		return packet, ctx, nil
+		return packet, util.PacketVerdictPass, ctx, nil
 	}
 
 	if _, alreadySeen := m.seenResponses.LoadOrStore(packet.RPCID, struct{}{}); !alreadySeen {
 		atomic.AddUint64(&m.responseCount, 1)
 		logging.Debug("Response count", zap.Uint64("count", atomic.LoadUint64(&m.responseCount)))
 	}
-	return packet, ctx, nil
+	return packet, util.PacketVerdictPass, ctx, nil
 }
 
 // Name returns the name of this element

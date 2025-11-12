@@ -12,7 +12,7 @@ import (
 
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/proxy/element"
-	"github.com/appnet-org/proxy/types"
+	"github.com/appnet-org/proxy/util"
 	"go.uber.org/zap"
 )
 
@@ -71,7 +71,7 @@ func main() {
 
 	// Create element chain with logging
 	elementChain := NewRPCElementChain(
-		element.NewMetricsElement(),
+		element.NewFaultInjectionElement(0.9),
 	)
 
 	config := DefaultConfig()
@@ -183,7 +183,15 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	}
 
 	// Process packet through the element chain
-	runElementsChain(ctx, state, bufferedPacket)
+	err = runElementsChain(ctx, state, bufferedPacket)
+	if err != nil {
+		logging.Error("Error processing packet through element chain or packet was dropped by an element", zap.Error(err))
+		// Send error packet back to the source
+		if sendErr := util.SendErrorPacket(conn, bufferedPacket.Source, bufferedPacket.RPCID, err.Error()); sendErr != nil {
+			logging.Error("Failed to send error packet", zap.Error(sendErr))
+		}
+		return
+	}
 
 	// Fragment the packet if needed and forward all fragments
 	fragmentedPackets, err := state.packetBuffer.FragmentPacketForForward(bufferedPacket)
@@ -210,34 +218,36 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 
 // runElementsChain processes the Message Data through the element chain
 // Modifications to the packet are made in place
-func runElementsChain(ctx context.Context, state *ProxyState, packet *types.BufferedPacket) {
-
+// Returns an error if processing fails
+func runElementsChain(ctx context.Context, state *ProxyState, packet *util.BufferedPacket) error {
 	var err error
-	var processedPacket *types.BufferedPacket
+	var processedPacket *util.BufferedPacket
+	var verdict util.PacketVerdict
 	switch packet.PacketType {
-	case types.PacketTypeRequest:
+	case util.PacketTypeRequest:
 		// Process request through element chain
-		processedPacket, _, err = state.elementChain.ProcessRequest(ctx, packet)
-	case types.PacketTypeResponse:
+		processedPacket, verdict, _, err = state.elementChain.ProcessRequest(ctx, packet)
+	case util.PacketTypeResponse:
 		// Process response through element chain (in reverse order)
-		processedPacket, _, err = state.elementChain.ProcessResponse(ctx, packet)
+		processedPacket, verdict, _, err = state.elementChain.ProcessResponse(ctx, packet)
 	default:
-		// For other packet types (Error, Unknown, etc.), skip processing
+		// For other packet util (Error, Unknown, etc.), skip processing
 		// TODO: Add handler for error packets
 		logging.Debug("Skipping element chain processing for packet type", zap.String("packetType", packet.PacketType.String()))
-		return
+		return nil
 	}
 
-	if err != nil {
-		logging.Error("Error processing packet through element chain", zap.Error(err))
-		// Packet remains unchanged on error
-		return
+	// Check verdict - if dropped, don't forward the packet
+	if verdict == util.PacketVerdictDrop || err != nil {
+		return err
 	}
 
 	// Update the packet with any changes made by the element chain
 	if processedPacket != nil {
 		*packet = *processedPacket
 	}
+
+	return nil
 }
 
 // waitForShutdown waits for a shutdown signal
