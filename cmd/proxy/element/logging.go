@@ -8,7 +8,7 @@ import (
 
 	kv "github.com/appnet-org/arpc/benchmark/kv-store-symphony/symphony"
 	"github.com/appnet-org/arpc/pkg/logging"
-	"github.com/appnet-org/proxy/types"
+	"github.com/appnet-org/proxy/util"
 	"go.uber.org/zap"
 )
 
@@ -21,13 +21,13 @@ func NewLoggingElement() *LoggingElement {
 }
 
 // RequestMode returns the execution mode for processing requests
-func (l *LoggingElement) RequestMode() types.ExecutionMode {
-	return types.FullBufferingMode
+func (l *LoggingElement) RequestMode() util.ExecutionMode {
+	return util.FullBufferingMode
 }
 
 // ResponseMode returns the execution mode for processing responses
-func (l *LoggingElement) ResponseMode() types.ExecutionMode {
-	return types.FullBufferingMode
+func (l *LoggingElement) ResponseMode() util.ExecutionMode {
+	return util.FullBufferingMode
 }
 
 // parseKVPayload parses the payload as a KV service message in Symphony format
@@ -197,10 +197,10 @@ func parseFramedResponse(data []byte) (service string, method string, payload []
 }
 
 // ProcessRequest logs the incoming request and returns it unchanged
-func (l *LoggingElement) ProcessRequest(ctx context.Context, packet *types.BufferedPacket) (*types.BufferedPacket, context.Context, error) {
+func (l *LoggingElement) ProcessRequest(ctx context.Context, packet *util.BufferedPacket) (*util.BufferedPacket, util.PacketVerdict, context.Context, error) {
 	if packet == nil || len(packet.Payload) == 0 {
 		logging.Info("Received empty request")
-		return packet, ctx, nil
+		return packet, util.PacketVerdictPass, ctx, nil
 	}
 
 	// Parse the request
@@ -210,7 +210,7 @@ func (l *LoggingElement) ProcessRequest(ctx context.Context, packet *types.Buffe
 		logging.Debug("Request payload (parse failed)",
 			zap.Error(err),
 			zap.String("hex", hex.EncodeToString(packet.Payload)))
-		return packet, ctx, nil
+		return packet, util.PacketVerdictPass, ctx, nil
 	}
 
 	// Log parsed request information
@@ -237,14 +237,14 @@ func (l *LoggingElement) ProcessRequest(ctx context.Context, packet *types.Buffe
 
 	logging.Debug("Request received", logFields...)
 
-	return packet, ctx, nil
+	return packet, util.PacketVerdictPass, ctx, nil
 }
 
 // ProcessResponse logs the outgoing response and returns it unchanged
-func (l *LoggingElement) ProcessResponse(ctx context.Context, packet *types.BufferedPacket) (*types.BufferedPacket, context.Context, error) {
+func (l *LoggingElement) ProcessResponse(ctx context.Context, packet *util.BufferedPacket) (*util.BufferedPacket, util.PacketVerdict, context.Context, error) {
 	if packet == nil || len(packet.Payload) == 0 {
 		logging.Info("Received empty response")
-		return packet, ctx, nil
+		return packet, util.PacketVerdictPass, ctx, nil
 	}
 
 	// Parse the response
@@ -254,7 +254,7 @@ func (l *LoggingElement) ProcessResponse(ctx context.Context, packet *types.Buff
 		logging.Debug("Response payload (parse failed)",
 			zap.Error(err),
 			zap.String("hex", hex.EncodeToString(packet.Payload)))
-		return packet, ctx, nil
+		return packet, util.PacketVerdictPass, ctx, nil
 	}
 
 	// Log parsed response information
@@ -280,7 +280,7 @@ func (l *LoggingElement) ProcessResponse(ctx context.Context, packet *types.Buff
 
 	logging.Debug("Response sent", logFields...)
 
-	return packet, ctx, nil
+	return packet, util.PacketVerdictPass, ctx, nil
 }
 
 // Name returns the name of this element
