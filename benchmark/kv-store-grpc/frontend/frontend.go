@@ -30,7 +30,7 @@ func generateDeterministicString(keyID string, length int) string {
 func getLoggingConfig() *logging.Config {
 	level := os.Getenv("LOG_LEVEL")
 	if level == "" {
-		level = "info"
+		level = "debug"
 	}
 	format := os.Getenv("LOG_FORMAT")
 	if format == "" {
