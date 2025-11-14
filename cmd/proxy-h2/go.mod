@@ -1,4 +1,4 @@
-module github.com/appnet-org/proxy-http
+module github.com/appnet-org/proxy-h2
 
 go 1.24.0
 

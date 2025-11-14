@@ -10,15 +10,13 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/appnet-org/arpc/pkg/logging"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	kv "github.com/appnet-org/arpc/benchmark/kv-store-grpc/proto"
 )
-
-// global logger only
-var logger *zap.Logger
 
 // generateDeterministicString produces a fixed pseudo-random string based on keyID and desired length.
 func generateDeterministicString(keyID string, length int) string {
@@ -29,7 +27,7 @@ func generateDeterministicString(keyID string, length int) string {
 }
 
 // getLoggingConfig reads logging configuration from environment variables with defaults
-func getLoggingConfig() zap.Config {
+func getLoggingConfig() *logging.Config {
 	level := os.Getenv("LOG_LEVEL")
 	if level == "" {
 		level = "info"
@@ -39,30 +37,10 @@ func getLoggingConfig() zap.Config {
 		format = "console"
 	}
 
-	config := zap.NewProductionConfig()
-
-	switch level {
-	case "debug":
-		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
-	case "info":
-		config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
-	case "warn":
-		config.Level = zap.NewAtomicLevelAt(zap.WarnLevel)
-	case "error":
-		config.Level = zap.NewAtomicLevelAt(zap.ErrorLevel)
-	default:
-		config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
+	return &logging.Config{
+		Level:  level,
+		Format: format,
 	}
-
-	if format == "console" {
-		config.Development = true
-		config.Encoding = "console"
-		config.EncoderConfig.TimeKey = ""
-		config.EncoderConfig.CallerKey = ""
-	} else {
-		config.Encoding = "json"
-	}
-	return config
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +61,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	keyStr := generateDeterministicString(keyID+"-key", keySize)
 	valueStr := generateDeterministicString(keyID+"-value", valueSize)
 
-	logger.Debug("Received HTTP request",
+	logging.Debug("Received HTTP request",
 		zap.String("op", op),
 		zap.String("key_id", keyID),
 		zap.Int("key_size", keySize),
@@ -91,11 +69,12 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	)
 
 	conn, err := grpc.NewClient(
-		"kvstore.default.svc.cluster.local:11000",
+		// "kvstore.default.svc.cluster.local:11000",
+		"130.127.133.223:11000",
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
-		logger.Error("Failed to dial gRPC server", zap.Error(err))
+		logging.Error("Failed to dial gRPC server", zap.Error(err))
 		http.Error(w, "Failed to dial gRPC server: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -108,7 +87,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		req := &kv.GetRequest{Key: keyStr}
 		resp, err := kvClient.Get(context.Background(), req)
 		if err != nil {
-			logger.Error("Get gRPC call failed", zap.Error(err))
+			logging.Error("Get gRPC call failed", zap.Error(err))
 			http.Error(w, "Get gRPC call failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -118,7 +97,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		req := &kv.SetRequest{Key: keyStr, Value: valueStr}
 		resp, err := kvClient.Set(context.Background(), req)
 		if err != nil {
-			logger.Error("Set gRPC call failed", zap.Error(err))
+			logging.Error("Set gRPC call failed", zap.Error(err))
 			http.Error(w, "Set gRPC call failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -131,18 +110,17 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Initialize zap logger
+	// Initialize logging
 	config := getLoggingConfig()
-	var err error
-	logger, err = config.Build()
+	err := logging.Init(config)
 	if err != nil {
 		panic("Failed to initialize logger: " + err.Error())
 	}
-	defer logger.Sync()
+	defer logging.Sync()
 
 	http.HandleFunc("/", handler)
-	logger.Info("HTTP server listening", zap.String("port", "8080"))
+	logging.Info("HTTP server listening", zap.String("port", "8080"))
 	if err := http.ListenAndServe(":8080", nil); err != nil {
-		logger.Fatal("HTTP server failed", zap.Error(err))
+		logging.Fatal("HTTP server failed", zap.Error(err))
 	}
 }

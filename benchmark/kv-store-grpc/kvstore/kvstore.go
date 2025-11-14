@@ -8,16 +8,15 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/appnet-org/arpc/pkg/logging"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
 	kv "github.com/appnet-org/arpc/benchmark/kv-store-grpc/proto"
 )
 
-var logger *zap.Logger
-
 // getLoggingConfig reads logging configuration from environment variables with defaults
-func getLoggingConfig() zap.Config {
+func getLoggingConfig() *logging.Config {
 	level := os.Getenv("LOG_LEVEL")
 	if level == "" {
 		level = "info"
@@ -28,34 +27,10 @@ func getLoggingConfig() zap.Config {
 		format = "console"
 	}
 
-	// Create base config
-	config := zap.NewProductionConfig()
-
-	// Set log level
-	switch level {
-	case "debug":
-		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
-	case "info":
-		config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
-	case "warn":
-		config.Level = zap.NewAtomicLevelAt(zap.WarnLevel)
-	case "error":
-		config.Level = zap.NewAtomicLevelAt(zap.ErrorLevel)
-	default:
-		config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
+	return &logging.Config{
+		Level:  level,
+		Format: format,
 	}
-
-	// Set output format
-	if format == "console" {
-		config.Development = true
-		config.Encoding = "console"
-		config.EncoderConfig.TimeKey = ""
-		config.EncoderConfig.CallerKey = ""
-	} else {
-		config.Encoding = "json"
-	}
-
-	return config
 }
 
 // KVService implementation
@@ -83,7 +58,7 @@ func (s *kvServer) Get(ctx context.Context, req *kv.GetRequest) (*kv.GetResponse
 	defer s.mu.Unlock()
 
 	key := req.GetKey()
-	logger.Debug("Server got Get request", zap.String("key", key))
+	logging.Debug("Server got Get request", zap.String("key", key))
 
 	value, exists := s.data[key]
 	if !exists {
@@ -97,7 +72,7 @@ func (s *kvServer) Get(ctx context.Context, req *kv.GetRequest) (*kv.GetResponse
 		Value: value,
 	}
 
-	logger.Debug("Server returning value for key", zap.String("key", key), zap.String("value", value))
+	logging.Debug("Server returning value for key", zap.String("key", key), zap.String("value", value))
 	return resp, nil
 }
 
@@ -107,7 +82,7 @@ func (s *kvServer) Set(ctx context.Context, req *kv.SetRequest) (*kv.SetResponse
 
 	key := req.GetKey()
 	value := req.GetValue()
-	logger.Debug("Server got Set request", zap.String("key", key), zap.String("value", value))
+	logging.Debug("Server got Set request", zap.String("key", key), zap.String("value", value))
 
 	// Check if we need to evict an item
 	if len(s.data) >= s.maxSize {
@@ -123,7 +98,7 @@ func (s *kvServer) Set(ctx context.Context, req *kv.SetRequest) (*kv.SetResponse
 		Value: value,
 	}
 
-	logger.Debug("Server set key to value", zap.String("key", key), zap.String("value", value))
+	logging.Debug("Server set key to value", zap.String("key", key), zap.String("value", value))
 	return resp, nil
 }
 
@@ -151,18 +126,17 @@ func (s *kvServer) evictLRU() {
 	s.accessOrder = s.accessOrder[1:]
 	delete(s.data, keyToRemove)
 
-	logger.Debug("Evicted LRU key", zap.String("key", keyToRemove))
+	logging.Debug("Evicted LRU key", zap.String("key", keyToRemove))
 }
 
 func main() {
-	// Initialize zap logger with configuration from environment variables
+	// Initialize logging
 	config := getLoggingConfig()
-	var err error
-	logger, err = config.Build()
+	err := logging.Init(config)
 	if err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
-	defer logger.Sync()
+	defer logging.Sync()
 
 	// Create listener
 	lis, err := net.Listen("tcp", ":11000")
@@ -184,7 +158,7 @@ func main() {
 	kvServer := NewKVServer(maxSize)
 	kv.RegisterKVServiceServer(s, kvServer)
 
-	logger.Info("KV server starting", zap.String("port", "11000"), zap.Int("maxSize", maxSize))
+	logging.Info("KV server starting", zap.String("port", "11000"), zap.Int("maxSize", maxSize))
 
 	// Start server
 	if err := s.Serve(lis); err != nil {

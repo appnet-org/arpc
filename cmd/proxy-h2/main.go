@@ -15,7 +15,7 @@ import (
 	"unsafe"
 
 	"github.com/appnet-org/arpc/pkg/logging"
-	"github.com/appnet-org/proxy-http/element"
+	"github.com/appnet-org/proxy-h2/element"
 	"go.uber.org/zap"
 	"golang.org/x/net/http2"
 	"golang.org/x/sys/unix"
