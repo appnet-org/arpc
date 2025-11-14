@@ -108,8 +108,8 @@ func main() {
 
 	// Create RPC client (creates UDP transport internally)
 	serializer := &serializer.SymphonySerializer{}
-	client, err := rpc.NewClient(serializer, "localhost:11000", nil)
-	// client, err := rpc.NewClient(serializer, "kvstore.default.svc.cluster.local:11000", nil)
+	// client, err := rpc.NewClient(serializer, "localhost:11000", nil)
+	client, err := rpc.NewClient(serializer, "kvstore.default.svc.cluster.local:11000", nil)
 	if err != nil {
 		logging.Fatal("Failed to create RPC client", zap.Error(err))
 	}
@@ -125,11 +125,9 @@ func main() {
 	}
 
 	// Create congestion control client handler
-	// dummyTimer := NewDummyTimerManager()
 	clientHandler := congestion.NewCCClientHandler(
 		udpTransport,
 		udpTransport.GetTimerManager(),
-		// dummyTimer,
 	)
 	defer clientHandler.Cleanup()
 

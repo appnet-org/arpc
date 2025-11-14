@@ -23,17 +23,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-wrk_path = "/users/xzhu/arpc/benchmark/scripts/wrk/wrk"
-lua_path = "/users/xzhu/arpc/benchmark/meta-kv-trace/kvstore-wrk.lua"
+# Get the directory of this script
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Use relative paths from the script directory
+wrk_path = os.path.join(SCRIPT_DIR, "../wrk/wrk")
+lua_path = os.path.join(SCRIPT_DIR, "../../meta-kv-trace/kvstore-wrk.lua")
 
 manifest_dict = {
-    "kv-store-grpc": "/users/xzhu/arpc/benchmark/kv-store-grpc/manifest/kvstore.yaml",
-    # "kv-store-grpc-istio": "/users/xzhu/arpc/benchmark/kv-store-grpc/manifest/kvstore-istio.yaml",
-    # "kv-store-thrift-tcp": "/users/xzhu/arpc/benchmark/kv-store-thrift-tcp/manifest/kvstore.yaml",
-    # "kv-store-thrift-http": "/users/xzhu/arpc/benchmark/kv-store-thrift-http/manifest/kvstore.yaml",
-    "kv-store-symphony": "/users/xzhu/arpc/benchmark/kv-store-symphony/manifest/kvstore.yaml",
-    # "kv-store-symphony-proxy": "/users/xzhu/arpc/benchmark/kv-store-symphony/manifest/kvstore-proxy.yaml",
-    # "kv-store-arpc-tcp": "/users/xzhu/arpc/benchmark/scripts/manifest-arpc/kv-store-tcp.yaml",
+    "kv-store-grpc": os.path.join(SCRIPT_DIR, "../../kv-store-grpc/manifest/kvstore.yaml"),
+    # "kv-store-grpc-istio": os.path.join(SCRIPT_DIR, "../../kv-store-grpc/manifest/kvstore-istio.yaml"),
+    # "kv-store-thrift-tcp": os.path.join(SCRIPT_DIR, "../../kv-store-thrift-tcp/manifest/kvstore.yaml"),
+    # "kv-store-thrift-http": os.path.join(SCRIPT_DIR, "../../kv-store-thrift-http/manifest/kvstore.yaml"),
+    "kv-store-symphony": os.path.join(SCRIPT_DIR, "../../kv-store-symphony/manifest/kvstore.yaml"),
+    # "kv-store-symphony-proxy": os.path.join(SCRIPT_DIR, "../../kv-store-symphony/manifest/kvstore-proxy.yaml"),
+    # "kv-store-arpc-tcp": os.path.join(SCRIPT_DIR, "../manifest-arpc/kv-store-tcp.yaml"),
 }
 
 def deploy_manifest(manifest_path):
