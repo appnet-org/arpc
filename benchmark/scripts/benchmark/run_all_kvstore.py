@@ -28,12 +28,13 @@ lua_path = "/users/xzhu/arpc/benchmark/meta-kv-trace/kvstore-wrk.lua"
 
 manifest_dict = {
     "kv-store-grpc": "/users/xzhu/arpc/benchmark/kv-store-grpc/manifest/kvstore.yaml",
-    # "kv-store-grpc-istio": "/users/xzhu/arpc/benchmark/kv-store-grpc/manifest/kvstore-istio.yaml",
-    # "kv-store-thrift-tcp": "/users/xzhu/arpc/benchmark/kv-store-thrift-tcp/manifest/kvstore.yaml",
-    # "kv-store-thrift-http": "/users/xzhu/arpc/benchmark/kv-store-thrift-http/manifest/kvstore.yaml",
+    "kv-store-grpc-istio": "/users/xzhu/arpc/benchmark/kv-store-grpc/manifest/kvstore-istio.yaml",
+    "kv-store-thrift-tcp": "/users/xzhu/arpc/benchmark/kv-store-thrift-tcp/manifest/kvstore.yaml",
+    "kv-store-thrift-http": "/users/xzhu/arpc/benchmark/kv-store-thrift-http/manifest/kvstore.yaml",
     "kv-store-symphony": "/users/xzhu/arpc/benchmark/kv-store-symphony/manifest/kvstore.yaml",
-    # "kv-store-symphony-proxy": "/users/xzhu/arpc/benchmark/kv-store-symphony/manifest/kvstore-proxy.yaml",
-    # "kv-store-arpc-tcp": "/users/xzhu/arpc/benchmark/scripts/manifest-arpc/kv-store-tcp.yaml",
+    "kv-store-symphony-proxy": "/users/xzhu/arpc/benchmark/kv-store-symphony/manifest/kvstore-proxy.yaml",
+    "kv-store-arpc-tcp": "/users/xzhu/arpc/benchmark/scripts/manifest-arpc/kv-store-arpc-tcp.yaml",
+    "kv-store-arpc-h2": "/users/xzhu/arpc/benchmark/scripts/manifest-arpc/kv-store-arpc-h2.yaml",
 }
 
 def deploy_manifest(manifest_path):
