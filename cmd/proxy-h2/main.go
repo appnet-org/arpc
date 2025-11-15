@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -154,7 +153,7 @@ func main() {
 
 	// Create element chain with logging
 	elementChain := element.NewRPCElementChain(
-	// element.NewLoggingElement(true), // Enable verbose logging
+		// element.NewLoggingElement(true), // Enable verbose logging
 	)
 
 	config := DefaultConfig()
@@ -278,16 +277,18 @@ func handleHTTP2Connection(clientConn net.Conn, preface []byte, state *ProxyStat
 	defer targetConn.Close()
 
 	// Write the HTTP/2 preface to target
-	// The preface we read from client will be included in the MultiReader
 	if _, err := targetConn.Write([]byte(HTTP2Preface)); err != nil {
 		logging.Error("Failed to write preface", zap.Error(err))
 		return
 	}
 
 	// Create buffered readers for framing
-	// We need to prepend any bytes we already read from the client connection
-	// Framer writes to first arg, reads from second arg
-	clientReader := bufio.NewReader(io.MultiReader(bytes.NewReader(preface), clientConn))
+	// Note: We do NOT include the preface in clientReader because:
+	// 1. The preface has already been consumed from the client connection
+	// 2. The preface has been sent to the target
+	// 3. http2.Framer expects to read frames, not the preface
+	// The SETTINGS frame (and other frames) are still in the clientConn TCP buffer
+	clientReader := bufio.NewReader(clientConn)
 	targetReader := bufio.NewReader(targetConn)
 
 	// Create HTTP/2 framers:
@@ -324,6 +325,11 @@ func handleHTTP2Stream(framer *http2.Framer, state *ProxyState, ctx context.Cont
 			}
 			return
 		}
+
+		// Log all received frames
+		logging.Info("Received frame",
+			zap.String("type", fmt.Sprintf("%T", frame)),
+			zap.Bool("isRequest", isRequest))
 
 		// Intercept DATA frames containing gRPC messages
 		switch f := frame.(type) {
@@ -362,13 +368,41 @@ func handleHTTP2Stream(framer *http2.Framer, state *ProxyState, ctx context.Cont
 
 		case *http2.SettingsFrame:
 			// Forward SETTINGS frames
-			// SettingsFrame doesn't expose settings directly, but we can check IsAck
-			// For non-ACK settings frames, we need to write them differently
-			// Since we can't reconstruct the original settings, we'll log a warning
-			// In practice, settings are usually handled at connection establishment
-			logging.Debug("SETTINGS frame encountered", zap.Bool("isAck", f.IsAck()))
-			// Note: Settings frames are typically handled during connection setup
-			// For now, we'll let the connection handle them naturally
+			direction := "server"
+			if isRequest {
+				direction = "client"
+			}
+			logging.Debug("Encountered SETTINGS frame from " + direction)
+			if f.IsAck() {
+				// Forward SETTINGS ACK
+				logging.Info("Forwarding SETTINGS ACK", zap.Bool("isRequest", isRequest))
+				if err := framer.WriteSettingsAck(); err != nil {
+					logging.Error("Error writing SETTINGS ACK frame", zap.Error(err))
+					return
+				}
+				logging.Info("Successfully forwarded SETTINGS ACK", zap.Bool("isRequest", isRequest))
+			} else {
+				// Collect all settings from the frame
+				var settings []http2.Setting
+				f.ForeachSetting(func(s http2.Setting) error {
+					settings = append(settings, s)
+					logging.Debug("SETTINGS parameter",
+						zap.String("ID", s.ID.String()),
+						zap.Uint32("Val", s.Val))
+					return nil
+				})
+				logging.Info("Forwarding SETTINGS frame",
+					zap.Bool("isRequest", isRequest),
+					zap.Int("numSettings", len(settings)))
+				// Forward SETTINGS frame with all settings
+				if err := framer.WriteSettings(settings...); err != nil {
+					logging.Error("Error writing SETTINGS frame", zap.Error(err))
+					return
+				}
+				logging.Info("Successfully forwarded SETTINGS frame",
+					zap.Bool("isRequest", isRequest),
+					zap.Int("numSettings", len(settings)))
+			}
 
 		case *http2.PingFrame:
 			// Forward PING frames
