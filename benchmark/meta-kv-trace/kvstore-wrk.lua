@@ -4,8 +4,13 @@ local i = 1
 
 -- Load the trace file once at startup
 do
-  local f = io.open("/users/xzhu/arpc/benchmark/meta-kv-trace/trace.req", "r")
-  if not f then error("cannot open trace.req") end
+  -- Get the directory of this script and construct relative path
+  local script_path = debug.getinfo(1, "S").source:match("^@(.*)$")
+  local script_dir = script_path:match("^(.*)/[^/]*$") or "."
+  local trace_file = script_dir .. "/trace.req"
+  
+  local f = io.open(trace_file, "r")
+  if not f then error("cannot open trace.req at " .. trace_file) end
   for line in f:lines() do
     local trimmed = line:match("^%s*(.-)%s*$")
     if trimmed ~= "" then

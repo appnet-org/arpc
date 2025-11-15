@@ -1,5 +1,9 @@
 import subprocess
-wrk_path = "/users/xzhu/arpc/benchmark/scripts/wrk/wrk"
+import os
+
+# Get the directory of this script and construct relative path
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+wrk_path = os.path.join(SCRIPT_DIR, "../wrk/wrk")
 
 for i in range(0, 51, 5): 
     # First generates the kv.lua file

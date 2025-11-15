@@ -8,7 +8,6 @@ import (
 	"github.com/appnet-org/arpc/pkg/custom/congestion/cubic/utils"
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/packet"
-	"github.com/appnet-org/arpc/pkg/transport"
 	"go.uber.org/zap"
 )
 
@@ -53,8 +52,15 @@ func NewCCServerHandlerWithConfig(
 		),
 	}
 
+	// Cache CCFeedback packet type
+	feedbackType, exists := transportSender.GetPacketRegistry().GetPacketTypeByName(CCFeedbackPacketName)
+	if !exists {
+		logging.Fatal("CCFeedback packet type not registered in transport - ensure CCFeedback packet type is registered before creating CC handler")
+	}
+	handler.ccFeedbackPktType = &feedbackType
+
 	// Start periodic timers
-	handler.startCleanupTimer(transport.TimerKey("cc_server_cleanup"))
+	handler.startCleanupTimer(TimerKeyCCServerCleanup)
 
 	logging.Debug("CC server handler created",
 		zap.Uint32("feedbackInterval", feedbackInterval))
@@ -71,7 +77,7 @@ func (h *CCServerHandler) OnSend(pkt any, addr *net.UDPAddr) error {
 		if p.PacketTypeID == packet.PacketTypeResponse.TypeID {
 			// Extract client connection ID from destination
 			connID := ConnectionID{IP: p.DstIP, Port: p.DstPort}
-			key := connID.String()
+			key := connID.Key()
 			h.getOrCreateConnection(key, connID)
 			return h.trackSentPacket(p, key)
 		}
@@ -83,7 +89,7 @@ func (h *CCServerHandler) OnSend(pkt any, addr *net.UDPAddr) error {
 			copy(connID.IP[:], ip4)
 		}
 		connID.Port = uint16(addr.Port)
-		key := connID.String()
+		key := connID.Key()
 		h.getOrCreateConnection(key, connID)
 		return nil
 	}
@@ -99,7 +105,7 @@ func (h *CCServerHandler) OnReceive(pkt any, addr *net.UDPAddr) error {
 		if p.PacketTypeID == packet.PacketTypeRequest.TypeID {
 			// Extract client connection ID from source
 			connID := ConnectionID{IP: p.SrcIP, Port: p.SrcPort}
-			key := connID.String()
+			key := connID.Key()
 			h.getOrCreateConnection(key, connID)
 			return h.trackReceivedPacket(p, key)
 		}
@@ -111,7 +117,7 @@ func (h *CCServerHandler) OnReceive(pkt any, addr *net.UDPAddr) error {
 			copy(connID.IP[:], ip4)
 		}
 		connID.Port = uint16(addr.Port)
-		key := connID.String()
+		key := connID.Key()
 		h.getOrCreateConnection(key, connID)
 		return h.processFeedback(p, key)
 	}
@@ -120,5 +126,5 @@ func (h *CCServerHandler) OnReceive(pkt any, addr *net.UDPAddr) error {
 
 // Cleanup cleans up resources
 func (h *CCServerHandler) Cleanup() {
-	h.CCHandler.Cleanup(transport.TimerKey("cc_server_cleanup"))
+	h.CCHandler.Cleanup(TimerKeyCCServerCleanup)
 }

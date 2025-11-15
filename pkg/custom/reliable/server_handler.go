@@ -6,7 +6,6 @@ import (
 
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/packet"
-	"github.com/appnet-org/arpc/pkg/transport"
 	"go.uber.org/zap"
 )
 
@@ -25,7 +24,15 @@ func NewReliableServerHandlerWithTimeout(transportSender TransportSender, timerM
 	handler := &ReliableServerHandler{
 		ReliableHandler: newReliableHandler(transportSender, timerMgr, timeout),
 	}
-	handler.startCleanupTimer(transport.TimerKey("reliable_server_cleanup"))
+
+	// Cache ACK packet type during initialization
+	ackPacketType, exists := transportSender.GetPacketRegistry().GetPacketTypeByName(AckPacketName)
+	if !exists {
+		logging.Fatal("ACK packet type not registered in transport - ensure ACK packet type is registered before creating reliable handler")
+	}
+	handler.ackPacketType = &ackPacketType
+
+	handler.startCleanupTimer(TimerKeyReliableServerCleanup)
 
 	logging.Debug("Reliable server handler created",
 		zap.Duration("timeout", timeout))
@@ -85,5 +92,5 @@ func (h *ReliableServerHandler) handleSendACK(ack *ACKPacket, addr *net.UDPAddr)
 
 // Cleanup cleans up resources
 func (h *ReliableServerHandler) Cleanup() {
-	h.ReliableHandler.Cleanup(transport.TimerKey("reliable_server_cleanup"))
+	h.ReliableHandler.Cleanup(TimerKeyReliableServerCleanup)
 }

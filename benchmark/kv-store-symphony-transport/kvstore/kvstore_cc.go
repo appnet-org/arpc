@@ -153,11 +153,9 @@ func main() {
 	}
 
 	// Create congestion control server handler
-	// dummyTimer := NewDummyTimerManager()
 	serverHandler := congestion.NewCCServerHandler(
 		udpTransport,
 		udpTransport.GetTimerManager(),
-		// dummyTimer,
 	)
 	defer serverHandler.Cleanup()
 

@@ -22,13 +22,27 @@ const (
 	defaultPacketTimeout     = 200 * time.Millisecond // Base timeout per packet
 )
 
+// Predefined timer key constants for congestion control timers
+const (
+	TimerKeyCCClientCleanup     transport.TimerKey = 10
+	TimerKeyCCServerCleanup     transport.TimerKey = 11
+	TimerKeyCCPacketTimeoutBase transport.TimerKey = 10000
+)
+
 // ConnectionID uniquely identifies a connection
 type ConnectionID struct {
 	IP   [4]byte
 	Port uint16
 }
 
-// String returns a string representation of the connection ID for use as map key
+// Key returns a binary uint64 representation for efficient map key usage
+// Format: IP (4 bytes in high 48 bits) | Port (2 bytes in low 16 bits)
+func (c ConnectionID) Key() uint64 {
+	return uint64(c.IP[0])<<40 | uint64(c.IP[1])<<32 |
+		uint64(c.IP[2])<<24 | uint64(c.IP[3])<<16 | uint64(c.Port)
+}
+
+// String returns a string representation of the connection ID for logging
 func (c ConnectionID) String() string {
 	return fmt.Sprintf("%d.%d.%d.%d:%d", c.IP[0], c.IP[1], c.IP[2], c.IP[3], c.Port)
 }
@@ -87,14 +101,15 @@ type TimerScheduler interface {
 
 // CCHandler is the base handler containing common state and logic
 type CCHandler struct {
-	connections      map[string]*CCConnectionState
-	feedbackInterval uint32
-	defaultTimeout   time.Duration
-	packetTimeout    time.Duration // timeout * feedbackInterval
-	mu               sync.RWMutex
-	transport        TransportSender
-	timerMgr         TimerScheduler
-	ccAlgorithm      cubic.SendAlgorithm
+	connections       map[uint64]*CCConnectionState
+	feedbackInterval  uint32
+	defaultTimeout    time.Duration
+	packetTimeout     time.Duration // timeout * feedbackInterval
+	mu                sync.RWMutex
+	transport         TransportSender
+	timerMgr          TimerScheduler
+	ccAlgorithm       cubic.SendAlgorithm
+	ccFeedbackPktType *packet.PacketType // Cached CCFeedback packet type
 }
 
 // newCCHandler creates a new base congestion control handler
@@ -105,7 +120,7 @@ func newCCHandler(
 	timerMgr TimerScheduler,
 ) *CCHandler {
 	return &CCHandler{
-		connections:      make(map[string]*CCConnectionState),
+		connections:      make(map[uint64]*CCConnectionState),
 		feedbackInterval: feedbackInterval,
 		defaultTimeout:   defaultConnectionTimeout,
 		packetTimeout:    defaultPacketTimeout * time.Duration(feedbackInterval),
@@ -116,7 +131,7 @@ func newCCHandler(
 }
 
 // getOrCreateConnection gets or creates a connection state, updating LastActivity
-func (h *CCHandler) getOrCreateConnection(key string, connID ConnectionID) *CCConnectionState {
+func (h *CCHandler) getOrCreateConnection(key uint64, connID ConnectionID) *CCConnectionState {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -129,14 +144,14 @@ func (h *CCHandler) getOrCreateConnection(key string, connID ConnectionID) *CCCo
 	h.connections[key] = conn
 
 	logging.Debug("Created new CC connection state",
-		zap.String("key", key),
+		zap.Uint64("key", key),
 		zap.String("connID", connID.String()))
 
 	return conn
 }
 
 // trackSentPacket tracks an outgoing packet (sender side)
-func (h *CCHandler) trackSentPacket(dataPkt *packet.DataPacket, connKey string) error {
+func (h *CCHandler) trackSentPacket(dataPkt *packet.DataPacket, connKey uint64) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -177,8 +192,8 @@ func (h *CCHandler) trackSentPacket(dataPkt *packet.DataPacket, connKey string) 
 	}
 	conn.SentPackets[packetID] = packetInfo
 
-	// Schedule timeout for this packet
-	timerKey := transport.TimerKey(fmt.Sprintf("cc_packet_timeout_%d", packetID))
+	// Schedule timeout for this packet (use uint64 arithmetic for timer key)
+	timerKey := transport.TimerKey(uint64(TimerKeyCCPacketTimeoutBase) + packetID)
 	h.timerMgr.Schedule(
 		timerKey,
 		h.packetTimeout,
@@ -200,7 +215,7 @@ func (h *CCHandler) trackSentPacket(dataPkt *packet.DataPacket, connKey string) 
 }
 
 // trackReceivedPacket tracks an incoming packet (receiver side)
-func (h *CCHandler) trackReceivedPacket(dataPkt *packet.DataPacket, connKey string) error {
+func (h *CCHandler) trackReceivedPacket(dataPkt *packet.DataPacket, connKey uint64) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -230,7 +245,7 @@ func (h *CCHandler) trackReceivedPacket(dataPkt *packet.DataPacket, connKey stri
 
 // sendFeedback sends a CCFeedback packet (receiver side)
 // Address is derived from ConnID
-func (h *CCHandler) sendFeedback(conn *CCConnectionState, connKey string) {
+func (h *CCHandler) sendFeedback(conn *CCConnectionState, connKey uint64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -249,7 +264,7 @@ func (h *CCHandler) sendFeedback(conn *CCConnectionState, connKey string) {
 	}
 
 	feedback := &CCFeedbackPacket{
-		PacketTypeID: getCCFeedbackPacketTypeID(h.transport),
+		PacketTypeID: h.ccFeedbackPktType.TypeID,
 		AckedCount:   uint32(len(conn.ReceivedPackets)),
 		AckedBytes:   totalBytes,
 		PacketIDs:    packetIDs,
@@ -269,7 +284,7 @@ func (h *CCHandler) sendFeedback(conn *CCConnectionState, connKey string) {
 	}
 
 	logging.Debug("Sending CCFeedback packet",
-		zap.String("connKey", connKey),
+		zap.Uint64("connKey", connKey),
 		zap.String("addr", addr.String()),
 		zap.Uint32("ackedCount", feedback.AckedCount),
 		zap.Uint64("ackedBytes", feedback.AckedBytes))
@@ -283,7 +298,7 @@ func (h *CCHandler) sendFeedback(conn *CCConnectionState, connKey string) {
 	}
 
 	logging.Debug("Sent CCFeedback",
-		zap.String("connKey", connKey),
+		zap.Uint64("connKey", connKey),
 		zap.Uint32("ackedCount", feedback.AckedCount),
 		zap.Uint64("ackedBytes", feedback.AckedBytes))
 
@@ -293,7 +308,7 @@ func (h *CCHandler) sendFeedback(conn *CCConnectionState, connKey string) {
 }
 
 // processFeedback processes an incoming CCFeedback packet (sender side)
-func (h *CCHandler) processFeedback(feedback *CCFeedbackPacket, connKey string) error {
+func (h *CCHandler) processFeedback(feedback *CCFeedbackPacket, connKey uint64) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -345,8 +360,8 @@ func (h *CCHandler) processFeedback(feedback *CCFeedbackPacket, connKey string) 
 			)
 			h.ccAlgorithm.MaybeExitSlowStart()
 			priorInFlight -= info.bytes
-			// Stop the timeout timer for this packet
-			timerKey := transport.TimerKey(fmt.Sprintf("cc_packet_timeout_%d", packetID))
+			// Stop the timeout timer for this packet (use uint64 arithmetic)
+			timerKey := transport.TimerKey(uint64(TimerKeyCCPacketTimeoutBase) + packetID)
 			h.timerMgr.StopTimer(timerKey)
 
 			// Remove acked packet
@@ -357,8 +372,8 @@ func (h *CCHandler) processFeedback(feedback *CCFeedbackPacket, connKey string) 
 	// Call CUBIC OnCongestionEvent for each lost packet
 	for _, packetID := range lostPackets {
 		if info := conn.SentPackets[packetID]; info != nil {
-			// Stop the timeout timer for this packet
-			timerKey := transport.TimerKey(fmt.Sprintf("cc_packet_timeout_%d", packetID))
+			// Stop the timeout timer for this packet (use uint64 arithmetic)
+			timerKey := transport.TimerKey(uint64(TimerKeyCCPacketTimeoutBase) + packetID)
 			h.timerMgr.StopTimer(timerKey)
 
 			h.ccAlgorithm.OnCongestionEvent(
@@ -374,7 +389,7 @@ func (h *CCHandler) processFeedback(feedback *CCFeedbackPacket, connKey string) 
 	}
 
 	logging.Debug("Processed feedback",
-		zap.String("connKey", connKey),
+		zap.Uint64("connKey", connKey),
 		zap.Int("ackedCount", len(ackedPackets)),
 		zap.Int("lostCount", len(lostPackets)))
 
@@ -389,15 +404,6 @@ func (h *CCHandler) calculateBytesInFlightLocked(conn *CCConnectionState) uint64
 		total += info.bytes
 	}
 	return total
-}
-
-// getCCFeedbackPacketTypeID gets the packet type ID for CCFeedback
-func getCCFeedbackPacketTypeID(transport TransportSender) packet.PacketTypeID {
-	feedbackPacketType, exists := transport.GetPacketRegistry().GetPacketTypeByName(CCFeedbackPacketName)
-	if !exists {
-		return 0
-	}
-	return feedbackPacketType.TypeID
 }
 
 // CanSend checks if we can send more data based on congestion window
@@ -433,7 +439,7 @@ func (h *CCHandler) cleanupExpiredConnections() {
 		if now.Sub(conn.LastActivity) > h.defaultTimeout {
 			delete(h.connections, key)
 			logging.Debug("CC connection timeout, removed state",
-				zap.String("key", key),
+				zap.Uint64("key", key),
 				zap.Duration("timeout", h.defaultTimeout),
 				zap.Duration("elapsed", now.Sub(conn.LastActivity)))
 		}
@@ -441,7 +447,7 @@ func (h *CCHandler) cleanupExpiredConnections() {
 }
 
 // checkTimeoutPacket checks if a specific packet has timed out and assumes loss
-func (h *CCHandler) checkTimeoutPacket(connKey string, packetID uint64) {
+func (h *CCHandler) checkTimeoutPacket(connKey uint64, packetID uint64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -461,7 +467,7 @@ func (h *CCHandler) checkTimeoutPacket(connKey string, packetID uint64) {
 	if now.Sub(info.sendTime) > h.packetTimeout {
 		// Packet timeout - assume loss
 		logging.Debug("Packet timeout - assuming loss",
-			zap.String("connKey", connKey),
+			zap.Uint64("connKey", connKey),
 			zap.Uint64("packetID", packetID),
 			zap.Uint64("timeoutBytes", info.bytes),
 			zap.Duration("elapsed", now.Sub(info.sendTime)))

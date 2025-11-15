@@ -153,12 +153,9 @@ func main() {
 	}
 
 	// Create reliable server handler
-	// Use dummy timer to test timer overhead (comment out to use real timer)
-	// dummyTimer := NewDummyTimerManager()
 	serverHandler := reliable.NewReliableServerHandler(
 		udpTransport,
 		udpTransport.GetTimerManager(),
-		// dummyTimer,
 	)
 	defer serverHandler.Cleanup()
 

@@ -1,6 +1,9 @@
 # Set Go image
 FROM golang:1.24.0-bullseye AS builder
 
+# Accept build argument for variant (default: udp)
+ARG VARIANT=udp
+
 ENV CGO_ENABLED=0
 ENV GO111MODULE=on
 
@@ -15,10 +18,23 @@ WORKDIR /app/benchmark/kv-store-symphony-transport
 
 RUN go mod tidy
 
-# Build binaries
-RUN mkdir -p ./bin
-RUN go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_reliable_cc.go
-RUN go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_reliable_cc.go
+# Build binaries based on variant
+RUN mkdir -p ./bin && \
+    if [ "$VARIANT" = "udp" ]; then \
+        go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_udp.go && \
+        go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_udp.go; \
+    elif [ "$VARIANT" = "reliable" ]; then \
+        go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_reliable.go && \
+        go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_reliable.go; \
+    elif [ "$VARIANT" = "cc" ]; then \
+        go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_cc.go && \
+        go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_cc.go; \
+    elif [ "$VARIANT" = "reliable-cc" ]; then \
+        go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_reliable_cc.go && \
+        go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_reliable_cc.go; \
+    else \
+        echo "Invalid VARIANT: $VARIANT" && exit 1; \
+    fi
 
 # Final image
 FROM ubuntu:22.04

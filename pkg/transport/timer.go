@@ -9,7 +9,8 @@ import (
 // TimerCallback is a function type for timer callbacks
 type TimerCallback func()
 
-type TimerKey string
+// TimerKey is a unique identifier for timers (uint64 for efficiency)
+type TimerKey uint64
 
 // Timer represents a single timer instance
 type Timer struct {

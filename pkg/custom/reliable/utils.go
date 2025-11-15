@@ -50,24 +50,9 @@ func (b *Bitset) Get(index uint32) bool {
 	return (b.bits[wordIndex] & (1 << bitIndex)) != 0
 }
 
-// PopCount returns the number of set bits
-func (b *Bitset) PopCount() uint32 {
-	count := uint32(0)
-	for _, word := range b.bits {
-		count += popCount64(word)
-	}
-	return count
-}
-
-// popCount64 counts the number of set bits in a 64-bit word
-func popCount64(x uint64) uint32 {
-	x = x - ((x >> 1) & 0x5555555555555555)
-	x = (x & 0x3333333333333333) + ((x >> 2) & 0x3333333333333333)
-	x = (x + (x >> 4)) & 0x0f0f0f0f0f0f0f0f
-	x = x + (x >> 8)
-	x = x + (x >> 16)
-	x = x + (x >> 32)
-	return uint32(x & 0x7f)
+// Test checks if the bit at the given index is set (alias for Get, for semantic clarity)
+func (b *Bitset) Test(index uint32) bool {
+	return b.Get(index)
 }
 
 // ConnectionID uniquely identifies a connection
@@ -76,7 +61,14 @@ type ConnectionID struct {
 	Port uint16
 }
 
-// String returns a string representation of the connection ID for use as map key
+// Key returns a binary uint64 representation for efficient map key usage
+// Format: IP (4 bytes in high 48 bits) | Port (2 bytes in low 16 bits)
+func (c ConnectionID) Key() uint64 {
+	return uint64(c.IP[0])<<40 | uint64(c.IP[1])<<32 |
+		uint64(c.IP[2])<<24 | uint64(c.IP[3])<<16 | uint64(c.Port)
+}
+
+// String returns a string representation of the connection ID for logging
 func (c ConnectionID) String() string {
 	return fmt.Sprintf("%d.%d.%d.%d:%d", c.IP[0], c.IP[1], c.IP[2], c.IP[3], c.Port)
 }
@@ -85,9 +77,9 @@ func (c ConnectionID) String() string {
 type MsgTx struct {
 	Count      uint32
 	SendTs     time.Time
-	DstAddr    string            // Destination address for retransmission
-	PacketType packet.PacketType // Packet type for retransmission
-	Segments   map[uint16][]byte // Buffered packet data by segment number
+	DstAddr    uint64                       // Destination address key for retransmission
+	PacketType packet.PacketType            // Packet type for retransmission
+	Segments   map[uint16]packet.DataPacket // Buffered packet copies (lazy serialization)
 }
 
 // ConnectionState tracks the state of a single connection
@@ -99,20 +91,22 @@ type ConnectionState struct {
 	TxMsg map[uint64]*MsgTx
 
 	// Rx tracking (RESPONSE for client, REQUEST for server)
-	RxMsgSeen     map[uint64]*Bitset
-	RxMsgCount    map[uint64]uint32
-	RxMsgComplete map[uint64]bool
+	RxMsgSeen          map[uint64]*Bitset
+	RxMsgCount         map[uint64]uint32
+	RxMsgReceivedCount map[uint64]uint32 // Track received count incrementally
+	RxMsgComplete      map[uint64]bool
 }
 
 // newConnectionState creates a new connection state
 func newConnectionState(connID ConnectionID) *ConnectionState {
 	return &ConnectionState{
-		ConnID:        connID,
-		LastActivity:  time.Now(),
-		TxMsg:         make(map[uint64]*MsgTx),
-		RxMsgSeen:     make(map[uint64]*Bitset),
-		RxMsgCount:    make(map[uint64]uint32),
-		RxMsgComplete: make(map[uint64]bool),
+		ConnID:             connID,
+		LastActivity:       time.Now(),
+		TxMsg:              make(map[uint64]*MsgTx),
+		RxMsgSeen:          make(map[uint64]*Bitset),
+		RxMsgCount:         make(map[uint64]uint32),
+		RxMsgReceivedCount: make(map[uint64]uint32),
+		RxMsgComplete:      make(map[uint64]bool),
 	}
 }
 
@@ -132,17 +126,18 @@ type TimerScheduler interface {
 
 // ReliableHandler is the base handler containing common state and logic
 type ReliableHandler struct {
-	connections    map[string]*ConnectionState
+	connections    map[uint64]*ConnectionState
 	defaultTimeout time.Duration
 	mu             sync.RWMutex
 	transport      TransportSender
 	timerMgr       TimerScheduler
+	ackPacketType  *packet.PacketType // Cached ACK packet type
 }
 
 // newReliableHandler creates a new base reliable handler
 func newReliableHandler(transportSender TransportSender, timerMgr TimerScheduler, timeout time.Duration) *ReliableHandler {
 	return &ReliableHandler{
-		connections:    make(map[string]*ConnectionState),
+		connections:    make(map[uint64]*ConnectionState),
 		defaultTimeout: timeout,
 		transport:      transportSender,
 		timerMgr:       timerMgr,
@@ -151,7 +146,7 @@ func newReliableHandler(transportSender TransportSender, timerMgr TimerScheduler
 
 // getOrCreateConnection gets or creates a connection state, updating LastActivity
 // This is the public version that acquires its own lock
-func (h *ReliableHandler) getOrCreateConnection(key string, connID ConnectionID) *ConnectionState {
+func (h *ReliableHandler) getOrCreateConnection(key uint64, connID ConnectionID) *ConnectionState {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.getOrCreateConnectionLocked(key, connID)
@@ -159,7 +154,7 @@ func (h *ReliableHandler) getOrCreateConnection(key string, connID ConnectionID)
 
 // getOrCreateConnectionLocked gets or creates a connection state, updating LastActivity
 // This is the internal version that assumes the lock is already held
-func (h *ReliableHandler) getOrCreateConnectionLocked(key string, connID ConnectionID) *ConnectionState {
+func (h *ReliableHandler) getOrCreateConnectionLocked(key uint64, connID ConnectionID) *ConnectionState {
 	if conn, exists := h.connections[key]; exists {
 		conn.LastActivity = time.Now()
 		return conn
@@ -169,7 +164,7 @@ func (h *ReliableHandler) getOrCreateConnectionLocked(key string, connID Connect
 	h.connections[key] = conn
 
 	logging.Debug("Created new connection state",
-		zap.String("key", key),
+		zap.Uint64("key", key),
 		zap.String("connID", connID.String()))
 
 	return conn
@@ -188,15 +183,9 @@ func (h *ReliableHandler) serializeDataPacket(pkt *packet.DataPacket) ([]byte, e
 
 // sendACK sends an ACK packet
 func (h *ReliableHandler) sendACK(rpcID uint64, kind uint8, addr *net.UDPAddr) error {
-	// Get ACK packet type from registry
-	ackPacketType, exists := h.transport.GetPacketRegistry().GetPacketTypeByName(AckPacketName)
-	if !exists {
-		logging.Error("ACK packet type not registered in transport")
-		return errors.New("ACK packet type not registered")
-	}
-
+	// Use cached ACK packet type (initialized during handler creation)
 	ackPkt := &ACKPacket{
-		PacketTypeID: ackPacketType.TypeID,
+		PacketTypeID: h.ackPacketType.TypeID,
 		RPCID:        rpcID,
 		Kind:         kind,
 		Status:       0, // Success
@@ -237,7 +226,7 @@ func (h *ReliableHandler) cleanupExpiredConnections() {
 		if now.Sub(conn.LastActivity) > h.defaultTimeout {
 			delete(h.connections, key)
 			logging.Debug("Connection timeout, removed state",
-				zap.String("key", key),
+				zap.Uint64("key", key),
 				zap.Duration("timeout", h.defaultTimeout),
 				zap.Duration("elapsed", now.Sub(conn.LastActivity)))
 		}
@@ -255,8 +244,16 @@ func (h *ReliableHandler) startCleanupTimer(timerKey transport.TimerKey) {
 	)
 }
 
+// Predefined timer key constants for common timers
+const (
+	TimerKeyReliableClientCleanup transport.TimerKey = 1
+	TimerKeyReliableServerCleanup transport.TimerKey = 2
+	// Message timeout timers use RPCID directly as key (starting from 1000 to avoid conflicts)
+	TimerKeyMessageTimeoutBase transport.TimerKey = 1000
+)
+
 // checkRetransmission checks if a specific message needs retransmission
-func (h *ReliableHandler) checkRetransmission(connKey string, rpcID uint64, timeout time.Duration) {
+func (h *ReliableHandler) checkRetransmission(connKey uint64, rpcID uint64, timeout time.Duration) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -281,33 +278,45 @@ func (h *ReliableHandler) checkRetransmission(connKey string, rpcID uint64, time
 	if now.Sub(msgTx.SendTs) > timeout {
 		logging.Debug("Message retransmission timeout detected",
 			zap.Uint64("rpcID", rpcID),
-			zap.String("connection", connKey),
+			zap.Uint64("connection", connKey),
 			zap.Duration("elapsed", now.Sub(msgTx.SendTs)),
 			zap.Duration("timeout", timeout),
 			zap.Int("segments", len(msgTx.Segments)))
 
-		// Retransmit all segments
-		for seqNum, segmentData := range msgTx.Segments {
-			err := h.transport.Send(msgTx.DstAddr, rpcID, segmentData, msgTx.PacketType)
+		// Retransmit all segments - serialize on retransmit (lazy serialization)
+		dstAddr := conn.ConnID.String()
+		for seqNum, pktCopy := range msgTx.Segments {
+			// Serialize packet only on retransmission (not on initial send)
+			serializedData, err := h.serializeDataPacket(&pktCopy)
+			if err != nil {
+				logging.Error("Failed to serialize packet for retransmission",
+					zap.Uint64("rpcID", rpcID),
+					zap.Uint16("seqNumber", seqNum),
+					zap.Uint64("connection", connKey),
+					zap.Error(err))
+				continue
+			}
+
+			err = h.transport.Send(dstAddr, rpcID, serializedData, msgTx.PacketType)
 			if err != nil {
 				logging.Error("Failed to retransmit segment",
 					zap.Uint64("rpcID", rpcID),
 					zap.Uint16("seqNumber", seqNum),
-					zap.String("connection", connKey),
+					zap.Uint64("connection", connKey),
 					zap.Error(err))
 			} else {
 				logging.Debug("Retransmitted segment",
 					zap.Uint64("rpcID", rpcID),
 					zap.Uint16("seqNumber", seqNum),
-					zap.String("connection", connKey))
+					zap.Uint64("connection", connKey))
 			}
 		}
 
 		// Update SendTs to current time and reschedule timeout for next retry
 		msgTx.SendTs = now
 
-		// Reschedule timeout for next retry
-		timerKey := transport.TimerKey(fmt.Sprintf("reliable_msg_timeout_%d", rpcID))
+		// Reschedule timeout for next retry (use RPCID as key directly)
+		timerKey := transport.TimerKey(uint64(TimerKeyMessageTimeoutBase) + rpcID)
 		h.timerMgr.Schedule(
 			timerKey,
 			timeout,
@@ -324,17 +333,7 @@ func (h *ReliableHandler) handleSendDataPacket(pkt *packet.DataPacket, packetTyp
 
 	// Extract connection ID from destination
 	connID := ConnectionID{IP: pkt.DstIP, Port: pkt.DstPort}
-	key := connID.String()
-
-	// Serialize packet for buffering (do this before acquiring lock to minimize lock time)
-	serializedData, err := h.serializeDataPacket(pkt)
-	if err != nil {
-		logging.Error("Failed to serialize packet for buffering",
-			zap.String("packetType", packetTypeName),
-			zap.Uint64("rpcID", pkt.RPCID),
-			zap.Error(err))
-		return err
-	}
+	key := connID.Key()
 
 	// Get packet type for retransmission (do this before acquiring lock)
 	packetType, exists := h.transport.GetPacketRegistry().GetPacketType(pkt.PacketTypeID)
@@ -359,18 +358,20 @@ func (h *ReliableHandler) handleSendDataPacket(pkt *packet.DataPacket, packetTyp
 			SendTs:     time.Now(),
 			DstAddr:    key,
 			PacketType: packetType,
-			Segments:   make(map[uint16][]byte),
+			Segments:   make(map[uint16]packet.DataPacket),
 		}
 		isNewMessage = true
 	}
 
-	// Buffer this segment
-	conn.TxMsg[pkt.RPCID].Segments[pkt.SeqNumber] = serializedData
+	// Buffer this segment as a packet copy (lazy serialization - no double serialization!)
+	// Dereference pkt to create a value copy, ensuring immutability
+	conn.TxMsg[pkt.RPCID].Segments[pkt.SeqNumber] = *pkt
 
 	// Schedule timeout for this message (only for first segment)
 	if isNewMessage {
 		retransmitTimeout := 1 * time.Second // Default retransmit timeout
-		timerKey := transport.TimerKey(fmt.Sprintf("reliable_msg_timeout_%d", pkt.RPCID))
+		// Use RPCID directly as timer key (no string formatting needed!)
+		timerKey := transport.TimerKey(uint64(TimerKeyMessageTimeoutBase) + pkt.RPCID)
 		h.timerMgr.Schedule(
 			timerKey,
 			retransmitTimeout,
@@ -385,7 +386,7 @@ func (h *ReliableHandler) handleSendDataPacket(pkt *packet.DataPacket, packetTyp
 		zap.Uint64("rpcID", pkt.RPCID),
 		zap.Uint16("seqNumber", pkt.SeqNumber),
 		zap.Uint16("totalPackets", pkt.TotalPackets),
-		zap.String("connection", key))
+		zap.Uint64("connection", key))
 
 	return nil
 }
@@ -400,7 +401,7 @@ func (h *ReliableHandler) handleSendACK(ack *ACKPacket, addr *net.UDPAddr, packe
 		copy(connID.IP[:], ip4)
 	}
 	connID.Port = uint16(addr.Port)
-	key := connID.String()
+	key := connID.Key()
 
 	// Just update activity timestamp
 	h.getOrCreateConnection(key, connID)
@@ -409,7 +410,7 @@ func (h *ReliableHandler) handleSendACK(ack *ACKPacket, addr *net.UDPAddr, packe
 		zap.String("packetType", packetTypeName),
 		zap.Uint64("rpcID", ack.RPCID),
 		zap.String("peer", peerType),
-		zap.String("connection", key))
+		zap.Uint64("connection", key))
 
 	return nil
 }
@@ -419,7 +420,7 @@ func (h *ReliableHandler) handleSendACK(ack *ACKPacket, addr *net.UDPAddr, packe
 func (h *ReliableHandler) handleReceiveDataPacket(pkt *packet.DataPacket, addr *net.UDPAddr, ackKind uint8, packetTypeName string, peerType string) error {
 	// Extract connection ID from source
 	connID := ConnectionID{IP: pkt.SrcIP, Port: pkt.SrcPort}
-	key := connID.String()
+	key := connID.Key()
 
 	// Acquire lock once for all operations
 	h.mu.Lock()
@@ -433,7 +434,7 @@ func (h *ReliableHandler) handleReceiveDataPacket(pkt *packet.DataPacket, addr *
 			zap.String("packetType", packetTypeName),
 			zap.Uint64("rpcID", pkt.RPCID),
 			zap.String("peer", peerType),
-			zap.String("connection", key))
+			zap.Uint64("connection", key))
 
 		// Release lock before sending ACK
 		h.mu.Unlock()
@@ -448,13 +449,17 @@ func (h *ReliableHandler) handleReceiveDataPacket(pkt *packet.DataPacket, addr *
 	if _, exists := conn.RxMsgSeen[pkt.RPCID]; !exists {
 		conn.RxMsgSeen[pkt.RPCID] = NewBitset(uint32(pkt.TotalPackets))
 		conn.RxMsgCount[pkt.RPCID] = uint32(pkt.TotalPackets)
+		conn.RxMsgReceivedCount[pkt.RPCID] = 0
 	}
 
-	// Mark segment received
-	conn.RxMsgSeen[pkt.RPCID].Set(uint32(pkt.SeqNumber), true)
+	// Check if already received (duplicate detection) and increment count if new
+	if !conn.RxMsgSeen[pkt.RPCID].Test(uint32(pkt.SeqNumber)) {
+		conn.RxMsgSeen[pkt.RPCID].Set(uint32(pkt.SeqNumber), true)
+		conn.RxMsgReceivedCount[pkt.RPCID]++
+	}
 
-	// Check if complete (calculate count once)
-	receivedCount := conn.RxMsgSeen[pkt.RPCID].PopCount()
+	// Check if complete using incremental count
+	receivedCount := conn.RxMsgReceivedCount[pkt.RPCID]
 	isComplete := receivedCount == conn.RxMsgCount[pkt.RPCID]
 
 	if isComplete {
@@ -468,7 +473,7 @@ func (h *ReliableHandler) handleReceiveDataPacket(pkt *packet.DataPacket, addr *
 		zap.Uint16("totalPackets", pkt.TotalPackets),
 		zap.Uint32("receivedCount", receivedCount),
 		zap.String("peer", peerType),
-		zap.String("connection", key))
+		zap.Uint64("connection", key))
 
 	// Release lock before sending ACK (if complete)
 	if isComplete {
@@ -476,7 +481,7 @@ func (h *ReliableHandler) handleReceiveDataPacket(pkt *packet.DataPacket, addr *
 			zap.String("packetType", packetTypeName),
 			zap.Uint64("rpcID", pkt.RPCID),
 			zap.String("peer", peerType),
-			zap.String("connection", key))
+			zap.Uint64("connection", key))
 
 		h.mu.Unlock()
 		err := h.sendACK(pkt.RPCID, ackKind, addr)
@@ -500,7 +505,7 @@ func (h *ReliableHandler) handleReceiveACK(ack *ACKPacket, addr *net.UDPAddr, pa
 		copy(connID.IP[:], ip4)
 	}
 	connID.Port = uint16(addr.Port)
-	key := connID.String()
+	key := connID.Key()
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -512,15 +517,15 @@ func (h *ReliableHandler) handleReceiveACK(ack *ACKPacket, addr *net.UDPAddr, pa
 			msgTx.SendTs = time.Time{} // Zero time indicates ACKed
 			msgTx.Segments = nil       // Clear buffered data to save memory
 
-			// Stop the timeout timer for this message
-			timerKey := transport.TimerKey(fmt.Sprintf("reliable_msg_timeout_%d", ack.RPCID))
+			// Stop the timeout timer for this message (use RPCID as key directly)
+			timerKey := transport.TimerKey(uint64(TimerKeyMessageTimeoutBase) + ack.RPCID)
 			h.timerMgr.StopTimer(timerKey)
 
 			logging.Debug("Received ACK",
 				zap.String("packetType", packetTypeName),
 				zap.Uint64("rpcID", ack.RPCID),
 				zap.String("peer", peerType),
-				zap.String("connection", key))
+				zap.Uint64("connection", key))
 		}
 	}
 
