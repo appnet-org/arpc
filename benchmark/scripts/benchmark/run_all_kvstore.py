@@ -25,20 +25,30 @@ logger = logging.getLogger(__name__)
 
 # Get the directory of this script
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ARPC_DIR = os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
 
 # Use relative paths from the script directory
-wrk_path = os.path.join(SCRIPT_DIR, "../wrk/wrk")
-lua_path = os.path.join(SCRIPT_DIR, "../../meta-kv-trace/kvstore-wrk.lua")
+wrk_path = os.path.join(ARPC_DIR, "benchmark/scripts/wrk/wrk")
+lua_path = os.path.join(ARPC_DIR, "benchmark/meta-kv-trace/kvstore-wrk.lua")
 
 manifest_dict = {
-    "kv-store-grpc": os.path.join(SCRIPT_DIR, "../../kv-store-grpc/manifest/kvstore.yaml"),
-    # "kv-store-grpc-istio": os.path.join(SCRIPT_DIR, "../../kv-store-grpc/manifest/kvstore-istio.yaml"),
-    # "kv-store-thrift-tcp": os.path.join(SCRIPT_DIR, "../../kv-store-thrift-tcp/manifest/kvstore.yaml"),
-    # "kv-store-thrift-http": os.path.join(SCRIPT_DIR, "../../kv-store-thrift-http/manifest/kvstore.yaml"),
-    "kv-store-symphony": os.path.join(SCRIPT_DIR, "../../kv-store-symphony/manifest/kvstore.yaml"),
-    # "kv-store-symphony-proxy": os.path.join(SCRIPT_DIR, "../../kv-store-symphony/manifest/kvstore-proxy.yaml"),
-    # "kv-store-arpc-tcp": os.path.join(SCRIPT_DIR, "../manifest-arpc/kv-store-tcp.yaml"),
+    "kv-store-grpc": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore.yaml"),
+    "kv-store-grpc-istio": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore-istio.yaml"),
+    "kv-store-thrift-tcp": os.path.join(ARPC_DIR, "benchmark/kv-store-thrift-tcp/manifest/kvstore.yaml"),
+    "kv-store-thrift-http": os.path.join(ARPC_DIR, "benchmark/kv-store-thrift-http/manifest/kvstore.yaml"),
+    "kv-store-symphony": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore.yaml"),
+    "kv-store-symphony-proxy": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore-proxy.yaml"),
+    "kv-store-arpc-tcp": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-tcp.yaml"),
+    "kv-store-arpc-quic": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-quic.yaml"),
+    "kv-store-arpc-h2": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-h2.yaml"),
 }
+
+# check if all manifests exist
+for manifest_path in manifest_dict.values():
+    if not os.path.exists(manifest_path):
+        logger.error(f"Manifest {manifest_path} does not exist")
+        exit(1)
+    logger.info(f"Manifest {manifest_path} exists")
 
 def deploy_manifest(manifest_path):
     """Deploy the Kubernetes manifest file."""
