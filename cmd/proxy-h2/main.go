@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -18,6 +19,7 @@ import (
 	"github.com/appnet-org/proxy-h2/element"
 	"go.uber.org/zap"
 	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/hpack"
 	"golang.org/x/sys/unix"
 )
 
@@ -30,8 +32,10 @@ const (
 
 // ProxyState manages the state of the TCP proxy
 type ProxyState struct {
-	elementChain  *element.RPCElementChain
-	bufferManager *StreamBufferManager
+	elementChain   *element.RPCElementChain
+	bufferManager  *StreamBufferManager
+	headerManager  *HeaderManager
+	payloadManager *StreamPayloadManager
 	// Target server address for proxying (optional, can be configured via env)
 	// Used only if SO_ORIGINAL_DST is unavailable
 	targetAddr string
@@ -54,6 +58,225 @@ type StreamBufferKey struct {
 type StreamBufferManager struct {
 	buffers map[StreamBufferKey]*bytes.Buffer
 	mu      sync.RWMutex
+}
+
+// StreamPayloadManager manages per-stream payload accumulation for element chain processing
+type StreamPayloadManager struct {
+	payloads map[StreamBufferKey][]byte // Accumulated payload per stream
+	mu       sync.RWMutex
+}
+
+// NewStreamPayloadManager creates a new StreamPayloadManager
+func NewStreamPayloadManager() *StreamPayloadManager {
+	return &StreamPayloadManager{
+		payloads: make(map[StreamBufferKey][]byte),
+	}
+}
+
+// AppendPayload appends data to the payload for a stream
+func (m *StreamPayloadManager) AppendPayload(conn net.Conn, streamID uint32, data []byte) {
+	key := StreamBufferKey{Conn: conn, StreamID: streamID}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.payloads[key] = append(m.payloads[key], data...)
+}
+
+// GetPayload returns the accumulated payload for a stream
+func (m *StreamPayloadManager) GetPayload(conn net.Conn, streamID uint32) ([]byte, bool) {
+	key := StreamBufferKey{Conn: conn, StreamID: streamID}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	payload, exists := m.payloads[key]
+	if !exists {
+		return nil, false
+	}
+	// Return a copy
+	payloadCopy := make([]byte, len(payload))
+	copy(payloadCopy, payload)
+	return payloadCopy, true
+}
+
+// SetPayload sets the payload for a stream (used after element chain processing)
+func (m *StreamPayloadManager) SetPayload(conn net.Conn, streamID uint32, payload []byte) {
+	key := StreamBufferKey{Conn: conn, StreamID: streamID}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	payloadCopy := make([]byte, len(payload))
+	copy(payloadCopy, payload)
+	m.payloads[key] = payloadCopy
+}
+
+// RemovePayload removes the payload for a stream
+func (m *StreamPayloadManager) RemovePayload(conn net.Conn, streamID uint32) {
+	key := StreamBufferKey{Conn: conn, StreamID: streamID}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.payloads, key)
+}
+
+// Headers represents HTTP/2 headers as a map from header name to values
+// Header names are stored in lowercase (HTTP/2 requirement)
+type Headers map[string][]string
+
+// HeaderInfo stores decoded headers for a stream along with metadata
+type HeaderInfo struct {
+	Headers    Headers
+	IsRequest  bool
+	IsComplete bool // true when EndHeaders is set
+}
+
+// HeaderManager manages per-stream decoded headers
+type HeaderManager struct {
+	headers  map[StreamBufferKey]*HeaderInfo
+	decoders map[net.Conn]*hpack.Decoder // HPACK decoder per connection
+	mu       sync.RWMutex
+}
+
+// NewHeaderManager creates a new HeaderManager
+func NewHeaderManager() *HeaderManager {
+	return &HeaderManager{
+		headers:  make(map[StreamBufferKey]*HeaderInfo),
+		decoders: make(map[net.Conn]*hpack.Decoder),
+	}
+}
+
+// DecodeAndStoreHeaders decodes HPACK-encoded headers and stores them for a stream
+func (m *HeaderManager) DecodeAndStoreHeaders(conn net.Conn, streamID uint32, blockFragment []byte, endHeaders bool, isRequest bool) error {
+	key := StreamBufferKey{Conn: conn, StreamID: streamID}
+
+	m.mu.Lock()
+	// Get or create header info for this stream
+	if _, exists := m.headers[key]; !exists {
+		m.headers[key] = &HeaderInfo{
+			Headers:    make(Headers),
+			IsRequest:  isRequest,
+			IsComplete: false,
+		}
+	}
+	// Get decoder for this connection (must hold lock to get decoder safely)
+	decoder := m.getDecoderUnsafe(conn)
+	m.mu.Unlock()
+
+	// Set the emit function to capture decoded header fields for this specific stream
+	// Capture key in closure so callback knows which stream these headers belong to
+	decoder.SetEmitFunc(func(f hpack.HeaderField) {
+		// Store header (HTTP/2 header names must be lowercase)
+		headerName := strings.ToLower(f.Name)
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if info, exists := m.headers[key]; exists {
+			info.Headers[headerName] = append(info.Headers[headerName], f.Value)
+		}
+	})
+
+	// Decode the header block fragment
+	// HPACK decoder expects to receive fragments and accumulates them until EndHeaders
+	_, err := decoder.Write(blockFragment)
+	if err != nil {
+		return fmt.Errorf("failed to decode HPACK block fragment: %w", err)
+	}
+
+	// Mark as complete when EndHeaders flag is set
+	if endHeaders {
+		m.mu.Lock()
+		if info, exists := m.headers[key]; exists {
+			info.IsComplete = true
+		}
+		m.mu.Unlock()
+	}
+
+	return nil
+}
+
+// getDecoderUnsafe returns or creates an HPACK decoder for a connection
+// Must be called while holding m.mu lock
+func (m *HeaderManager) getDecoderUnsafe(conn net.Conn) *hpack.Decoder {
+	if decoder, exists := m.decoders[conn]; exists {
+		return decoder
+	}
+
+	// Create decoder with a no-op callback (we'll set it per-stream in DecodeAndStoreHeaders)
+	decoder := hpack.NewDecoder(4096, func(hpack.HeaderField) {}) // 4096 is the default dynamic table size
+	m.decoders[conn] = decoder
+	return decoder
+}
+
+// GetHeaders returns the decoded headers for a stream
+func (m *HeaderManager) GetHeaders(conn net.Conn, streamID uint32) (Headers, bool) {
+	key := StreamBufferKey{Conn: conn, StreamID: streamID}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	info, exists := m.headers[key]
+	if !exists {
+		return nil, false
+	}
+
+	// Return a copy to prevent external modification
+	headersCopy := make(Headers)
+	for k, v := range info.Headers {
+		headersCopy[k] = make([]string, len(v))
+		copy(headersCopy[k], v)
+	}
+
+	return headersCopy, true
+}
+
+// GetHeaderInfo returns the full header info for a stream
+func (m *HeaderManager) GetHeaderInfo(conn net.Conn, streamID uint32) (*HeaderInfo, bool) {
+	key := StreamBufferKey{Conn: conn, StreamID: streamID}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	info, exists := m.headers[key]
+	if !exists {
+		return nil, false
+	}
+
+	// Return a copy
+	infoCopy := &HeaderInfo{
+		Headers:    make(Headers),
+		IsRequest:  info.IsRequest,
+		IsComplete: info.IsComplete,
+	}
+	for k, v := range info.Headers {
+		infoCopy.Headers[k] = make([]string, len(v))
+		copy(infoCopy.Headers[k], v)
+	}
+
+	return infoCopy, true
+}
+
+// RemoveHeaders removes stored headers for a stream
+func (m *HeaderManager) RemoveHeaders(conn net.Conn, streamID uint32) {
+	key := StreamBufferKey{Conn: conn, StreamID: streamID}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	delete(m.headers, key)
+}
+
+// RemoveAllForConnection removes all headers and decoder for a connection
+func (m *HeaderManager) RemoveAllForConnection(conn net.Conn) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Remove all headers for this connection
+	var keysToDelete []StreamBufferKey
+	for key := range m.headers {
+		if key.Conn == conn {
+			keysToDelete = append(keysToDelete, key)
+		}
+	}
+	for _, key := range keysToDelete {
+		delete(m.headers, key)
+	}
+
+	// Remove decoder for this connection
+	delete(m.decoders, conn)
 }
 
 // NewStreamBufferManager creates a new StreamBufferManager
@@ -250,9 +473,11 @@ func main() {
 	config := DefaultConfig()
 
 	state := &ProxyState{
-		elementChain:  elementChain,
-		bufferManager: NewStreamBufferManager(),
-		targetAddr:    config.TargetAddr,
+		elementChain:   elementChain,
+		bufferManager:  NewStreamBufferManager(),
+		headerManager:  NewHeaderManager(),
+		payloadManager: NewStreamPayloadManager(),
+		targetAddr:     config.TargetAddr,
 	}
 
 	logging.Info("Proxy target configured", zap.String("target", state.targetAddr))
@@ -332,7 +557,6 @@ func handleConnection(clientConn net.Conn, state *ProxyState) {
 	if n > 0 {
 		prefaceStr := string(peekBytes[:n])
 		if prefaceStr != HTTP2Preface && !(n >= 3 && prefaceStr[:3] == "PRI") {
-			logging.Error("Client is not following HTTP2.")
 			return
 		}
 	}
@@ -403,6 +627,76 @@ func handleHTTP2Connection(clientConn net.Conn, preface []byte, state *ProxyStat
 	wg.Wait()
 }
 
+// processStreamThroughElementChain processes a complete stream (headers + payload) through the element chain
+// Returns verdict and whether the stream should be flushed (false if dropped)
+func processStreamThroughElementChain(ctx context.Context, state *ProxyState, connKey net.Conn, streamID uint32, isRequest bool, buf *bytes.Buffer) (element.Verdict, bool) {
+	// Get headers for this stream
+	headers, headersExist := state.headerManager.GetHeaders(connKey, streamID)
+	if !headersExist {
+		logging.Debug("No headers found for stream, skipping element chain processing",
+			zap.Uint32("streamID", streamID),
+			zap.Bool("isRequest", isRequest))
+		return element.VerdictPass, true
+	}
+
+	// Get accumulated payload for this stream
+	payload, payloadExists := state.payloadManager.GetPayload(connKey, streamID)
+	if !payloadExists || len(payload) == 0 {
+		logging.Debug("No payload found for stream, skipping element chain processing",
+			zap.Uint32("streamID", streamID),
+			zap.Bool("isRequest", isRequest))
+		return element.VerdictPass, true
+	}
+
+	// Create HTTP2RPCContext for element chain processing
+	// Note: GetHeaders() and GetPayload() already return copies, so we just need to convert types
+	rpcCtx := &element.HTTP2RPCContext{
+		Headers:    element.Headers(headers), // Already a copy from GetHeaders(), just converting type
+		Payload:    payload,                  // Already a copy from GetPayload()
+		StreamID:   streamID,
+		IsRequest:  isRequest,
+		RemoteAddr: connKey.RemoteAddr().String(),
+	}
+
+	// Extract pseudo-headers if available
+	if path := rpcCtx.GetHeader(":path"); path != "" {
+		rpcCtx.Path = path
+	}
+	if method := rpcCtx.GetHeader(":method"); method != "" {
+		rpcCtx.Method = method
+	}
+	if authority := rpcCtx.GetHeader(":authority"); authority != "" {
+		rpcCtx.Authority = authority
+	}
+
+	// Process through element chain
+	var verdict element.Verdict
+	var err error
+	if isRequest {
+		verdict, _, err = state.elementChain.ProcessRequest(ctx, rpcCtx)
+	} else {
+		verdict, _, err = state.elementChain.ProcessResponse(ctx, rpcCtx)
+	}
+
+	if err != nil {
+		logging.Error("Error processing stream through element chain",
+			zap.Uint32("streamID", streamID),
+			zap.Bool("isRequest", isRequest),
+			zap.Error(err))
+		// On error, pass through (don't drop)
+		return element.VerdictPass, true
+	}
+
+	if verdict == element.VerdictDrop {
+		logging.Debug("Stream dropped by element chain",
+			zap.Uint32("streamID", streamID),
+			zap.Bool("isRequest", isRequest))
+		return element.VerdictDrop, false
+	}
+
+	return element.VerdictPass, true
+}
+
 // handleHTTP2Stream processes HTTP/2 frames in a stream direction
 // Buffers stream-specific frames and flushes them when END_STREAM is received
 func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxyState, ctx context.Context, isRequest bool, connKey net.Conn) {
@@ -435,18 +729,14 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 			data := make([]byte, len(f.Data()))
 			copy(data, f.Data())
 
+			// Accumulate payload for element chain processing
+			state.payloadManager.AppendPayload(connKey, f.StreamID, data)
+
 			logging.Debug("DATA frame content",
 				zap.Uint32("streamID", f.StreamID),
 				zap.Int("dataLen", len(data)),
 				zap.ByteString("data", data),
 				zap.Bool("isRequest", isRequest))
-
-			// processedData, err := processGRPCMessage(ctx, state, data, isRequest)
-			// if err != nil {
-			// 	logging.Error("Error processing gRPC message", zap.Error(err))
-			// 	// Forward original data on error
-			// 	processedData = data
-			// }
 
 			// Get or create buffer for this stream (keyed by connection + stream ID)
 			buf := state.bufferManager.GetOrCreateBuffer(connKey, f.StreamID)
@@ -466,12 +756,31 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 				zap.Bool("isRequest", isRequest),
 				zap.String("connKey", connKey.RemoteAddr().String()))
 
-			// If stream ended, flush buffer to destination
+			// If stream ended, process through element chain and flush buffer
 			if f.StreamEnded() {
+				// Process through element chain before flushing
+				verdict, shouldFlush := processStreamThroughElementChain(ctx, state, connKey, f.StreamID, isRequest, buf)
+				if !shouldFlush {
+					// Stream was dropped by element chain
+					logging.Debug("Stream dropped by element chain",
+						zap.Uint32("streamID", f.StreamID),
+						zap.Bool("isRequest", isRequest),
+						zap.String("verdict", verdict.String()))
+					// Remove buffer without flushing
+					state.bufferManager.FlushAndRemove(connKey, f.StreamID, io.Discard)
+					state.headerManager.RemoveHeaders(connKey, f.StreamID)
+					state.payloadManager.RemovePayload(connKey, f.StreamID)
+					return
+				}
+
+				// Flush buffer to destination
 				if err := state.bufferManager.FlushAndRemove(connKey, f.StreamID, destConn); err != nil {
 					logging.Error("Error flushing stream buffer", zap.Error(err))
 					return
 				}
+				// Clean up headers and payload for this stream
+				state.headerManager.RemoveHeaders(connKey, f.StreamID)
+				state.payloadManager.RemovePayload(connKey, f.StreamID)
 				logging.Debug("Flushed stream buffer",
 					zap.Uint32("streamID", f.StreamID),
 					zap.Bool("isRequest", isRequest),
@@ -479,6 +788,23 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 			}
 
 		case *http2.HeadersFrame:
+			// Decode and store headers
+			blockFragment := f.HeaderBlockFragment()
+			if err := state.headerManager.DecodeAndStoreHeaders(connKey, f.StreamID, blockFragment, f.HeadersEnded(), isRequest); err != nil {
+				logging.Error("Error decoding headers", zap.Error(err))
+				// Continue processing even if decoding fails
+			} else {
+				// Log decoded headers when complete
+				if f.HeadersEnded() {
+					headers, _ := state.headerManager.GetHeaders(connKey, f.StreamID)
+					logging.Debug("Decoded HTTP/2 headers",
+						zap.Uint32("streamID", f.StreamID),
+						zap.Bool("isRequest", isRequest),
+						zap.Any("headers", headers),
+						zap.String("connKey", connKey.RemoteAddr().String()))
+				}
+			}
+
 			// Get or create buffer for this stream (keyed by connection + stream ID)
 			buf := state.bufferManager.GetOrCreateBuffer(connKey, f.StreamID)
 
@@ -488,7 +814,7 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 			// Write HEADERS frame to buffer
 			if err := bufFramer.WriteHeaders(http2.HeadersFrameParam{
 				StreamID:      f.StreamID,
-				BlockFragment: f.HeaderBlockFragment(),
+				BlockFragment: blockFragment,
 				EndHeaders:    f.HeadersEnded(),
 				EndStream:     f.StreamEnded(),
 				Priority:      f.Priority,
@@ -503,12 +829,14 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 				zap.Bool("isRequest", isRequest),
 				zap.String("connKey", connKey.RemoteAddr().String()))
 
-			// If stream ended, flush buffer to destination
+			// If stream ended, flush buffer to destination and clean up headers
 			if f.StreamEnded() {
 				if err := state.bufferManager.FlushAndRemove(connKey, f.StreamID, destConn); err != nil {
 					logging.Error("Error flushing stream buffer", zap.Error(err))
 					return
 				}
+				// Clean up headers for this stream
+				state.headerManager.RemoveHeaders(connKey, f.StreamID)
 				logging.Debug("Flushed stream buffer",
 					zap.Uint32("streamID", f.StreamID),
 					zap.Bool("isRequest", isRequest),
@@ -571,6 +899,9 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 				return
 			}
 
+			// Clean up all headers and decoders for this connection
+			state.headerManager.RemoveAllForConnection(connKey)
+
 			// Forward GOAWAY frame (connection-level)
 			if err := directFramer.WriteGoAway(f.StreamID, f.ErrCode, f.DebugData()); err != nil {
 				logging.Error("Error writing GOAWAY frame", zap.Error(err))
@@ -587,11 +918,13 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 				return
 			}
 
-			// RST_STREAM ends the stream, flush buffer
+			// RST_STREAM ends the stream, flush buffer and clean up headers
 			if err := state.bufferManager.FlushAndRemove(connKey, f.StreamID, destConn); err != nil {
 				logging.Error("Error flushing stream buffer after RST_STREAM", zap.Error(err))
 				return
 			}
+			// Clean up headers for this stream
+			state.headerManager.RemoveHeaders(connKey, f.StreamID)
 			logging.Debug("Flushed stream buffer after RST_STREAM",
 				zap.Uint32("streamID", f.StreamID),
 				zap.Bool("isRequest", isRequest),
@@ -625,66 +958,6 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 		}
 	}
 }
-
-// // processGRPCMessage processes a gRPC message through the element chain
-// // gRPC wire format: [compression flag (1 byte)][message length (4 bytes big-endian)][message data]
-// func processGRPCMessage(ctx context.Context, state *ProxyState, data []byte, isRequest bool) ([]byte, error) {
-// 	if len(data) < 5 {
-// 		// Not a valid gRPC message, return as-is
-// 		return data, nil
-// 	}
-
-// 	// Check compression flag (first byte)
-// 	compressed := data[0] != 0
-// 	if compressed {
-// 		// For now, we don't handle compressed messages
-// 		logging.Debug("Compressed gRPC message detected, skipping processing")
-// 		return data, nil
-// 	}
-
-// 	// Extract message length (bytes 1-4, big-endian)
-// 	messageLen := binary.BigEndian.Uint32(data[1:5])
-
-// 	// Validate message length
-// 	if messageLen == 0 || int(messageLen) > len(data)-5 {
-// 		// Invalid message length or incomplete message
-// 		return data, nil
-// 	}
-
-// 	// Extract the actual gRPC message payload (starting at byte 5)
-// 	grpcMessage := data[5 : 5+messageLen]
-
-// 	// Process through element chain
-// 	var processedMessage []byte
-// 	var err error
-
-// 	if isRequest {
-// 		processedMessage, ctx, err = state.elementChain.ProcessRequest(ctx, grpcMessage)
-// 	} else {
-// 		processedMessage, ctx, err = state.elementChain.ProcessResponse(ctx, grpcMessage)
-// 	}
-
-// 	if err != nil {
-// 		return data, fmt.Errorf("element chain processing failed: %w", err)
-// 	}
-
-// 	// Reconstruct gRPC message with processed payload
-// 	if len(processedMessage) != int(messageLen) {
-// 		// Message size changed, update the length header
-// 		newLen := uint32(len(processedMessage))
-// 		newData := make([]byte, 5+newLen)
-// 		newData[0] = data[0] // Compression flag
-// 		binary.BigEndian.PutUint32(newData[1:5], newLen)
-// 		copy(newData[5:], processedMessage)
-// 		return newData, nil
-// 	}
-
-// 	// Message size unchanged, just update the payload
-// 	result := make([]byte, len(data))
-// 	copy(result, data)
-// 	copy(result[5:5+messageLen], processedMessage)
-// 	return result, nil
-// }
 
 // waitForShutdown waits for a shutdown signal
 func waitForShutdown() {
