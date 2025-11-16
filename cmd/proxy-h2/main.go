@@ -318,7 +318,6 @@ func runProxyServer(port int, state *ProxyState) error {
 // handleConnection processes a TCP connection and intercepts gRPC traffic
 func handleConnection(clientConn net.Conn, state *ProxyState) {
 	defer clientConn.Close()
-	logging.Info("Handling connection", zap.String("clientAddr", clientConn.RemoteAddr().String()))
 
 	// Peek at the first bytes to detect HTTP/2
 	peekBytes := make([]byte, len(HTTP2Preface))
@@ -346,14 +345,14 @@ func handleHTTP2Connection(clientConn net.Conn, preface []byte, state *ProxyStat
 	ctx := context.Background()
 	_ = preface // Preface already consumed
 
-	logging.Info("New HTTP/2 connection",
+	logging.Debug("New HTTP/2 connection",
 		zap.String("clientAddr", clientConn.RemoteAddr().String()))
 
 	// Get the original destination from iptables interception
 	targetAddr := state.targetAddr
 	if origDst, ok := getOriginalDestination(clientConn); ok {
 		targetAddr = origDst
-		logging.Info("Using iptables original destination", zap.String("original_dst", origDst))
+		logging.Debug("Using iptables original destination", zap.String("original_dst", origDst))
 	} else if targetAddr == "" {
 		logging.Error("No target address available (neither SO_ORIGINAL_DST nor TARGET_ADDR)")
 		return
@@ -424,7 +423,7 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 		}
 
 		// Log all received frames
-		logging.Info("Received frame",
+		logging.Debug("Received frame",
 			zap.String("type", fmt.Sprintf("%T", frame)),
 			zap.Bool("isRequest", isRequest),
 			zap.String("connKey", connKey.RemoteAddr().String()))
@@ -436,7 +435,7 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 			data := make([]byte, len(f.Data()))
 			copy(data, f.Data())
 
-			logging.Info("DATA frame content",
+			logging.Debug("DATA frame content",
 				zap.Uint32("streamID", f.StreamID),
 				zap.Int("dataLen", len(data)),
 				zap.ByteString("data", data),
@@ -473,7 +472,7 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 					logging.Error("Error flushing stream buffer", zap.Error(err))
 					return
 				}
-				logging.Info("Flushed stream buffer",
+				logging.Debug("Flushed stream buffer",
 					zap.Uint32("streamID", f.StreamID),
 					zap.Bool("isRequest", isRequest),
 					zap.String("connKey", connKey.RemoteAddr().String()))
@@ -510,7 +509,7 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 					logging.Error("Error flushing stream buffer", zap.Error(err))
 					return
 				}
-				logging.Info("Flushed stream buffer",
+				logging.Debug("Flushed stream buffer",
 					zap.Uint32("streamID", f.StreamID),
 					zap.Bool("isRequest", isRequest),
 					zap.String("connKey", connKey.RemoteAddr().String()))
@@ -525,12 +524,12 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 			logging.Debug("Encountered SETTINGS frame from " + direction)
 			if f.IsAck() {
 				// Forward SETTINGS ACK
-				logging.Info("Forwarding SETTINGS ACK", zap.Bool("isRequest", isRequest))
+				logging.Debug("Forwarding SETTINGS ACK", zap.Bool("isRequest", isRequest))
 				if err := directFramer.WriteSettingsAck(); err != nil {
 					logging.Error("Error writing SETTINGS ACK frame", zap.Error(err))
 					return
 				}
-				logging.Info("Successfully forwarded SETTINGS ACK", zap.Bool("isRequest", isRequest))
+				logging.Debug("Successfully forwarded SETTINGS ACK", zap.Bool("isRequest", isRequest))
 			} else {
 				// Collect all settings from the frame
 				var settings []http2.Setting
@@ -541,7 +540,7 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 						zap.Uint32("Val", s.Val))
 					return nil
 				})
-				logging.Info("Forwarding SETTINGS frame",
+				logging.Debug("Forwarding SETTINGS frame",
 					zap.Bool("isRequest", isRequest),
 					zap.Int("numSettings", len(settings)))
 				// Forward SETTINGS frame with all settings
@@ -549,7 +548,7 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 					logging.Error("Error writing SETTINGS frame", zap.Error(err))
 					return
 				}
-				logging.Info("Successfully forwarded SETTINGS frame",
+				logging.Debug("Successfully forwarded SETTINGS frame",
 					zap.Bool("isRequest", isRequest),
 					zap.Int("numSettings", len(settings)))
 			}
@@ -564,7 +563,7 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 
 		case *http2.GoAwayFrame:
 			// Flush all pending buffers before forwarding GOAWAY (connection is shutting down)
-			logging.Info("Received GOAWAY, flushing all pending buffers",
+			logging.Debug("Received GOAWAY, flushing all pending buffers",
 				zap.Uint32("lastStreamID", f.StreamID),
 				zap.String("errCode", f.ErrCode.String()))
 			if err := state.bufferManager.FlushAllForConnection(connKey, destConn); err != nil {
@@ -593,7 +592,7 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 				logging.Error("Error flushing stream buffer after RST_STREAM", zap.Error(err))
 				return
 			}
-			logging.Info("Flushed stream buffer after RST_STREAM",
+			logging.Debug("Flushed stream buffer after RST_STREAM",
 				zap.Uint32("streamID", f.StreamID),
 				zap.Bool("isRequest", isRequest),
 				zap.String("connKey", connKey.RemoteAddr().String()))
