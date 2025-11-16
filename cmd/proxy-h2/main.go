@@ -598,10 +598,25 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 				zap.String("connKey", connKey.RemoteAddr().String()))
 
 		case *http2.WindowUpdateFrame:
-			// Forward WINDOW_UPDATE frames immediately (flow control)
-			if err := directFramer.WriteWindowUpdate(f.StreamID, f.Increment); err != nil {
-				logging.Error("Error writing WINDOW_UPDATE frame", zap.Error(err))
-				return
+			if f.StreamID == 0 {
+				// Connection-level flow control - forward immediately
+				if err := directFramer.WriteWindowUpdate(f.StreamID, f.Increment); err != nil {
+					logging.Error("Error writing WINDOW_UPDATE frame", zap.Error(err))
+					return
+				}
+			} else {
+				// Stream-specific flow control - buffer with stream
+				buf := state.bufferManager.GetOrCreateBuffer(connKey, f.StreamID)
+				bufFramer := http2.NewFramer(buf, nil)
+				if err := bufFramer.WriteWindowUpdate(f.StreamID, f.Increment); err != nil {
+					logging.Error("Error writing WINDOW_UPDATE frame to buffer", zap.Error(err))
+					return
+				}
+				logging.Debug("Buffered WINDOW_UPDATE frame",
+					zap.Uint32("streamID", f.StreamID),
+					zap.Uint32("increment", f.Increment),
+					zap.Bool("isRequest", isRequest),
+					zap.String("connKey", connKey.RemoteAddr().String()))
 			}
 
 		default:
