@@ -318,6 +318,7 @@ func runProxyServer(port int, state *ProxyState) error {
 // handleConnection processes a TCP connection and intercepts gRPC traffic
 func handleConnection(clientConn net.Conn, state *ProxyState) {
 	defer clientConn.Close()
+	logging.Info("Handling connection", zap.String("clientAddr", clientConn.RemoteAddr().String()))
 
 	// Peek at the first bytes to detect HTTP/2
 	peekBytes := make([]byte, len(HTTP2Preface))

@@ -1,38 +1,41 @@
 #!/bin/bash
 
-echo "Resetting iptables and applying proxy rules (inbound + outbound for appuser via proxy 15002)..."
+echo "Applying sidecar proxy rules..."
 
-# --- Minimal, safe flush ---
-echo "Flushing existing iptables rules..."
-sudo iptables -F                      # filter table
-sudo iptables -t nat -F
-sudo iptables -t mangle -F
-sudo iptables -X
-sudo iptables -t nat -X
-sudo iptables -t mangle -X
-
-# Safe defaults to avoid lockouts
-sudo iptables -P INPUT ACCEPT
-sudo iptables -P FORWARD ACCEPT
-sudo iptables -P OUTPUT ACCEPT
-echo "iptables flushed and reset to defaults."
-
-# --- Apply minimal proxy rules ---
 iptables-restore <<'EOF'
 *nat
 :PREROUTING ACCEPT [0:0]
-:OUTPUT     ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
 
-# Inbound: redirect 8080 and 11000 to local proxy 15002
--A PREROUTING -p tcp -m multiport --dports 8080,11000 -j REDIRECT --to-ports 15002
+### --- EXCLUSIONS (prevent infinite loops & preserve system traffic) ---
 
-# Outbound: let loopback traffic be local
+# 1. Do NOT intercept proxy’s own traffic
+-A OUTPUT -m owner --uid-owner proxyuser -j RETURN
+
+# 2. Do NOT intercept loopback (prevents hairpin loops)
 -A OUTPUT -o lo -j RETURN
 
-# Outbound: redirect only appuser's TCP to the proxy
--A OUTPUT -p tcp -m owner --uid-owner appuser -j REDIRECT --to-ports 15002
+# 3. Do NOT intercept DNS (recommended)
+-A OUTPUT -p udp --dport 53 -j RETURN
+-A OUTPUT -p tcp --dport 53 -j RETURN
+
+# 4. Preserve existing connections
+-A PREROUTING -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+-A OUTPUT     -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+
+
+### --- INBOUND INTERCEPTION (for traffic *into* the app) ---
+
+# Redirect client → app incoming traffic to inbound proxy at 15006
+-A PREROUTING -p tcp --dport 11000:65535 -j REDIRECT --to-ports 15006
+
+
+### --- OUTBOUND INTERCEPTION (for app-initiated connections) ---
+
+# Redirect app outbound traffic → outbound proxy at 15002
+-A OUTPUT -p tcp --dport 11000:65535 -m owner ! --uid-owner proxyuser -j REDIRECT --to-ports 15002
 
 COMMIT
 EOF
 
-echo "iptables rules applied successfully (inbound: 8080,11000 → 15002; outbound: only appuser → 15002)."
+echo "Sidecar proxy rules applied successfully."
