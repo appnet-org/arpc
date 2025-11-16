@@ -32,7 +32,7 @@ wrk_path = os.path.join(SCRIPT_DIR, "../wrk/wrk")
 lua_path = os.path.join(SCRIPT_DIR, "../../meta-kv-trace/kvstore-wrk.lua")
 
 # All available transport variants
-ALL_VARIANTS = ["udp", "reliable", "cc", "reliable-cc"]
+ALL_VARIANTS = ["udp", "reliable", "cc", "reliable-cc", "fc", "cc-fc", "reliable-fc", "reliable-cc-fc"]
 
 # Manifest paths for each variant (relative to script directory)
 manifest_dict = {
@@ -40,6 +40,10 @@ manifest_dict = {
     "kv-store-symphony-transport-reliable": os.path.join(SCRIPT_DIR, "../../kv-store-symphony-transport/manifest/kvstore-reliable.yaml"),
     "kv-store-symphony-transport-cc": os.path.join(SCRIPT_DIR, "../../kv-store-symphony-transport/manifest/kvstore-cc.yaml"),
     "kv-store-symphony-transport-reliable-cc": os.path.join(SCRIPT_DIR, "../../kv-store-symphony-transport/manifest/kvstore-reliable-cc.yaml"),
+    "kv-store-symphony-transport-fc": os.path.join(SCRIPT_DIR, "../../kv-store-symphony-transport/manifest/kvstore-fc.yaml"),
+    "kv-store-symphony-transport-cc-fc": os.path.join(SCRIPT_DIR, "../../kv-store-symphony-transport/manifest/kvstore-cc-fc.yaml"),
+    "kv-store-symphony-transport-reliable-fc": os.path.join(SCRIPT_DIR, "../../kv-store-symphony-transport/manifest/kvstore-reliable-fc.yaml"),
+    "kv-store-symphony-transport-reliable-cc-fc": os.path.join(SCRIPT_DIR, "../../kv-store-symphony-transport/manifest/kvstore-reliable-cc-fc.yaml"),
 }
 
 def parse_arguments():
@@ -53,10 +57,16 @@ Examples:
   python run_kvstore_transport.py
   
   # Run specific variants
-  python run_kvstore_transport.py --variants udp reliable
+  python run_kvstore_transport.py --variants udp reliable cc
   
-  # Run only reliable-cc variant
-  python run_kvstore_transport.py --variants reliable-cc
+  # Run only flow control variants
+  python run_kvstore_transport.py --variants fc cc-fc reliable-fc
+  
+  # Run all variants with congestion control
+  python run_kvstore_transport.py --variants cc reliable-cc cc-fc reliable-cc-fc
+  
+  # Run the full-featured variant
+  python run_kvstore_transport.py --variants reliable-cc-fc
         """
     )
     parser.add_argument(

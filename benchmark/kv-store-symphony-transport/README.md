@@ -3,13 +3,13 @@
 Start the server:
 
 ```bash
-go run kvstore/kvstore.go kvstore/dummy_timer.go
+go run kvstore/kvstore.go
 ```
 
 In a **separate terminal**, run the client:
 
 ```bash
-go run frontend/frontend.go  frontend/dummy_timer.go
+go run frontend/frontend.go
 ```
 
 ## 4. Test

@@ -32,6 +32,18 @@ RUN mkdir -p ./bin && \
     elif [ "$VARIANT" = "reliable-cc" ]; then \
         go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_reliable_cc.go && \
         go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_reliable_cc.go; \
+    elif [ "$VARIANT" = "fc" ]; then \
+        go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_fc.go && \
+        go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_fc.go; \
+    elif [ "$VARIANT" = "cc-fc" ]; then \
+        go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_cc_fc.go && \
+        go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_cc_fc.go; \
+    elif [ "$VARIANT" = "reliable-fc" ]; then \
+        go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_reliable_fc.go && \
+        go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_reliable_fc.go; \
+    elif [ "$VARIANT" = "reliable-cc-fc" ]; then \
+        go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_reliable_cc_fc.go && \
+        go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_reliable_cc_fc.go; \
     else \
         echo "Invalid VARIANT: $VARIANT" && exit 1; \
     fi
