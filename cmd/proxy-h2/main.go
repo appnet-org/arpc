@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -29,7 +30,8 @@ const (
 
 // ProxyState manages the state of the TCP proxy
 type ProxyState struct {
-	elementChain *element.RPCElementChain
+	elementChain  *element.RPCElementChain
+	bufferManager *StreamBufferManager
 	// Target server address for proxying (optional, can be configured via env)
 	// Used only if SO_ORIGINAL_DST is unavailable
 	targetAddr string
@@ -39,6 +41,95 @@ type ProxyState struct {
 type Config struct {
 	Ports      []int
 	TargetAddr string
+}
+
+// StreamBufferKey uniquely identifies a stream buffer
+// Uses the connection pointer (memory address) and stream ID
+type StreamBufferKey struct {
+	Conn     net.Conn // Connection pointer acts as unique identifier
+	StreamID uint32
+}
+
+// StreamBufferManager manages per-stream byte buffers for deferred frame writing
+type StreamBufferManager struct {
+	buffers map[StreamBufferKey]*bytes.Buffer
+	mu      sync.RWMutex
+}
+
+// NewStreamBufferManager creates a new StreamBufferManager
+func NewStreamBufferManager() *StreamBufferManager {
+	return &StreamBufferManager{
+		buffers: make(map[StreamBufferKey]*bytes.Buffer),
+	}
+}
+
+// GetOrCreateBuffer returns the buffer for a stream, creating it if it doesn't exist
+func (m *StreamBufferManager) GetOrCreateBuffer(conn net.Conn, streamID uint32) *bytes.Buffer {
+	key := StreamBufferKey{Conn: conn, StreamID: streamID}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if buf, exists := m.buffers[key]; exists {
+		return buf
+	}
+
+	buf := new(bytes.Buffer)
+	m.buffers[key] = buf
+	return buf
+}
+
+// FlushAndRemove flushes the buffer to the writer and removes it from the map
+func (m *StreamBufferManager) FlushAndRemove(conn net.Conn, streamID uint32, w io.Writer) error {
+	key := StreamBufferKey{Conn: conn, StreamID: streamID}
+
+	m.mu.Lock()
+	buf, exists := m.buffers[key]
+	if !exists {
+		m.mu.Unlock()
+		return nil // No buffer to flush
+	}
+	delete(m.buffers, key)
+	m.mu.Unlock()
+
+	// Write the buffered data to the connection
+	if buf.Len() > 0 {
+		_, err := w.Write(buf.Bytes())
+		return err
+	}
+	return nil
+}
+
+// FlushAllForConnection flushes all buffered streams for a connection
+// Used when connection is shutting down (e.g., GOAWAY received)
+func (m *StreamBufferManager) FlushAllForConnection(conn net.Conn, w io.Writer) error {
+	m.mu.Lock()
+	// Collect all buffers for this connection
+	var toFlush []*bytes.Buffer
+	var keysToDelete []StreamBufferKey
+
+	for key, buf := range m.buffers {
+		if key.Conn == conn {
+			toFlush = append(toFlush, buf)
+			keysToDelete = append(keysToDelete, key)
+		}
+	}
+
+	// Remove from map
+	for _, key := range keysToDelete {
+		delete(m.buffers, key)
+	}
+	m.mu.Unlock()
+
+	// Write all buffered data
+	for _, buf := range toFlush {
+		if buf.Len() > 0 {
+			if _, err := w.Write(buf.Bytes()); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // DefaultConfig returns the default proxy configuration
@@ -153,14 +244,15 @@ func main() {
 
 	// Create element chain with logging
 	elementChain := element.NewRPCElementChain(
-		// element.NewLoggingElement(true), // Enable verbose logging
+	// element.NewLoggingElement(true), // Enable verbose logging
 	)
 
 	config := DefaultConfig()
 
 	state := &ProxyState{
-		elementChain: elementChain,
-		targetAddr:   config.TargetAddr,
+		elementChain:  elementChain,
+		bufferManager: NewStreamBufferManager(),
+		targetAddr:    config.TargetAddr,
 	}
 
 	logging.Info("Proxy target configured", zap.String("target", state.targetAddr))
@@ -237,26 +329,24 @@ func handleConnection(clientConn net.Conn, state *ProxyState) {
 
 	// Check if this is an HTTP/2 connection
 	// HTTP/2 preface starts with "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
-	isHTTP2 := false
 	if n > 0 {
 		prefaceStr := string(peekBytes[:n])
-		if prefaceStr == HTTP2Preface || (n >= 3 && prefaceStr[:3] == "PRI") {
-			isHTTP2 = true
+		if prefaceStr != HTTP2Preface && !(n >= 3 && prefaceStr[:3] == "PRI") {
+			logging.Error("Client is not following HTTP2.")
+			return
 		}
 	}
 
-	if isHTTP2 {
-		// Handle HTTP/2 gRPC connection
-		handleHTTP2Connection(clientConn, peekBytes[:n], state)
-	} else {
-		// Handle plain TCP connection (forward as-is)
-		handlePlainTCPConnection(clientConn, peekBytes[:n], state)
-	}
+	handleHTTP2Connection(clientConn, peekBytes[:n], state)
 }
 
 // handleHTTP2Connection handles HTTP/2 connections for gRPC interception
 func handleHTTP2Connection(clientConn net.Conn, preface []byte, state *ProxyState) {
 	ctx := context.Background()
+	_ = preface // Preface already consumed
+
+	logging.Info("New HTTP/2 connection",
+		zap.String("clientAddr", clientConn.RemoteAddr().String()))
 
 	// Get the original destination from iptables interception
 	targetAddr := state.targetAddr
@@ -291,34 +381,40 @@ func handleHTTP2Connection(clientConn net.Conn, preface []byte, state *ProxyStat
 	clientReader := bufio.NewReader(clientConn)
 	targetReader := bufio.NewReader(targetConn)
 
-	// Create HTTP/2 framers:
-	// - clientFramer: reads from client, writes to target
-	// - targetFramer: reads from target, writes to client
-	clientFramer := http2.NewFramer(targetConn, clientReader)
-	targetFramer := http2.NewFramer(clientConn, targetReader)
-
 	var wg sync.WaitGroup
 	wg.Add(2)
 
 	// Handle client -> target (requests)
+	// Reads from client, buffers frames, writes to target when stream ends
+	// Use clientConn as the key for buffering (identifies the source connection)
 	go func() {
 		defer wg.Done()
-		handleHTTP2Stream(clientFramer, state, ctx, true)
+		handleHTTP2Stream(clientReader, targetConn, state, ctx, true, clientConn)
 	}()
 
 	// Handle target -> client (responses)
+	// Reads from target, buffers frames, writes to client when stream ends
+	// Use clientConn as the key for buffering (identifies which client to send to)
 	go func() {
 		defer wg.Done()
-		handleHTTP2Stream(targetFramer, state, ctx, false)
+		handleHTTP2Stream(targetReader, clientConn, state, ctx, false, clientConn)
 	}()
 
 	wg.Wait()
 }
 
 // handleHTTP2Stream processes HTTP/2 frames in a stream direction
-func handleHTTP2Stream(framer *http2.Framer, state *ProxyState, ctx context.Context, isRequest bool) {
+// Buffers stream-specific frames and flushes them when END_STREAM is received
+func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxyState, ctx context.Context, isRequest bool, connKey net.Conn) {
+	// Create a framer that reads from the source
+	// We'll create buffer-specific framers for writing to buffers
+	readFramer := http2.NewFramer(nil, reader)
+
+	// Direct framer for connection-level frames (SETTINGS, PING, GOAWAY, WINDOW_UPDATE)
+	directFramer := http2.NewFramer(destConn, nil)
+
 	for {
-		frame, err := framer.ReadFrame()
+		frame, err := readFramer.ReadFrame()
 		if err != nil {
 			if err != io.EOF {
 				logging.Debug("Frame read error", zap.Error(err), zap.Bool("isRequest", isRequest))
@@ -329,45 +425,98 @@ func handleHTTP2Stream(framer *http2.Framer, state *ProxyState, ctx context.Cont
 		// Log all received frames
 		logging.Info("Received frame",
 			zap.String("type", fmt.Sprintf("%T", frame)),
-			zap.Bool("isRequest", isRequest))
+			zap.Bool("isRequest", isRequest),
+			zap.String("connKey", connKey.RemoteAddr().String()))
 
-		// Intercept DATA frames containing gRPC messages
+		// Handle frames based on type
 		switch f := frame.(type) {
 		case *http2.DataFrame:
 			// Get the data from the frame
 			data := make([]byte, len(f.Data()))
 			copy(data, f.Data())
 
-			processedData, err := processGRPCMessage(ctx, state, data, isRequest)
-			if err != nil {
-				logging.Error("Error processing gRPC message", zap.Error(err))
-				// Forward original data on error
-				processedData = data
-			}
+			logging.Info("DATA frame content",
+				zap.Uint32("streamID", f.StreamID),
+				zap.Int("dataLen", len(data)),
+				zap.ByteString("data", data),
+				zap.Bool("isRequest", isRequest))
 
-			// Write new DATA frame with processed data
-			// The framer will write to the target (for client->target) or client (for target->client)
-			// StreamID is a field, not a method
-			if err := framer.WriteData(f.StreamID, f.StreamEnded(), processedData); err != nil {
-				logging.Error("Error writing DATA frame", zap.Error(err))
+			// processedData, err := processGRPCMessage(ctx, state, data, isRequest)
+			// if err != nil {
+			// 	logging.Error("Error processing gRPC message", zap.Error(err))
+			// 	// Forward original data on error
+			// 	processedData = data
+			// }
+
+			// Get or create buffer for this stream (keyed by connection + stream ID)
+			buf := state.bufferManager.GetOrCreateBuffer(connKey, f.StreamID)
+
+			// Create a framer that writes to the buffer
+			bufFramer := http2.NewFramer(buf, nil)
+
+			// Write DATA frame to buffer
+			if err := bufFramer.WriteData(f.StreamID, f.StreamEnded(), data); err != nil {
+				logging.Error("Error writing DATA frame to buffer", zap.Error(err))
 				return
 			}
 
+			logging.Debug("Buffered DATA frame",
+				zap.Uint32("streamID", f.StreamID),
+				zap.Bool("endStream", f.StreamEnded()),
+				zap.Bool("isRequest", isRequest),
+				zap.String("connKey", connKey.RemoteAddr().String()))
+
+			// If stream ended, flush buffer to destination
+			if f.StreamEnded() {
+				if err := state.bufferManager.FlushAndRemove(connKey, f.StreamID, destConn); err != nil {
+					logging.Error("Error flushing stream buffer", zap.Error(err))
+					return
+				}
+				logging.Info("Flushed stream buffer",
+					zap.Uint32("streamID", f.StreamID),
+					zap.Bool("isRequest", isRequest),
+					zap.String("connKey", connKey.RemoteAddr().String()))
+			}
+
 		case *http2.HeadersFrame:
-			// Forward HEADERS frames
-			if err := framer.WriteHeaders(http2.HeadersFrameParam{
+			// Get or create buffer for this stream (keyed by connection + stream ID)
+			buf := state.bufferManager.GetOrCreateBuffer(connKey, f.StreamID)
+
+			// Create a framer that writes to the buffer
+			bufFramer := http2.NewFramer(buf, nil)
+
+			// Write HEADERS frame to buffer
+			if err := bufFramer.WriteHeaders(http2.HeadersFrameParam{
 				StreamID:      f.StreamID,
 				BlockFragment: f.HeaderBlockFragment(),
 				EndHeaders:    f.HeadersEnded(),
 				EndStream:     f.StreamEnded(),
 				Priority:      f.Priority,
 			}); err != nil {
-				logging.Error("Error writing HEADERS frame", zap.Error(err))
+				logging.Error("Error writing HEADERS frame to buffer", zap.Error(err))
 				return
 			}
 
+			logging.Debug("Buffered HEADERS frame",
+				zap.Uint32("streamID", f.StreamID),
+				zap.Bool("endStream", f.StreamEnded()),
+				zap.Bool("isRequest", isRequest),
+				zap.String("connKey", connKey.RemoteAddr().String()))
+
+			// If stream ended, flush buffer to destination
+			if f.StreamEnded() {
+				if err := state.bufferManager.FlushAndRemove(connKey, f.StreamID, destConn); err != nil {
+					logging.Error("Error flushing stream buffer", zap.Error(err))
+					return
+				}
+				logging.Info("Flushed stream buffer",
+					zap.Uint32("streamID", f.StreamID),
+					zap.Bool("isRequest", isRequest),
+					zap.String("connKey", connKey.RemoteAddr().String()))
+			}
+
 		case *http2.SettingsFrame:
-			// Forward SETTINGS frames
+			// Forward SETTINGS frames immediately (connection-level)
 			direction := "server"
 			if isRequest {
 				direction = "client"
@@ -376,7 +525,7 @@ func handleHTTP2Stream(framer *http2.Framer, state *ProxyState, ctx context.Cont
 			if f.IsAck() {
 				// Forward SETTINGS ACK
 				logging.Info("Forwarding SETTINGS ACK", zap.Bool("isRequest", isRequest))
-				if err := framer.WriteSettingsAck(); err != nil {
+				if err := directFramer.WriteSettingsAck(); err != nil {
 					logging.Error("Error writing SETTINGS ACK frame", zap.Error(err))
 					return
 				}
@@ -395,7 +544,7 @@ func handleHTTP2Stream(framer *http2.Framer, state *ProxyState, ctx context.Cont
 					zap.Bool("isRequest", isRequest),
 					zap.Int("numSettings", len(settings)))
 				// Forward SETTINGS frame with all settings
-				if err := framer.WriteSettings(settings...); err != nil {
+				if err := directFramer.WriteSettings(settings...); err != nil {
 					logging.Error("Error writing SETTINGS frame", zap.Error(err))
 					return
 				}
@@ -405,31 +554,69 @@ func handleHTTP2Stream(framer *http2.Framer, state *ProxyState, ctx context.Cont
 			}
 
 		case *http2.PingFrame:
-			// Forward PING frames
-			if err := framer.WritePing(false, f.Data); err != nil {
+			// Forward PING frames immediately (connection-level)
+			// Preserve the ACK flag from the original frame
+			if err := directFramer.WritePing(f.IsAck(), f.Data); err != nil {
 				logging.Error("Error writing PING frame", zap.Error(err))
 				return
 			}
 
 		case *http2.GoAwayFrame:
-			// Forward GOAWAY frames
-			if err := framer.WriteGoAway(f.StreamID, f.ErrCode, f.DebugData()); err != nil {
+			// Flush all pending buffers before forwarding GOAWAY (connection is shutting down)
+			logging.Info("Received GOAWAY, flushing all pending buffers",
+				zap.Uint32("lastStreamID", f.StreamID),
+				zap.String("errCode", f.ErrCode.String()))
+			if err := state.bufferManager.FlushAllForConnection(connKey, destConn); err != nil {
+				logging.Error("Error flushing buffers on GOAWAY", zap.Error(err))
+				return
+			}
+
+			// Forward GOAWAY frame (connection-level)
+			if err := directFramer.WriteGoAway(f.StreamID, f.ErrCode, f.DebugData()); err != nil {
 				logging.Error("Error writing GOAWAY frame", zap.Error(err))
 				return
 			}
 
 		case *http2.RSTStreamFrame:
-			// Forward RST_STREAM frames
-			if err := framer.WriteRSTStream(f.StreamID, f.ErrCode); err != nil {
-				logging.Error("Error writing RST_STREAM frame", zap.Error(err))
+			// Buffer RST_STREAM frame (stream-level)
+			buf := state.bufferManager.GetOrCreateBuffer(connKey, f.StreamID)
+			bufFramer := http2.NewFramer(buf, nil)
+
+			if err := bufFramer.WriteRSTStream(f.StreamID, f.ErrCode); err != nil {
+				logging.Error("Error writing RST_STREAM frame to buffer", zap.Error(err))
 				return
 			}
 
-		case *http2.WindowUpdateFrame:
-			// Forward WINDOW_UPDATE frames
-			if err := framer.WriteWindowUpdate(f.StreamID, f.Increment); err != nil {
-				logging.Error("Error writing WINDOW_UPDATE frame", zap.Error(err))
+			// RST_STREAM ends the stream, flush buffer
+			if err := state.bufferManager.FlushAndRemove(connKey, f.StreamID, destConn); err != nil {
+				logging.Error("Error flushing stream buffer after RST_STREAM", zap.Error(err))
 				return
+			}
+			logging.Info("Flushed stream buffer after RST_STREAM",
+				zap.Uint32("streamID", f.StreamID),
+				zap.Bool("isRequest", isRequest),
+				zap.String("connKey", connKey.RemoteAddr().String()))
+
+		case *http2.WindowUpdateFrame:
+			if f.StreamID == 0 {
+				// Connection-level flow control - forward immediately
+				if err := directFramer.WriteWindowUpdate(f.StreamID, f.Increment); err != nil {
+					logging.Error("Error writing WINDOW_UPDATE frame", zap.Error(err))
+					return
+				}
+			} else {
+				// Stream-specific flow control - buffer with stream
+				buf := state.bufferManager.GetOrCreateBuffer(connKey, f.StreamID)
+				bufFramer := http2.NewFramer(buf, nil)
+				if err := bufFramer.WriteWindowUpdate(f.StreamID, f.Increment); err != nil {
+					logging.Error("Error writing WINDOW_UPDATE frame to buffer", zap.Error(err))
+					return
+				}
+				logging.Debug("Buffered WINDOW_UPDATE frame",
+					zap.Uint32("streamID", f.StreamID),
+					zap.Uint32("increment", f.Increment),
+					zap.Bool("isRequest", isRequest),
+					zap.String("connKey", connKey.RemoteAddr().String()))
 			}
 
 		default:
@@ -439,112 +626,65 @@ func handleHTTP2Stream(framer *http2.Framer, state *ProxyState, ctx context.Cont
 	}
 }
 
-// processGRPCMessage processes a gRPC message through the element chain
-// gRPC wire format: [compression flag (1 byte)][message length (4 bytes big-endian)][message data]
-func processGRPCMessage(ctx context.Context, state *ProxyState, data []byte, isRequest bool) ([]byte, error) {
-	if len(data) < 5 {
-		// Not a valid gRPC message, return as-is
-		return data, nil
-	}
+// // processGRPCMessage processes a gRPC message through the element chain
+// // gRPC wire format: [compression flag (1 byte)][message length (4 bytes big-endian)][message data]
+// func processGRPCMessage(ctx context.Context, state *ProxyState, data []byte, isRequest bool) ([]byte, error) {
+// 	if len(data) < 5 {
+// 		// Not a valid gRPC message, return as-is
+// 		return data, nil
+// 	}
 
-	// Check compression flag (first byte)
-	compressed := data[0] != 0
-	if compressed {
-		// For now, we don't handle compressed messages
-		logging.Debug("Compressed gRPC message detected, skipping processing")
-		return data, nil
-	}
+// 	// Check compression flag (first byte)
+// 	compressed := data[0] != 0
+// 	if compressed {
+// 		// For now, we don't handle compressed messages
+// 		logging.Debug("Compressed gRPC message detected, skipping processing")
+// 		return data, nil
+// 	}
 
-	// Extract message length (bytes 1-4, big-endian)
-	messageLen := binary.BigEndian.Uint32(data[1:5])
+// 	// Extract message length (bytes 1-4, big-endian)
+// 	messageLen := binary.BigEndian.Uint32(data[1:5])
 
-	// Validate message length
-	if messageLen == 0 || int(messageLen) > len(data)-5 {
-		// Invalid message length or incomplete message
-		return data, nil
-	}
+// 	// Validate message length
+// 	if messageLen == 0 || int(messageLen) > len(data)-5 {
+// 		// Invalid message length or incomplete message
+// 		return data, nil
+// 	}
 
-	// Extract the actual gRPC message payload (starting at byte 5)
-	grpcMessage := data[5 : 5+messageLen]
+// 	// Extract the actual gRPC message payload (starting at byte 5)
+// 	grpcMessage := data[5 : 5+messageLen]
 
-	// Process through element chain
-	var processedMessage []byte
-	var err error
+// 	// Process through element chain
+// 	var processedMessage []byte
+// 	var err error
 
-	if isRequest {
-		processedMessage, ctx, err = state.elementChain.ProcessRequest(ctx, grpcMessage)
-	} else {
-		processedMessage, ctx, err = state.elementChain.ProcessResponse(ctx, grpcMessage)
-	}
+// 	if isRequest {
+// 		processedMessage, ctx, err = state.elementChain.ProcessRequest(ctx, grpcMessage)
+// 	} else {
+// 		processedMessage, ctx, err = state.elementChain.ProcessResponse(ctx, grpcMessage)
+// 	}
 
-	if err != nil {
-		return data, fmt.Errorf("element chain processing failed: %w", err)
-	}
+// 	if err != nil {
+// 		return data, fmt.Errorf("element chain processing failed: %w", err)
+// 	}
 
-	// Reconstruct gRPC message with processed payload
-	if len(processedMessage) != int(messageLen) {
-		// Message size changed, update the length header
-		newLen := uint32(len(processedMessage))
-		newData := make([]byte, 5+newLen)
-		newData[0] = data[0] // Compression flag
-		binary.BigEndian.PutUint32(newData[1:5], newLen)
-		copy(newData[5:], processedMessage)
-		return newData, nil
-	}
+// 	// Reconstruct gRPC message with processed payload
+// 	if len(processedMessage) != int(messageLen) {
+// 		// Message size changed, update the length header
+// 		newLen := uint32(len(processedMessage))
+// 		newData := make([]byte, 5+newLen)
+// 		newData[0] = data[0] // Compression flag
+// 		binary.BigEndian.PutUint32(newData[1:5], newLen)
+// 		copy(newData[5:], processedMessage)
+// 		return newData, nil
+// 	}
 
-	// Message size unchanged, just update the payload
-	result := make([]byte, len(data))
-	copy(result, data)
-	copy(result[5:5+messageLen], processedMessage)
-	return result, nil
-}
-
-// handlePlainTCPConnection handles plain TCP connections (non-HTTP/2)
-func handlePlainTCPConnection(clientConn net.Conn, peekBytes []byte, state *ProxyState) {
-	// Get the original destination from iptables interception
-	targetAddr := state.targetAddr
-	if origDst, ok := getOriginalDestination(clientConn); ok {
-		targetAddr = origDst
-		logging.Info("Using iptables original destination", zap.String("original_dst", origDst))
-	} else if targetAddr == "" {
-		logging.Error("No target address available (neither SO_ORIGINAL_DST nor TARGET_ADDR)")
-		return
-	}
-
-	// Connect to target server
-	targetConn, err := net.Dial("tcp", targetAddr)
-	if err != nil {
-		logging.Error("Failed to connect to target", zap.String("target", targetAddr), zap.Error(err))
-		return
-	}
-	defer targetConn.Close()
-
-	// Forward the peeked bytes
-	if len(peekBytes) > 0 {
-		if _, err := targetConn.Write(peekBytes); err != nil {
-			logging.Error("Failed to write peeked bytes", zap.Error(err))
-			return
-		}
-	}
-
-	// Simple bidirectional forwarding
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		io.Copy(targetConn, clientConn)
-		targetConn.Close()
-	}()
-
-	go func() {
-		defer wg.Done()
-		io.Copy(clientConn, targetConn)
-		clientConn.Close()
-	}()
-
-	wg.Wait()
-}
+// 	// Message size unchanged, just update the payload
+// 	result := make([]byte, len(data))
+// 	copy(result, data)
+// 	copy(result[5:5+messageLen], processedMessage)
+// 	return result, nil
+// }
 
 // waitForShutdown waits for a shutdown signal
 func waitForShutdown() {
