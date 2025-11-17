@@ -13,6 +13,10 @@ mode_to_image = {
     "h2": {
         "proxy": "appnetorg/symphony-proxy-h2:latest",
         "init-container": "appnetorg/symphony-proxy-h2-init-container:latest"
+    },
+    "tcp": {
+        "proxy": "appnetorg/symphony-proxy-tcp:latest",
+        "init-container": "appnetorg/symphony-proxy-tcp-init-container:latest"
     }
 }
 
@@ -74,7 +78,7 @@ def process_yaml(documents, mode):
 def main():
     parser = argparse.ArgumentParser(description="Auto-inject Symphony proxy and init container into K8s manifests.")
     parser.add_argument("-f", "--file", help="Input YAML file. Reads from stdin if not specified.")
-    parser.add_argument("-m", "--mode", choices=["symphony", "h2"], default="symphony", help="Proxy mode: symphony or h2 (default: symphony)")
+    parser.add_argument("-m", "--mode", choices=["symphony", "h2", "tcp"], default="symphony", help="Proxy mode: symphony or h2 or tcp (default: symphony)")
     parser.add_argument("-o", "--output", help="Output YAML file. Writes to stdout if not specified.")
     args = parser.parse_args()
 

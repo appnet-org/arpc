@@ -309,9 +309,9 @@ func processDataThroughElementChain(ctx context.Context, state *ProxyState, conn
 	var verdict element.Verdict
 	var err error
 	if isRequest {
-		verdict, ctx, err = state.elementChain.ProcessRequest(ctx, rpcCtx)
+		verdict, _, err = state.elementChain.ProcessRequest(ctx, rpcCtx)
 	} else {
-		verdict, ctx, err = state.elementChain.ProcessResponse(ctx, rpcCtx)
+		verdict, _, err = state.elementChain.ProcessResponse(ctx, rpcCtx)
 	}
 
 	if err != nil {
@@ -411,4 +411,3 @@ func waitForShutdown() {
 	<-sigCh
 	logging.Info("Shutting down proxy...")
 }
-
