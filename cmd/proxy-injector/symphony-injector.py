@@ -74,14 +74,19 @@ def process_yaml(documents, mode):
 def main():
     parser = argparse.ArgumentParser(description="Auto-inject Symphony proxy and init container into K8s manifests.")
     parser.add_argument("-f", "--file", help="Input YAML file. Reads from stdin if not specified.")
-    parser.add_argument("--mode", choices=["symphony", "h2"], default="symphony", help="Proxy mode: symphony or h2 (default: symphony)")
+    parser.add_argument("-m", "--mode", choices=["symphony", "h2"], default="symphony", help="Proxy mode: symphony or h2 (default: symphony)")
+    parser.add_argument("-o", "--output", help="Output YAML file. Writes to stdout if not specified.")
     args = parser.parse_args()
 
     with open(args.file) if args.file else sys.stdin as f:
         documents = list(yaml.safe_load_all(f))
 
     modified_documents = process_yaml(documents, args.mode)
-    yaml.dump_all(modified_documents, sys.stdout, sort_keys=False)
+    if args.output:
+        with open(args.output, "w") as out:
+            yaml.dump_all(modified_documents, out, sort_keys=False)
+    else:
+        yaml.dump_all(modified_documents, sys.stdout, sort_keys=False)
 
 if __name__ == "__main__":
     main()
