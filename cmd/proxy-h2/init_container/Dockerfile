@@ -6,5 +6,5 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-COPY proxy-h2/init_container/apply_proxyh2_iptables.sh /apply_proxyh2_iptables.sh
+COPY proxy-h2/init_container/apply_proxyh2_iptables.sh /apply_symphony_iptables.sh
 
