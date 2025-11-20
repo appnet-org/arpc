@@ -335,7 +335,7 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPa
 			Payload:      completePayload,
 		}
 
-		serialized, err := codec.Serialize(singlePacket)
+		serialized, err := codec.Serialize(singlePacket, nil)
 		if err != nil {
 			logging.Error("Failed to serialize packet", zap.Error(err))
 			return nil, err
@@ -374,7 +374,7 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPa
 		}
 
 		// Serialize the fragment
-		serialized, err := codec.Serialize(fragment)
+		serialized, err := codec.Serialize(fragment, nil)
 		if err != nil {
 			logging.Error("Failed to serialize fragment", zap.Error(err))
 			return nil, err

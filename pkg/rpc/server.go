@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/appnet-org/arpc/pkg/common"
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/packet"
@@ -121,10 +122,16 @@ func (s *Server) parseFramedRequest(data []byte) (string, string, metadata.Metad
 
 // frameResponse constructs a binary message with
 // [serviceLen(2B)][service][methodLen(2B)][method][payload]
-func (s *Server) frameResponse(service, method string, payload []byte) ([]byte, error) {
+func (s *Server) frameResponse(service, method string, payload []byte, pool *common.BufferPool) ([]byte, error) {
 	// total size = 2 + len(service) + 2 + len(method) + len(payload)
 	totalSize := 4 + len(service) + len(method) + len(payload)
-	buf := make([]byte, totalSize)
+
+	var buf []byte
+	if pool != nil {
+		buf = pool.GetSize(totalSize)
+	} else {
+		buf = make([]byte, totalSize)
+	}
 
 	// service length
 	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(service)))
@@ -165,6 +172,8 @@ func (s *Server) Start() {
 		serviceName, methodName, md, reqPayloadBytes, err := s.parseFramedRequest(data)
 		if err != nil {
 			logging.Error("Failed to parse framed request", zap.Error(err))
+			// Return buffer to pool on parse error
+			s.transport.GetBufferPool().Put(data)
 			if err := s.transport.Send(addr.String(), rpcID, []byte(err.Error()), packet.PacketTypeUnknown); err != nil {
 				logging.Error("Error sending error response", zap.Error(err))
 			}
@@ -188,6 +197,8 @@ func (s *Server) Start() {
 		svcDesc, ok := s.services[rpcReq.ServiceName]
 		if !ok {
 			logging.Warn("Unknown service", zap.String("serviceName", rpcReq.ServiceName))
+			// Return buffer to pool before sending error
+			s.transport.GetBufferPool().Put(data)
 			if err := s.transport.Send(addr.String(), rpcID, []byte("unknown service"), packet.PacketTypeError); err != nil {
 				logging.Error("Error sending error response", zap.Error(err))
 			}
@@ -198,6 +209,8 @@ func (s *Server) Start() {
 			logging.Warn("Unknown method",
 				zap.String("serviceName", rpcReq.ServiceName),
 				zap.String("methodName", rpcReq.Method))
+			// Return buffer to pool for unknown method
+			s.transport.GetBufferPool().Put(data)
 			continue
 		}
 
@@ -205,6 +218,9 @@ func (s *Server) Start() {
 		rpcResp, _, err := methodDesc.Handler(svcDesc.ServiceImpl, ctx, func(v any) error {
 			return s.serializer.Unmarshal(reqPayloadBytes, v)
 		}, rpcReq, s.rpcElementChain)
+
+		// Return buffer to pool after unmarshaling (handler has copied what it needs)
+		s.transport.GetBufferPool().Put(data)
 		if err != nil {
 			var errType packet.PacketType
 			if rpcErr, ok := err.(*RPCError); ok && rpcErr.Type == RPCFailError {
@@ -213,6 +229,7 @@ func (s *Server) Start() {
 				errType = packet.PacketTypeUnknown
 				logging.Error("Handler error", zap.Error(err))
 			}
+			// Buffer already returned to pool above
 			if err := s.transport.Send(addr.String(), rpcID, []byte(err.Error()), errType); err != nil {
 				logging.Error("Error sending error response", zap.Error(err))
 			}
@@ -229,8 +246,8 @@ func (s *Server) Start() {
 			continue
 		}
 
-		// Frame response
-		framedResp, err := s.frameResponse(rpcReq.ServiceName, rpcReq.Method, respPayloadBytes)
+		// Frame response using buffer pool
+		framedResp, err := s.frameResponse(rpcReq.ServiceName, rpcReq.Method, respPayloadBytes, s.transport.GetBufferPool())
 		if err != nil {
 			logging.Error("Failed to frame response", zap.Error(err))
 			if err := s.transport.Send(addr.String(), rpcID, []byte(err.Error()), packet.PacketTypeUnknown); err != nil {
@@ -241,6 +258,10 @@ func (s *Server) Start() {
 
 		// Send the response
 		err = s.transport.Send(addr.String(), rpcID, framedResp, packet.PacketTypeResponse)
+
+		// Return buffer to pool after sending (transport.Send copies the data)
+		s.transport.GetBufferPool().Put(framedResp)
+
 		if err != nil {
 			logging.Error("Error sending response", zap.Error(err))
 		}

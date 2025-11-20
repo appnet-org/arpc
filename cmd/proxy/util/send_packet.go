@@ -20,7 +20,7 @@ func SendErrorPacket(conn *net.UDPConn, dest *net.UDPAddr, rpcID uint64, errorMs
 
 	// Serialize the error packet
 	codec := &packet.ErrorPacketCodec{}
-	serialized, err := codec.Serialize(errorPacket)
+	serialized, err := codec.Serialize(errorPacket, nil)
 	if err != nil {
 		return fmt.Errorf("failed to serialize error packet: %w", err)
 	}

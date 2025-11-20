@@ -5,6 +5,8 @@ package packet
 import (
 	"encoding/binary"
 	"errors"
+
+	"github.com/appnet-org/arpc/pkg/common"
 )
 
 // Builtin packet types
@@ -50,7 +52,7 @@ type DataPacketCodec struct{}
 
 // Serialize encodes a DataPacket into binary format:
 // [PacketTypeID(1B)][RPCID(8B)][TotalPackets(2B)][SeqNumber(2B)][DstIP(4B)][DstPort(2B)][SrcIP(4B)][SrcPort(2B)][PayloadLen(4B)][Payload]
-func (c *DataPacketCodec) Serialize(packet any) ([]byte, error) {
+func (c *DataPacketCodec) Serialize(packet any, pool *common.BufferPool) ([]byte, error) {
 	p, ok := packet.(*DataPacket)
 	if !ok {
 		return nil, errors.New("invalid packet type for DataPacket codec")
@@ -58,7 +60,13 @@ func (c *DataPacketCodec) Serialize(packet any) ([]byte, error) {
 
 	payloadLen := len(p.Payload)
 	totalSize := 29 + payloadLen // 1+8+2+2+4+2+4+2+4 = 29 bytes for header
-	buf := make([]byte, totalSize)
+
+	var buf []byte
+	if pool != nil {
+		buf = pool.GetSize(totalSize)
+	} else {
+		buf = make([]byte, totalSize)
+	}
 
 	// Write fields directly into the buffer
 	buf[0] = byte(p.PacketTypeID)
@@ -84,6 +92,8 @@ func (c *DataPacketCodec) Serialize(packet any) ([]byte, error) {
 	// Copy payload
 	copy(buf[29:], p.Payload)
 
+	// Note: We don't return the buffer to the pool here because it's returned to the caller
+	// The caller (transport.Send) is responsible for returning it after WriteToUDP
 	return buf, nil
 }
 
@@ -120,8 +130,9 @@ func (c *DataPacketCodec) Deserialize(data []byte) (any, error) {
 		return nil, errors.New("data too short for declared payload length")
 	}
 
-	// Payload — copy if you need ownership, or slice directly for zero-copy
-	p.Payload = data[29 : 29+payloadLen]
+	// Use zero-copy slice for payload - caller must keep buffer alive until payload is no longer needed
+	payloadLenInt := int(payloadLen)
+	p.Payload = data[29 : 29+payloadLenInt]
 
 	return p, nil
 }
@@ -131,7 +142,7 @@ type ErrorPacketCodec struct{}
 
 // Serialize encodes an ErrorPacket into binary format:
 // [PacketTypeID(1B)][RPCID(8B)][MsgLen(4B)][Msg]
-func (c *ErrorPacketCodec) Serialize(packet any) ([]byte, error) {
+func (c *ErrorPacketCodec) Serialize(packet any, pool *common.BufferPool) ([]byte, error) {
 	p, ok := packet.(*ErrorPacket)
 	if !ok {
 		return nil, errors.New("invalid packet type for Error codec")
@@ -143,7 +154,13 @@ func (c *ErrorPacketCodec) Serialize(packet any) ([]byte, error) {
 	}
 
 	totalSize := 13 + len(msgBytes)
-	buf := make([]byte, totalSize)
+
+	var buf []byte
+	if pool != nil {
+		buf = pool.GetSize(totalSize)
+	} else {
+		buf = make([]byte, totalSize)
+	}
 
 	// Write fields
 	buf[0] = byte(p.PacketTypeID)
@@ -151,6 +168,8 @@ func (c *ErrorPacketCodec) Serialize(packet any) ([]byte, error) {
 	binary.LittleEndian.PutUint32(buf[9:13], uint32(len(msgBytes)))
 	copy(buf[13:], msgBytes)
 
+	// Note: We don't return the buffer to the pool here because it's returned to the caller
+	// The caller (transport.Send) is responsible for returning it after WriteToUDP
 	return buf, nil
 }
 

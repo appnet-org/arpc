@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 
+	"github.com/appnet-org/arpc/pkg/common"
 	"github.com/appnet-org/arpc/pkg/packet"
 )
 
@@ -26,7 +27,7 @@ type CCFeedbackCodec struct{}
 // [PacketTypeID(1B)][AckedCount(4B)][AckedBytes(8B)][PacketIDCount(4B)][PacketIDs...]
 // Header: 1 + 4 + 8 + 4 = 17 bytes
 // Plus 8 bytes per packet ID
-func (c *CCFeedbackCodec) Serialize(pkt any) ([]byte, error) {
+func (c *CCFeedbackCodec) Serialize(pkt any, pool *common.BufferPool) ([]byte, error) {
 	p, ok := pkt.(*CCFeedbackPacket)
 	if !ok {
 		return nil, errors.New("invalid packet type for CCFeedback codec")
@@ -35,7 +36,13 @@ func (c *CCFeedbackCodec) Serialize(pkt any) ([]byte, error) {
 	// Header size: 1 + 4 + 8 + 4 = 17 bytes
 	// Plus 8 bytes per packet ID
 	totalSize := 17 + len(p.PacketIDs)*8
-	buf := make([]byte, totalSize)
+
+	var buf []byte
+	if pool != nil {
+		buf = pool.GetSize(totalSize)
+	} else {
+		buf = make([]byte, totalSize)
+	}
 	offset := 0
 
 	// PacketTypeID

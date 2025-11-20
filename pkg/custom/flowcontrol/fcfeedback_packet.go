@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 
+	"github.com/appnet-org/arpc/pkg/common"
 	"github.com/appnet-org/arpc/pkg/packet"
 )
 
@@ -23,13 +24,18 @@ type FCFeedbackCodec struct{}
 // Serialize encodes a FCFeedbackPacket into binary format:
 // [PacketTypeID(1B)][SendWindow(8B)]
 // Total: 9 bytes fixed size
-func (c *FCFeedbackCodec) Serialize(pkt any) ([]byte, error) {
+func (c *FCFeedbackCodec) Serialize(pkt any, pool *common.BufferPool) ([]byte, error) {
 	p, ok := pkt.(*FCFeedbackPacket)
 	if !ok {
 		return nil, errors.New("invalid packet type for FCFeedback codec")
 	}
 
-	buf := make([]byte, 9)
+	var buf []byte
+	if pool != nil {
+		buf = pool.GetSize(9)
+	} else {
+		buf = make([]byte, 9)
+	}
 	offset := 0
 
 	// PacketTypeID

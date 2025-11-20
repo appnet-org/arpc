@@ -4,12 +4,15 @@ import (
 	"encoding/binary"
 	"errors"
 	"strings"
+
+	"github.com/appnet-org/arpc/pkg/common"
 )
 
 type MetadataCodec struct{}
 
 // EncodeHeaders serializes metadata to wire format: [count][kLen][key][vLen][value]...
-func (MetadataCodec) EncodeHeaders(md Metadata) ([]byte, error) {
+// If pool is provided, it will be used to allocate the buffer; otherwise, a new buffer is allocated.
+func (MetadataCodec) EncodeHeaders(md Metadata, pool *common.BufferPool) ([]byte, error) {
 	// First compute total size
 	totalSize := 2 // for count
 	for k, v := range md {
@@ -18,7 +21,12 @@ func (MetadataCodec) EncodeHeaders(md Metadata) ([]byte, error) {
 		totalSize += 2 + len(kb) + 2 + len(vb)
 	}
 
-	buf := make([]byte, totalSize)
+	var buf []byte
+	if pool != nil {
+		buf = pool.GetSize(totalSize)
+	} else {
+		buf = make([]byte, totalSize)
+	}
 	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(md)))
 
 	// Write pairs

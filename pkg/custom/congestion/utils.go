@@ -271,7 +271,7 @@ func (h *CCHandler) sendFeedback(conn *CCConnectionState, connKey uint64) {
 	}
 
 	// Serialize feedback
-	feedbackData, err := (&CCFeedbackCodec{}).Serialize(feedback)
+	feedbackData, err := (&CCFeedbackCodec{}).Serialize(feedback, nil)
 	if err != nil {
 		logging.Error("Failed to serialize CCFeedback packet", zap.Error(err))
 		return

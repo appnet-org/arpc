@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 
+	"github.com/appnet-org/arpc/pkg/common"
 	"github.com/appnet-org/arpc/pkg/packet"
 )
 
@@ -24,7 +25,7 @@ type ACKPacketCodec struct{}
 
 // Serialize encodes an ACKPacket into binary format:
 // [PacketTypeID(1B)][RPCID(8B)][Kind(1B)][Status(1B)][Timestamp(8B)][MsgLen(4B)][Msg]
-func (c *ACKPacketCodec) Serialize(packet any) ([]byte, error) {
+func (c *ACKPacketCodec) Serialize(packet any, pool *common.BufferPool) ([]byte, error) {
 	p, ok := packet.(*ACKPacket)
 	if !ok {
 		return nil, errors.New("invalid packet type for ACK codec")
@@ -32,7 +33,13 @@ func (c *ACKPacketCodec) Serialize(packet any) ([]byte, error) {
 
 	msgBytes := []byte(p.Message)
 	totalSize := 23 + len(msgBytes) // header + message
-	buf := make([]byte, totalSize)
+
+	var buf []byte
+	if pool != nil {
+		buf = pool.GetSize(totalSize)
+	} else {
+		buf = make([]byte, totalSize)
+	}
 
 	// PacketTypeID
 	buf[0] = byte(p.PacketTypeID)

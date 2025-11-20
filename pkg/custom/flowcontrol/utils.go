@@ -228,7 +228,7 @@ func (h *FCHandler) sendFeedback(conn *FCConnectionState, connKey uint64) {
 	}
 
 	// Serialize feedback
-	feedbackData, err := (&FCFeedbackCodec{}).Serialize(feedback)
+	feedbackData, err := (&FCFeedbackCodec{}).Serialize(feedback, nil)
 	if err != nil {
 		logging.Error("Failed to serialize FCFeedback packet", zap.Error(err))
 		return

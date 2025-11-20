@@ -4,26 +4,40 @@ import (
 	"net"
 	"sync"
 
+	"github.com/appnet-org/arpc/pkg/common"
 	"github.com/appnet-org/arpc/pkg/logging"
 	protocol "github.com/appnet-org/arpc/pkg/packet"
 	"go.uber.org/zap"
 )
 
+// fragmentInfo stores both the payload slice and the original buffer to keep it alive
+type fragmentInfo struct {
+	payload []byte
+	buffer  []byte // Keep reference to original buffer to prevent GC
+}
+
 // DataReassembler handles the reassembly of fragmented data (request/response) packets
 type DataReassembler struct {
-	incoming map[uint64]map[uint16][]byte
-	mu       sync.Mutex
+	incoming   map[uint64]map[uint16]*fragmentInfo
+	bufferPool *common.BufferPool
+	mu         sync.Mutex
 }
 
 // NewDataReassembler creates a new data reassembler
 func NewDataReassembler() *DataReassembler {
 	return &DataReassembler{
-		incoming: make(map[uint64]map[uint16][]byte),
+		incoming: make(map[uint64]map[uint16]*fragmentInfo),
 	}
 }
 
+// SetBufferPool sets the buffer pool for returning buffers after reassembly
+func (r *DataReassembler) SetBufferPool(pool *common.BufferPool) {
+	r.bufferPool = pool
+}
+
 // ProcessFragment processes a single data packet fragment and returns the reassembled message if complete
-func (r *DataReassembler) ProcessFragment(pkt any, addr *net.UDPAddr) ([]byte, *net.UDPAddr, uint64, bool) {
+// buffer must be the original buffer that contains the payload (to keep it alive)
+func (r *DataReassembler) ProcessFragment(pkt any, addr *net.UDPAddr, buffer []byte) ([]byte, *net.UDPAddr, uint64, bool) {
 	dataPkt := pkt.(*protocol.DataPacket)
 	// log the peer and source port
 	logging.Debug("Processing fragment", zap.String("peer", addr.String()), zap.Uint16("srcPort", dataPkt.SrcPort))
@@ -33,17 +47,44 @@ func (r *DataReassembler) ProcessFragment(pkt any, addr *net.UDPAddr) ([]byte, *
 
 	// Initialize fragment map for this RPC if it doesn't exist
 	if _, exists := r.incoming[dataPkt.RPCID]; !exists {
-		r.incoming[dataPkt.RPCID] = make(map[uint16][]byte)
+		r.incoming[dataPkt.RPCID] = make(map[uint16]*fragmentInfo)
 	}
 
-	r.incoming[dataPkt.RPCID][dataPkt.SeqNumber] = dataPkt.Payload
+	// Store both payload and buffer reference to keep buffer alive
+	r.incoming[dataPkt.RPCID][dataPkt.SeqNumber] = &fragmentInfo{
+		payload: dataPkt.Payload,
+		buffer:  buffer,
+	}
 
 	// Check if we have all fragments
 	if len(r.incoming[dataPkt.RPCID]) == int(dataPkt.TotalPackets) {
-		// Reassemble the complete message by concatenating fragments in order
-		var fullMessage []byte
+		// Calculate total size for pre-allocation
+		var totalSize int
 		for i := uint16(0); i < dataPkt.TotalPackets; i++ {
-			fullMessage = append(fullMessage, r.incoming[dataPkt.RPCID][i]...)
+			totalSize += len(r.incoming[dataPkt.RPCID][i].payload)
+		}
+
+		// Reassemble the complete message by copying fragments in order
+		// Use buffer pool if available, otherwise allocate normally
+		var fullMessage []byte
+		if r.bufferPool != nil {
+			fullMessage = r.bufferPool.GetSize(totalSize)
+			fullMessage = fullMessage[:0] // Reset length but keep capacity
+		} else {
+			fullMessage = make([]byte, 0, totalSize)
+		}
+		for i := uint16(0); i < dataPkt.TotalPackets; i++ {
+			frag := r.incoming[dataPkt.RPCID][i]
+			fullMessage = append(fullMessage, frag.payload...)
+		}
+
+		// Return buffers to pool now that we've copied the data
+		if r.bufferPool != nil {
+			for i := uint16(0); i < dataPkt.TotalPackets; i++ {
+				if frag := r.incoming[dataPkt.RPCID][i]; frag != nil {
+					r.bufferPool.Put(frag.buffer)
+				}
+			}
 		}
 
 		// Clean up fragment storage and return complete message

@@ -5,6 +5,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/appnet-org/arpc/pkg/common"
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/packet"
 	"github.com/appnet-org/arpc/pkg/transport/balancer"
@@ -23,6 +24,7 @@ type UDPTransport struct {
 	handlers     *HandlerRegistry
 	packets      *packet.PacketRegistry
 	timerManager *TimerManager
+	bufferPool   *common.BufferPool
 }
 
 func NewUDPTransport(address string) (*UDPTransport, error) {
@@ -47,7 +49,11 @@ func NewUDPTransportWithBalancer(address string, resolver *balancer.Resolver) (*
 		resolver:     resolver,
 		handlers:     nil, // Will be set after transport is created
 		timerManager: NewTimerManager(),
+		bufferPool:   common.NewBufferPool(65536), // Default to 64KB buffer size
 	}
+
+	// Set buffer pool in reassembler so it can return buffers after reassembly
+	transport.reassembler.SetBufferPool(transport.bufferPool)
 
 	// Set handlers after transport is fully constructed
 	transport.handlers = NewHandlerRegistry(transport)
@@ -125,8 +131,8 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 			return fmt.Errorf("handler processing failed: %w", err)
 		}
 
-		// Serialize the packet into a byte slice for transmission
-		packetData, err := packet.SerializePacket(pkt, packetType)
+		// Serialize the packet into a byte slice for transmission using buffer pool
+		packetData, err := packet.SerializePacket(pkt, packetType, t.bufferPool)
 		logging.Debug("Serialized packet", zap.Uint64("rpcID", rpcID))
 		if err != nil {
 			return err
@@ -134,6 +140,10 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 
 		_, err = t.conn.WriteToUDP(packetData, udpAddr)
 		logging.Debug("Sent packet", zap.Uint64("rpcID", rpcID))
+
+		// Return buffer to pool after sending (WriteToUDP copies the data, so it's safe)
+		t.bufferPool.Put(packetData)
+
 		if err != nil {
 			return err
 		}
@@ -150,27 +160,34 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 // * packet type
 // * error
 func (t *UDPTransport) Receive(bufferSize int, role Role) ([]byte, *net.UDPAddr, uint64, packet.PacketType, error) {
-	// Read data from the UDP connection into the buffer
-	buffer := make([]byte, bufferSize)
+	// Get a buffer from the pool with at least the requested size
+	buffer := t.bufferPool.GetSize(bufferSize)
+
 	n, addr, err := t.conn.ReadFromUDP(buffer)
 	if err != nil {
+		// Return buffer to pool on error
+		t.bufferPool.Put(buffer)
 		return nil, nil, 0, packet.PacketTypeUnknown, err
 	}
 
 	// Deserialize the received data using transport's packet registry
 	// (not DefaultRegistry, which doesn't have custom packets like ACK)
 	if n < 1 {
+		t.bufferPool.Put(buffer)
 		return nil, nil, 0, packet.PacketTypeUnknown, fmt.Errorf("data too short to read packet type")
 	}
 
 	packetTypeID := packet.PacketTypeID(buffer[0])
 	codec, exists := t.packets.GetCodec(packetTypeID)
 	if !exists {
+		t.bufferPool.Put(buffer)
 		return nil, nil, 0, packet.PacketTypeUnknown, fmt.Errorf("codec not found for packet type ID %d", packetTypeID)
 	}
 
+	// Deserialize from the buffer (uses zero-copy slices, so buffer must stay alive)
 	pkt, err := codec.Deserialize(buffer[:n])
 	if err != nil {
+		t.bufferPool.Put(buffer)
 		return nil, nil, 0, packet.PacketTypeUnknown, err
 	}
 
@@ -179,31 +196,45 @@ func (t *UDPTransport) Receive(bufferSize int, role Role) ([]byte, *net.UDPAddr,
 	// Use the handler registry to process the packet
 	handler, exists := t.handlers.GetHandlerChain(packetType.TypeID, role)
 	if !exists {
+		// For non-DataPackets, return buffer immediately since we don't need to keep it
+		if _, ok := pkt.(*packet.DataPacket); !ok {
+			t.bufferPool.Put(buffer)
+		}
 		return nil, nil, 0, packetType, fmt.Errorf("no handler chain found for packet type: %s", packetType.Name)
 	}
 
 	// Process the packet through its handlers first
 	if err := handler.OnReceive(pkt, addr); err != nil {
+		// For non-DataPackets, return buffer immediately since we don't need to keep it
+		if _, ok := pkt.(*packet.DataPacket); !ok {
+			t.bufferPool.Put(buffer)
+		}
 		return nil, nil, 0, packetType, fmt.Errorf("handler processing failed: %w", err)
 	}
 
 	// Handle different packet types based on their nature
 	switch p := pkt.(type) {
 	case *packet.DataPacket:
-		return t.ReassembleDataPacket(p, addr, packetType)
+		// Pass buffer to reassembler - it will return it to pool after reassembly
+		return t.ReassembleDataPacket(p, addr, packetType, buffer)
 	case *packet.ErrorPacket:
+		// ErrorPacket doesn't need buffer kept alive, return it now
+		t.bufferPool.Put(buffer)
 		return []byte(p.ErrorMsg), addr, p.RPCID, packetType, nil
 	default:
-		// Unknown packet type - return early with no data
+		// Unknown packet type - return buffer and return early with no data
+		t.bufferPool.Put(buffer)
 		logging.Debug("Unknown packet type", zap.String("packetType", packetType.Name))
 		return nil, nil, 0, packetType, nil
 	}
 }
 
 // ReassembleDataPacket processes data packets through the reassembly layer
-func (t *UDPTransport) ReassembleDataPacket(pkt *packet.DataPacket, addr *net.UDPAddr, packetType packet.PacketType) ([]byte, *net.UDPAddr, uint64, packet.PacketType, error) {
+// buffer is the original buffer containing the packet data - it will be returned to pool after reassembly
+func (t *UDPTransport) ReassembleDataPacket(pkt *packet.DataPacket, addr *net.UDPAddr, packetType packet.PacketType, buffer []byte) ([]byte, *net.UDPAddr, uint64, packet.PacketType, error) {
 	// Process fragment through reassembly layer
-	fullMessage, _, reassembledRPCID, isComplete := t.reassembler.ProcessFragment(pkt, addr)
+	// Pass buffer so reassembler can keep it alive until reassembly completes
+	fullMessage, _, reassembledRPCID, isComplete := t.reassembler.ProcessFragment(pkt, addr, buffer)
 
 	if isComplete {
 		// For responses, return the original source address from packet headers (SrcIP:SrcPort)
@@ -215,7 +246,7 @@ func (t *UDPTransport) ReassembleDataPacket(pkt *packet.DataPacket, addr *net.UD
 		return fullMessage, originalSrcAddr, reassembledRPCID, packetType, nil
 	}
 
-	// Still waiting for more fragments
+	// Still waiting for more fragments - buffer is kept alive in reassembler
 	return nil, nil, 0, packetType, nil
 }
 
@@ -253,6 +284,11 @@ func (t *UDPTransport) GetHandlerRegistry() *HandlerRegistry {
 // GetTimerManager returns the timer manager for advanced operations
 func (t *UDPTransport) GetTimerManager() *TimerManager {
 	return t.timerManager
+}
+
+// GetBufferPool returns the buffer pool for reuse in serialization and other operations
+func (t *UDPTransport) GetBufferPool() *common.BufferPool {
+	return t.bufferPool
 }
 
 // GetConn returns the underlying UDP connection for direct packet sending

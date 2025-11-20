@@ -178,7 +178,7 @@ func (h *ReliableHandler) serializeDataPacket(pkt *packet.DataPacket) ([]byte, e
 	if !exists {
 		return nil, errors.New("codec not found for packet type")
 	}
-	return codec.Serialize(pkt)
+	return codec.Serialize(pkt, nil)
 }
 
 // sendACK sends an ACK packet
@@ -194,7 +194,7 @@ func (h *ReliableHandler) sendACK(rpcID uint64, kind uint8, addr *net.UDPAddr) e
 	}
 
 	// Serialize the ACK packet
-	ackData, err := (&ACKPacketCodec{}).Serialize(ackPkt)
+	ackData, err := (&ACKPacketCodec{}).Serialize(ackPkt, nil)
 	if err != nil {
 		logging.Error("Failed to serialize ACK packet", zap.Error(err))
 		return err

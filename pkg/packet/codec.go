@@ -3,28 +3,32 @@ package packet
 import (
 	"errors"
 	"strconv"
+
+	"github.com/appnet-org/arpc/pkg/common"
 )
 
 const MaxUDPPayloadSize = 1400 // Adjust based on MTU considerations
 
 // PacketCodec is the base interface that all codecs must implement
 type PacketCodec interface {
-	// Serialize converts a packet to its binary representation
-	Serialize(packet any) ([]byte, error)
+	// Serialize converts a packet to its binary representation using the provided buffer pool.
+	// If pool is nil, the codec should allocate buffers normally.
+	Serialize(packet any, pool *common.BufferPool) ([]byte, error)
 
 	// Deserialize converts binary data back to a packet
 	Deserialize(data []byte) (any, error)
 }
 
-// Generic packet serialization/deserialization functions
-func SerializePacket(packet any, packetType PacketType) ([]byte, error) {
+// SerializePacket serializes a packet using the provided buffer pool.
+// If pool is nil, buffers will be allocated normally.
+func SerializePacket(packet any, packetType PacketType, pool *common.BufferPool) ([]byte, error) {
 	registry := DefaultRegistry
 	codec, exists := registry.GetCodec(packetType.TypeID)
 	if !exists {
 		return nil, errors.New("codec not found for packet type " + packetType.Name)
 	}
 
-	return codec.Serialize(packet)
+	return codec.Serialize(packet, pool)
 }
 
 // DeserializePacketAny deserializes a packet by first reading its type from the data
