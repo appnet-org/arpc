@@ -583,12 +583,28 @@ func handleHTTP2Connection(clientConn net.Conn, preface []byte, state *ProxyStat
 	}
 
 	// Connect to target server
+	logging.Info("Creating TCP connection to target server",
+		zap.String("target", targetAddr),
+		zap.String("clientAddr", clientConn.RemoteAddr().String()),
+		zap.String("connectionID", fmt.Sprintf("%p", clientConn)))
 	targetConn, err := net.Dial("tcp", targetAddr)
 	if err != nil {
 		logging.Error("Failed to connect to target", zap.String("target", targetAddr), zap.Error(err))
 		return
 	}
-	defer targetConn.Close()
+	logging.Info("TCP connection to target established",
+		zap.String("target", targetAddr),
+		zap.String("targetConnLocal", targetConn.LocalAddr().String()),
+		zap.String("targetConnRemote", targetConn.RemoteAddr().String()),
+		zap.String("clientAddr", clientConn.RemoteAddr().String()),
+		zap.String("connectionID", fmt.Sprintf("%p", clientConn)))
+	defer func() {
+		logging.Info("Closing TCP connection to target",
+			zap.String("target", targetAddr),
+			zap.String("clientAddr", clientConn.RemoteAddr().String()),
+			zap.String("connectionID", fmt.Sprintf("%p", clientConn)))
+		targetConn.Close()
+	}()
 
 	// Write the HTTP/2 preface to target
 	if _, err := targetConn.Write([]byte(HTTP2Preface)); err != nil {
@@ -788,6 +804,12 @@ func handleHTTP2Stream(reader *bufio.Reader, destConn io.Writer, state *ProxySta
 			}
 
 		case *http2.HeadersFrame:
+			// Log when a new stream starts (first HEADERS frame)
+			logging.Info("Processing stream on existing TCP connection",
+				zap.Uint32("streamID", f.StreamID),
+				zap.Bool("isRequest", isRequest),
+				zap.String("connKey", connKey.RemoteAddr().String()),
+				zap.String("connectionID", fmt.Sprintf("%p", connKey)))
 			// Decode and store headers
 			blockFragment := f.HeaderBlockFragment()
 			if err := state.headerManager.DecodeAndStoreHeaders(connKey, f.StreamID, blockFragment, f.HeadersEnded(), isRequest); err != nil {
