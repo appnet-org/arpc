@@ -38,6 +38,26 @@ func NewUDPTransportWithBalancer(address string, resolver *balancer.Resolver) (*
 		return nil, err
 	}
 
+	// Check if binding to 0.0.0.0 - if so, discover the actual source IP
+	if udpAddr.IP.IsUnspecified() {
+		// Dial a dummy destination to discover the actual source IP
+		dummyConn, err := net.Dial("udp", "8.8.8.8:80")
+		if err != nil {
+			return nil, fmt.Errorf("failed to discover source IP: %w", err)
+		}
+
+		// Get the local address that would be used
+		localAddr := dummyConn.LocalAddr().(*net.UDPAddr)
+		actualIP := localAddr.IP
+		dummyConn.Close()
+
+		// Update the bind address to use the discovered IP with the original port
+		udpAddr = &net.UDPAddr{
+			IP:   actualIP,
+			Port: udpAddr.Port,
+		}
+	}
+
 	conn, err := net.ListenUDP("udp", udpAddr)
 	if err != nil {
 		return nil, err
@@ -87,28 +107,11 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 		dstPort = uint16(udpAddr.Port)
 	}
 
-	// Get source IP and port from local address
+	// Get source IP and port from the connection's local address
 	localAddr := t.LocalAddr()
 	var srcIP [4]byte
-
-	// Check if bound to unspecified address (0.0.0.0 or ::)
-	if localAddr.IP.IsUnspecified() {
-		// Resolve actual source IP for unspecified bindings
-		if actualSrcIP := getSourceIPForDestination(udpAddr); actualSrcIP != nil {
-			if ip4 := actualSrcIP.To4(); ip4 != nil {
-				copy(srcIP[:], ip4)
-			}
-		}
-	} else if ip4 := localAddr.IP.To4(); ip4 != nil {
-		// Use the bound IPv4 address
+	if ip4 := localAddr.IP.To4(); ip4 != nil {
 		copy(srcIP[:], ip4)
-	} else {
-		// IPv6 address bound to specific IP - resolve IPv4 equivalent for packet format
-		if actualSrcIP := getSourceIPForDestination(udpAddr); actualSrcIP != nil {
-			if ip4 := actualSrcIP.To4(); ip4 != nil {
-				copy(srcIP[:], ip4)
-			}
-		}
 	}
 	srcPort := uint16(localAddr.Port)
 
@@ -304,21 +307,4 @@ func (t *UDPTransport) ListRegisteredPackets() []packet.PacketType {
 // LocalAddr returns the local UDP address of the transport
 func (t *UDPTransport) LocalAddr() *net.UDPAddr {
 	return t.conn.LocalAddr().(*net.UDPAddr)
-}
-
-// getSourceIPForDestination determines which local IP would be used to reach the destination
-// This solves the 0.0.0.0 binding issue by asking the OS routing table
-func getSourceIPForDestination(dst *net.UDPAddr) net.IP {
-	// Create a temporary connection to determine the source IP
-	conn, err := net.Dial("udp", dst.String())
-	if err != nil {
-		return nil
-	}
-	defer conn.Close()
-
-	if udpAddr, ok := conn.LocalAddr().(*net.UDPAddr); ok {
-		return udpAddr.IP
-	}
-
-	return nil
 }
