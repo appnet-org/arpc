@@ -63,6 +63,17 @@ func NewUDPTransportWithBalancer(address string, resolver *balancer.Resolver) (*
 		return nil, err
 	}
 
+	// Set UDP socket buffer sizes to handle large bursts of packets
+	// For large messages that fragment into many packets, we need larger buffers
+	// to prevent packet loss when sending/receiving many packets quickly
+	const socketBufferSize = 8 * 1024 * 1024 // 8MB for both send and receive
+	if err := conn.SetReadBuffer(socketBufferSize); err != nil {
+		logging.Warn("Failed to set UDP read buffer size", zap.Error(err))
+	}
+	if err := conn.SetWriteBuffer(socketBufferSize); err != nil {
+		logging.Warn("Failed to set UDP write buffer size", zap.Error(err))
+	}
+
 	transport := &UDPTransport{
 		conn:         conn,
 		reassembler:  NewDataReassembler(),
