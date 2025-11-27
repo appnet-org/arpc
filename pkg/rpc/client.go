@@ -30,7 +30,7 @@ type Client struct {
 // when creating multiple clients in the same process.
 func NewClient(serializer serializer.Serializer, addr string, rpcElements []element.RPCElement) (*Client, error) {
 	// Use port 0 to let the OS assign an available port
-	t, err := transport.NewUDPTransport(":0")
+	t, err := transport.NewUDPTransport("0.0.0.0:0")
 	if err != nil {
 		return nil, err
 	}
