@@ -253,7 +253,8 @@ func handleConnection(clientConn net.Conn, state *ProxyState) {
 		return
 	}
 
-	// Connect to target server
+	// Connect to the real target; this creates a brand new upstream TCP session
+	// so the proxy can sit between client and destination.
 	targetConn, err := net.Dial("tcp", targetAddr)
 	if err != nil {
 		logging.Error("Failed to connect to target",
