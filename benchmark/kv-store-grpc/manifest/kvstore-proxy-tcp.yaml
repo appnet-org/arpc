@@ -32,14 +32,14 @@ spec:
         - /app/frontend/frontend
         env:
         - name: LOG_LEVEL
-          value: debug
+          value: info
       - name: symphony-proxy
         image: appnetorg/symphony-proxy-tcp:latest
         command:
         - /app/proxy
         env:
         - name: LOG_LEVEL
-          value: debug
+          value: info
         securityContext:
           runAsUser: 1337
           capabilities:
@@ -97,14 +97,14 @@ spec:
         - /app/kvstore/kvstore
         env:
         - name: LOG_LEVEL
-          value: debug
+          value: info
       - name: symphony-proxy
         image: appnetorg/symphony-proxy-tcp:latest
         command:
         - /app/proxy
         env:
         - name: LOG_LEVEL
-          value: debug
+          value: info
         securityContext:
           runAsUser: 1337
           capabilities:

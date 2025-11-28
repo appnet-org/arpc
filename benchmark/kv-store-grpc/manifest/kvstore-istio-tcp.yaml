@@ -53,7 +53,7 @@ spec:
         - /app/frontend/frontend
         env:
         - name: LOG_LEVEL
-          value: debug
+          value: info
         image: appnetorg/kvstore-grpc:latest
         name: frontend-kvstore-grpc
         resources: {}
@@ -317,7 +317,7 @@ spec:
         - /app/kvstore/kvstore
         env:
         - name: LOG_LEVEL
-          value: debug
+          value: info
         image: appnetorg/kvstore-grpc:latest
         name: kvstore-kvstore-grpc
         resources: {}
