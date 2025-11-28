@@ -18,8 +18,8 @@ import (
 	kv "github.com/appnet-org/arpc/benchmark/kv-store-grpc/proto"
 )
 
-const serverAddress = "130.127.134.16:11000"
-// const serverAddress = "kvstore.default.svc.cluster.local:11000"
+// const serverAddress = "130.127.134.16:11000"
+const serverAddress = "kvstore.default.svc.cluster.local:11000"
 
 // generateDeterministicString produces a fixed pseudo-random string based on keyID and desired length.
 func generateDeterministicString(keyID string, length int) string {

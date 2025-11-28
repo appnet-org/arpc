@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  clusterIP: 10.96.88.88
+  ports:
+  - name: frontend
+    port: 80
+    targetPort: 8080
+  selector:
+    app: frontend
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  replicas: 1
+  template:
+    metadata:
+      name: frontend
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - image: appnetorg/kvstore-arpc-h2:latest
+        name: frontend-kvstore-arpc-h2
+        command:
+        - /app/frontend
+        env:
+        - name: LOG_LEVEL
+          value: info
+      - name: symphony-proxy
+        image: appnetorg/symphony-proxy-h2:latest
+        command:
+        - /app/proxy
+        securityContext:
+          runAsUser: 1337
+          capabilities:
+            add:
+            - NET_ADMIN
+            - NET_RAW
+      initContainers:
+      - name: set-iptables
+        image: appnetorg/symphony-proxy-h2-init-container:latest
+        command:
+        - /bin/sh
+        - -c
+        - bash /apply_symphony_iptables.sh
+        securityContext:
+          runAsUser: 0
+          capabilities:
+            add:
+            - NET_ADMIN
+  selector:
+    matchLabels:
+      app: frontend
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kvstore
+  labels:
+    app: kvstore
+spec:
+  clusterIP: None
+  ports:
+  - name: kvstore
+    port: 11000
+    protocol: UDP
+    targetPort: 11000
+  selector:
+    app: kvstore
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kvstore
+spec:
+  replicas: 1
+  template:
+    metadata:
+      name: kvstore
+      labels:
+        app: kvstore
+    spec:
+      containers:
+      - image: appnetorg/kvstore-arpc-h2:latest
+        name: kvstore-kvstore-arpc-h2
+        command:
+        - /app/kvstore
+        env:
+        - name: LOG_LEVEL
+          value: info
+      - name: symphony-proxy
+        image: appnetorg/symphony-proxy-h2:latest
+        command:
+        - /app/proxy
+        securityContext:
+          runAsUser: 1337
+          capabilities:
+            add:
+            - NET_ADMIN
+            - NET_RAW
+      initContainers:
+      - name: set-iptables
+        image: appnetorg/symphony-proxy-h2-init-container:latest
+        command:
+        - /bin/sh
+        - -c
+        - bash /apply_symphony_iptables.sh
+        securityContext:
+          runAsUser: 0
+          capabilities:
+            add:
+            - NET_ADMIN
+  selector:
+    matchLabels:
+      app: kvstore
