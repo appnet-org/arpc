@@ -27,13 +27,13 @@ iptables-restore <<'EOF'
 ### --- INBOUND INTERCEPTION (for traffic *into* the app) ---
 
 # Redirect client → app incoming traffic to inbound proxy at 15006
--A PREROUTING -p tcp --dport 11000:65535 -j REDIRECT --to-ports 15006
+-A PREROUTING -p tcp --dport 11000:11100 -j REDIRECT --to-ports 15006
 
 
 ### --- OUTBOUND INTERCEPTION (for app-initiated connections) ---
 
 # Redirect app outbound traffic → outbound proxy at 15002
--A OUTPUT -p tcp --dport 11000:65535 -m owner ! --uid-owner proxyuser -j REDIRECT --to-ports 15002
+-A OUTPUT -p tcp --dport 11000:11100 -m owner ! --uid-owner proxyuser -j REDIRECT --to-ports 15002
 
 COMMIT
 EOF

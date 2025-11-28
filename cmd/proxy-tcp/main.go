@@ -236,17 +236,19 @@ func handleConnection(clientConn net.Conn, state *ProxyState) {
 	defer clientConn.Close()
 
 	connID := state.getNextConnectionID()
-	logging.Debug("New TCP connection",
+	logging.Info("New TCP connection",
 		zap.String("connID", connID),
-		zap.String("clientAddr", clientConn.RemoteAddr().String()))
+		zap.String("clientAddr", clientConn.RemoteAddr().String()),
+		zap.String("localAddr", clientConn.LocalAddr().String()))
 
 	// Get the original destination from iptables interception
 	targetAddr := state.targetAddr
 	if origDst, ok := getOriginalDestination(clientConn); ok {
 		targetAddr = origDst
-		logging.Debug("Using iptables original destination",
+		logging.Info("Using iptables original destination",
 			zap.String("connID", connID),
-			zap.String("original_dst", origDst))
+			zap.String("original_dst", origDst),
+			zap.String("clientAddr", clientConn.RemoteAddr().String()))
 	} else if targetAddr == "" {
 		logging.Error("No target address available (neither SO_ORIGINAL_DST nor TARGET_ADDR)",
 			zap.String("connID", connID))
@@ -257,9 +259,11 @@ func handleConnection(clientConn net.Conn, state *ProxyState) {
 	// so the proxy can sit between client and destination.
 	targetConn, err := net.Dial("tcp", targetAddr)
 	if err != nil {
-		logging.Error("Failed to connect to target",
+		logging.Warn("Failed to connect to target",
 			zap.String("connID", connID),
 			zap.String("target", targetAddr),
+			zap.String("clientAddr", clientConn.RemoteAddr().String()),
+			zap.String("localAddr", clientConn.LocalAddr().String()),
 			zap.Error(err))
 		return
 	}
