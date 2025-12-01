@@ -14,7 +14,11 @@ pip install pyyaml
 
 - `-f, --file`: Input YAML file. Reads from stdin if not specified.
 - `-o, --output`: Output YAML file. Writes to stdout if not specified.
-- `-m, --mode`: Proxy mode: `symphony` or `h2` (default: `symphony`).
+- `-m, --mode`: Proxy mode: `symphony`, `h2`, or `tcp` (default: `symphony`).
+- `--tls`: Enable mTLS for the proxy.
+- `--tls-cert-path`: Path to TLS certificate file in container (default: `/app/certs/server-cert.pem`).
+- `--tls-key-path`: Path to TLS key file in container (default: `/app/certs/server-key.pem`).
+- `--tls-secret-name`: Name of the Kubernetes secret containing TLS certificates (default: `kvstore-tls-certs`).
 
 ### Inject via file
 
@@ -41,6 +45,23 @@ cat input.yaml | python symphony-injector.py > output.yaml
 ```bash
 # Use h2 mode
 python symphony-injector.py -f input.yaml -m h2 -o output.yaml
+
+# Use tcp mode
+python symphony-injector.py -f input.yaml -m tcp -o output.yaml
+```
+
+### Enable TLS for proxy
+
+```bash
+# Inject proxy with mTLS enabled
+python symphony-injector.py -f input.yaml -m tcp --tls -o output.yaml
+
+# Customize TLS certificate paths and secret name
+python symphony-injector.py -f input.yaml -m tcp --tls \
+  --tls-cert-path=/custom/path/cert.pem \
+  --tls-key-path=/custom/path/key.pem \
+  --tls-secret-name=my-tls-secret \
+  -o output.yaml
 ```
 
 ## Opt-out
