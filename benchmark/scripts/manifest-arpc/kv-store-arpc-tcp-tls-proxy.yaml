@@ -47,6 +47,9 @@ spec:
         image: appnetorg/symphony-proxy-tcp:latest
         command:
         - /app/proxy
+        env:
+        - name: LOG_LEVEL
+          value: info
         securityContext:
           runAsUser: 1337
           capabilities:
@@ -55,8 +58,16 @@ spec:
             - NET_RAW
         args:
         - -mtls
-        - -tls-cert-file=/app/certs/server-cert.pem
-        - -tls-key-file=/app/certs/server-key.pem
+        - -tls-cert-file
+        - /app/certs/server-cert.pem
+        - -tls-key-file
+        - /app/certs/server-key.pem
+        - -tls-ca-file
+        - /app/certs/ca-cert.pem
+        - -tls-client-cert-file
+        - /app/certs/client-cert.pem
+        - -tls-client-key-file
+        - /app/certs/client-key.pem
         volumeMounts:
         - name: tls-certs
           mountPath: /app/certs
@@ -131,6 +142,9 @@ spec:
         image: appnetorg/symphony-proxy-tcp:latest
         command:
         - /app/proxy
+        env:
+        - name: LOG_LEVEL
+          value: info
         securityContext:
           runAsUser: 1337
           capabilities:
@@ -139,8 +153,16 @@ spec:
             - NET_RAW
         args:
         - -mtls
-        - -tls-cert-file=/app/certs/server-cert.pem
-        - -tls-key-file=/app/certs/server-key.pem
+        - -tls-cert-file
+        - /app/certs/server-cert.pem
+        - -tls-key-file
+        - /app/certs/server-key.pem
+        - -tls-ca-file
+        - /app/certs/ca-cert.pem
+        - -tls-client-cert-file
+        - /app/certs/client-cert.pem
+        - -tls-client-key-file
+        - /app/certs/client-key.pem
         volumeMounts:
         - name: tls-certs
           mountPath: /app/certs
