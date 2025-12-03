@@ -21,6 +21,8 @@ import (
 // const serverAddress = "130.127.134.16:11000"
 const serverAddress = "kvstore.default.svc.cluster.local:11000"
 
+var kvClient kv.KVServiceClient
+
 // generateDeterministicString produces a fixed pseudo-random string based on keyID and desired length.
 func generateDeterministicString(keyID string, length int) string {
 	hash := sha256.Sum256([]byte(keyID))
@@ -71,18 +73,6 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		zap.Int("value_size", valueSize),
 	)
 
-	conn, err := grpc.NewClient(
-		serverAddress,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		logging.Error("Failed to dial gRPC server", zap.Error(err))
-		http.Error(w, "Failed to dial gRPC server: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer conn.Close()
-
-	kvClient := kv.NewKVServiceClient(conn)
 
 	switch op {
 	case "get":
@@ -119,6 +109,17 @@ func main() {
 		panic("Failed to initialize logger: " + err.Error())
 	}
 	defer logging.Sync()
+
+	conn, err := grpc.NewClient(
+		serverAddress,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		logging.Fatal("Failed to dial gRPC server", zap.Error(err))
+	}
+	defer conn.Close()
+
+	kvClient = kv.NewKVServiceClient(conn)
 
 	http.HandleFunc("/", handler)
 	logging.Info("HTTP server listening", zap.String("port", "8080"))
