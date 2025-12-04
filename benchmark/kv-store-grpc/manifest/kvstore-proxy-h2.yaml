@@ -37,6 +37,9 @@ spec:
         image: appnetorg/symphony-proxy-h2:latest
         command:
         - /app/proxy
+        env:
+        - name: LOG_LEVEL
+          value: info
         securityContext:
           runAsUser: 1337
           capabilities:
@@ -99,6 +102,9 @@ spec:
         image: appnetorg/symphony-proxy-h2:latest
         command:
         - /app/proxy
+        env:
+        - name: LOG_LEVEL
+          value: info
         securityContext:
           runAsUser: 1337
           capabilities:

@@ -206,17 +206,21 @@ def run_wrk_and_collect_latency(application_name):
         logger.error(f"Error running wrk (RC: {process.returncode}): {stderr_rem}")
         return None
 
-    # ... (Paste your existing metric parsing code here) ...
-    # This part below is just for context, you already have this logic:
     latency_metrics = {}
     error_count = 0
     for line in output_lines:
         if "Non-2xx or 3xx responses:" in line:
-            # ... parsing logic ...
-            pass
-        # ... parsing logic ...
-        
-        # (Quick re-paste of your parsing logic for completeness)
+            try:
+                # Extract the number after the colon
+                parts = line.split("Non-2xx or 3xx responses:")
+                if len(parts) == 2:
+                    error_count = int(parts[1].strip())
+                    logger.info(f"Found {error_count} non-2xx or 3xx responses")
+            except (ValueError, IndexError):
+                logger.warning(f"Could not parse error count from line: {line}")
+                
+        # Look for percentile latencies (50%, 75%, 90%, 99%, etc.)
+        # Format: "    50%   49.00us" - first token ends with %, second is latency
         parts = line.strip().split()
         if len(parts) >= 2 and parts[0].endswith('%'):
             try:
