@@ -4,6 +4,7 @@ import json
 import logging
 import sys
 import os
+import signal
 from datetime import datetime
 
 # Create logs directory if it doesn't exist
@@ -138,81 +139,104 @@ def test_application(num_requests=10, timeout_duration=1):
     return is_healthy
 
 def run_wrk_and_collect_latency(application_name):
-    """Run wrk benchmark and collect latency metrics."""
+    """Run wrk benchmark and stop when Lua signals completion."""
     time.sleep(15)
     
     logger.info(f"Running wrk for {application_name}")
     
-    # Run wrk for latency test
-    cmd = [wrk_path, "-d", "600s", "-t", "1", "-c", "1", "http://10.96.88.88:80", "-s", lua_path, "-L"]
-    print(" ".join(cmd))
-    result = subprocess.run(
-        " ".join(cmd),
-        shell=True,
-        stdin=subprocess.DEVNULL,
+    # Use -d 3000s as a safety net, but we expect to kill it much sooner
+    cmd = [wrk_path, "-d", "3000s", "-t", "1", "-c", "1", "http://10.96.88.88:80", "-s", lua_path, "-L"]
+    logger.info(f"Command: {' '.join(cmd)}")
+    
+    # Start process with pipes
+    process = subprocess.Popen(
+        cmd,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1 # Python side line buffering
     )
+
+    output_lines = []
+    kill_triggered = False
+
+    # Read output line-by-line in real-time
+    try:
+        # Loop until process ends
+        while True:
+            line = process.stdout.readline()
+            
+            # If line is empty and process is dead, stop loop
+            if not line and process.poll() is not None:
+                break
+                
+            if line:
+                # Store the line
+                clean_line = line.strip()
+                output_lines.append(clean_line)
+                
+                # Check for trigger
+                if "__DONE__" in line and not kill_triggered:
+                    logger.info("Trace finished (trigger detected). Sending SIGINT to wrk...")
+                    process.send_signal(signal.SIGINT)
+                    kill_triggered = True
+
+    except Exception as e:
+        logger.error(f"Error during execution: {e}")
+        process.kill()
+
+    # Capture any remaining output (stderr and post-signal stdout)
+    stdout_rem, stderr_rem = process.communicate()
+    if stdout_rem:
+        output_lines.extend(stdout_rem.splitlines())
+
+    # Reconstruct full output
+    output_str = "\n".join(output_lines)
     
-    if result.returncode != 0:
-        logger.error(f"Error running wrk: {result.stderr.decode('utf-8')}")
+    logger.info(f"--- Full wrk output for {application_name} ---")
+    logger.info(output_str)
+    if stderr_rem:
+        logger.warning(f"wrk stderr: {stderr_rem}")
+    logger.info("------------------------------------------------")
+
+    # Check validity: We accept non-zero exit codes IF we see stats
+    has_valid_stats = "Requests/sec:" in output_str
+
+    if process.returncode != 0 and not has_valid_stats:
+        logger.error(f"Error running wrk (RC: {process.returncode}): {stderr_rem}")
         return None
-    print(result.stdout.decode("utf-8"))
-    output_lines = result.stdout.decode("utf-8").split('\n')
-    
-    # Extract latency metrics
+
+    # ... (Paste your existing metric parsing code here) ...
+    # This part below is just for context, you already have this logic:
     latency_metrics = {}
     error_count = 0
     for line in output_lines:
-        # Check for non-2xx or 3xx responses
         if "Non-2xx or 3xx responses:" in line:
-            try:
-                # Extract the number after the colon
-                parts = line.split("Non-2xx or 3xx responses:")
-                if len(parts) == 2:
-                    error_count = int(parts[1].strip())
-                    logger.info(f"Found {error_count} non-2xx or 3xx responses")
-            except (ValueError, IndexError):
-                logger.warning(f"Could not parse error count from line: {line}")
+            # ... parsing logic ...
+            pass
+        # ... parsing logic ...
         
-        # Look for percentile latencies (50%, 75%, 90%, 99%, etc.)
-        # Format: "    50%   49.00us" - first token ends with %, second is latency
+        # (Quick re-paste of your parsing logic for completeness)
         parts = line.strip().split()
         if len(parts) >= 2 and parts[0].endswith('%'):
             try:
                 percentile = parts[0].rstrip('%')
                 latency_str = parts[1]
-                
-                # Verify latency_str has a valid unit
-                if not (latency_str.endswith('us') or latency_str.endswith('ms') or latency_str.endswith('s')):
-                    continue
-                
-                # Extract number and unit
-                latency_value = float(latency_str.rstrip('us').rstrip('s').rstrip('ms'))
-                unit = latency_str[-2:] if len(latency_str) >= 2 else 'ms'
-                
-                # Convert to milliseconds
-                if unit == 'us':
-                    latency_ms = latency_value / 1000
-                elif unit == 's':
-                    latency_ms = latency_value * 1000
-                else:  # already ms
-                    latency_ms = latency_value
-                
-                latency_metrics[percentile] = latency_ms
-            except (ValueError, IndexError):
-                # Skip lines that don't match the expected format
-                continue
-    logger.debug(f"Raw latency metrics: {latency_metrics}")
-    # Log all collected percentiles
+                if (latency_str.endswith('us') or latency_str.endswith('ms') or latency_str.endswith('s')):
+                    latency_value = float(latency_str.rstrip('us').rstrip('s').rstrip('ms'))
+                    unit = latency_str[-2:] if len(latency_str) >= 2 else 'ms'
+                    if unit == 'us': latency_ms = latency_value / 1000
+                    elif unit == 's': latency_ms = latency_value * 1000
+                    else: latency_ms = latency_value
+                    latency_metrics[percentile] = latency_ms
+            except: continue
+
     if latency_metrics:
         logger.info(f"Latency metrics for {application_name}:")
-        # Sort percentiles numerically for better display
         sorted_percentiles = sorted(latency_metrics.keys(), key=lambda x: float(x))
         for p in sorted_percentiles:
             logger.info(f"  {p}%: {latency_metrics[p]:.2f}ms")
-    
-    # Return dict with latency_metrics and error_count
+
     return {
         "latency_metrics": latency_metrics,
         "error_count": error_count

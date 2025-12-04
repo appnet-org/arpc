@@ -25,6 +25,11 @@ end
 -- Return one request per wrk iteration
 function request()
   if i > #lines then
+    -- SIGNAL: Print a unique string that Python can detect
+    io.stdout:write("__DONE__\n")
+    io.stdout:flush()
+    
+    -- Stop the current thread (failsafe)
     wrk.thread:stop()
     return nil
   end
