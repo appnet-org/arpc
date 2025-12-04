@@ -41,10 +41,11 @@ manifest_dict = {
     "kv-store-arpc-tcp-tls": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-tcp-tls.yaml"),
     "kv-store-arpc-tcp-tls-proxy-no-tls": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-tcp-tls-proxy-no-tls.yaml"),
     "kv-store-arpc-tcp-tls-proxy": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-tcp-tls-proxy.yaml"),
-    "kv-store-arpc-tcp-proxy": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-tcp-proxy.yaml"),
+    "kv-store-arpc-tcp-proxy-tcp": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-tcp-proxy-tcp.yaml"),
     "kv-store-arpc-tcp-istio": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-tcp-istio.yaml"),
     "kv-store-arpc-h2-direct": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-h2.yaml"),
-    "kv-store-arpc-h2-proxy": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-h2-proxy.yaml"),
+    "kv-store-arpc-h2-proxy-h2": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-h2-proxy-h2.yaml"),
+    "kv-store-arpc-h2-proxy-tcp": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-h2-proxy-tcp.yaml"),
 }
 
 # check if all manifests exist
