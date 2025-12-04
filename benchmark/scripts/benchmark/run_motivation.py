@@ -36,7 +36,7 @@ manifest_dict = {
     "kv-store-grpc-istio-h2": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore-istio-h2.yaml"),
     "kv-store-grpc-istio-tcp": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore-istio-tcp.yaml"),
     "kv-store-grpc-proxy-h2": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore-proxy-h2.yaml"),
-    "kv-store-grpc-proxy-tcp": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore-proxy-h2.yaml"),
+    "kv-store-grpc-proxy-tcp": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore-proxy-tcp.yaml"),
     "kv-store-arpc-tcp-direct": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-tcp.yaml"),
     "kv-store-arpc-tcp-tls": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-tcp-tls.yaml"),
     "kv-store-arpc-tcp-tls-proxy-no-tls": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-tcp-tls-proxy-no-tls.yaml"),
@@ -144,7 +144,7 @@ def run_wrk_and_collect_latency(application_name):
     logger.info(f"Running wrk for {application_name}")
     
     # Run wrk for latency test
-    cmd = [wrk_path, "-d", "60s", "-t", "1", "-c", "1", "http://10.96.88.88:80", "-s", lua_path, "-L"]
+    cmd = [wrk_path, "-d", "600s", "-t", "1", "-c", "1", "http://10.96.88.88:80", "-s", lua_path, "-L"]
     print(" ".join(cmd))
     result = subprocess.run(
         " ".join(cmd),
