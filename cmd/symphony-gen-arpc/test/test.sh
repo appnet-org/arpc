@@ -8,7 +8,6 @@ cd test
 
 # generate code from the test.proto file
 protoc  --symphony_out=paths=source_relative:. \
-        --arpc_out=paths=source_relative:. \
         --go_out=paths=source_relative:. \
         test.proto
 

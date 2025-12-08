@@ -3,81 +3,73 @@ syntax = "proto3";
 package Test;
 option go_package = "./Test";
 
-service TestService {
-    rpc Test(TestRequest) returns(TestResponse);
-}
-
-message TestRequest {
-  int32 id = 1;
-  string username = 2;
-  int32 score = 3;
-  repeated string content = 4;
-  repeated int32 numbers = 5;
-}
-
-message TestResponse {
-  string resp = 1;
-}
-
-// Tests a message containing only fixed-length scalar types.
-message TestFixedLen {
+// 1. Fixed length scalar types
+message Fixed {
   int32 f_int32 = 1;
   int64 f_int64 = 2;
-  bool f_bool = 3;
-  double f_double = 4;
+  uint32 f_uint32 = 3;
+  uint64 f_uint64 = 4;
+  bool f_bool = 5;
+  float f_float = 6;
+  double f_double = 7;
 }
 
-// Tests a message containing only variable-length scalar types.
-message TestVariableLen {
+// 2. Variable length scalar types
+message Var {
   string v_string = 1;
-  // TODO: Support bytes type
-  // bytes v_bytes = 2;
+  bytes v_bytes = 2;
 }
 
-// Tests a message containing repeated fields of both fixed and variable types.
-message TestRepeated {
-  repeated int32 r_fixed = 1;
-  repeated string r_variable = 2;
+// 3. Repeated fixed length types (Fully Covered)
+message RepeatedFixed {
+  repeated int32 r_int32 = 1;
+  repeated int64 r_int64 = 2;
+  repeated uint32 r_uint32 = 3;
+  repeated uint64 r_uint64 = 4;
+  repeated float r_float = 5;
+  repeated double r_double = 6;
+  repeated bool r_bool = 7;
 }
 
-// Tests that the generator correctly deal with mixed-ordered fields
-message TestOrder {
-  string v_first = 1;           // Variable
-  int32 f_second = 2;           // Fixed
-  repeated int32 r_third = 3;   // Variable
-  int64 f_fourth = 4;           // Fixed
-  repeated string r_fifth = 5;  // Variable
+// 4. Repeated variable length types
+message RepeatedVar {
+  repeated string r_string = 1;
+  repeated bytes r_bytes = 2;
 }
 
-// Tests an empty message with no fields
-message TestEmpty {
+// 5. Nested messages (Deep Nesting)
+message Leaf {
+  int32 leaf_id = 1;
+  string leaf_val = 2;
 }
 
-
-// Inner message to be used for nesting.
-message InnerMessage {
-  int32 inner_id = 1;
-  string inner_text = 2;
+message Level2 {
+  Leaf leaf = 1;
 }
 
-// Tests a message containing nested message fields (singular and repeated).
-message TestNested {
-  int64 outer_id = 1;
-  InnerMessage singular_nested = 2;
-  repeated InnerMessage repeated_nested = 3;
+message Level1 {
+  Level2 l2 = 1;
+  string l1_data = 2;
 }
 
-// Messages for demonstrating multi-level nesting.
-message Level3Message {
-  string final_text = 1;
+message Root {
+  Level1 l1 = 1;
+  int32 root_id = 2;
 }
 
-message Level2Message {
-  Level3Message nested_level3 = 1;
+// 6. Complex Mixed
+// Interleaves fixed scalars, variable scalars, repeated fixed,
+// repeated variable, singular nested, and repeated nested.
+message ComplexMixed {
+  int32 f_int32 = 1;                  // Fixed
+  string v_string = 2;                // Variable
+  repeated int64 r_int64 = 3;         // Repeated Fixed
+  Leaf nested_leaf = 4;               // Nested Singular
+  repeated string r_string = 5;       // Repeated Variable
+  bool f_bool = 6;                    // Fixed
+  repeated Root repeated_nested = 7;  // Repeated Nested
+  bytes v_bytes = 8;                  // Variable
 }
 
-message TestDeepNested {
-  int32 top_level_id = 1;
-  Level2Message nested_level2 = 2;
-}
-
+// 7. Empty message
+message Empty {}

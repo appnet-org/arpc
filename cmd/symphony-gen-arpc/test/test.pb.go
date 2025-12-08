@@ -21,152 +21,35 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type TestRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            int32                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
-	Score         int32                  `protobuf:"varint,3,opt,name=score,proto3" json:"score,omitempty"`
-	Content       []string               `protobuf:"bytes,4,rep,name=content,proto3" json:"content,omitempty"`
-	Numbers       []int32                `protobuf:"varint,5,rep,packed,name=numbers,proto3" json:"numbers,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TestRequest) Reset() {
-	*x = TestRequest{}
-	mi := &file_test_proto_msgTypes[0]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TestRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TestRequest) ProtoMessage() {}
-
-func (x *TestRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_test_proto_msgTypes[0]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TestRequest.ProtoReflect.Descriptor instead.
-func (*TestRequest) Descriptor() ([]byte, []int) {
-	return file_test_proto_rawDescGZIP(), []int{0}
-}
-
-func (x *TestRequest) GetId() int32 {
-	if x != nil {
-		return x.Id
-	}
-	return 0
-}
-
-func (x *TestRequest) GetUsername() string {
-	if x != nil {
-		return x.Username
-	}
-	return ""
-}
-
-func (x *TestRequest) GetScore() int32 {
-	if x != nil {
-		return x.Score
-	}
-	return 0
-}
-
-func (x *TestRequest) GetContent() []string {
-	if x != nil {
-		return x.Content
-	}
-	return nil
-}
-
-func (x *TestRequest) GetNumbers() []int32 {
-	if x != nil {
-		return x.Numbers
-	}
-	return nil
-}
-
-type TestResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Resp          string                 `protobuf:"bytes,1,opt,name=resp,proto3" json:"resp,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TestResponse) Reset() {
-	*x = TestResponse{}
-	mi := &file_test_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TestResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TestResponse) ProtoMessage() {}
-
-func (x *TestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_test_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TestResponse.ProtoReflect.Descriptor instead.
-func (*TestResponse) Descriptor() ([]byte, []int) {
-	return file_test_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *TestResponse) GetResp() string {
-	if x != nil {
-		return x.Resp
-	}
-	return ""
-}
-
-// Tests a message containing only fixed-length scalar types.
-type TestFixedLen struct {
+// 1. Fixed length scalar types
+type Fixed struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	FInt32        int32                  `protobuf:"varint,1,opt,name=f_int32,json=fInt32,proto3" json:"f_int32,omitempty"`
 	FInt64        int64                  `protobuf:"varint,2,opt,name=f_int64,json=fInt64,proto3" json:"f_int64,omitempty"`
-	FBool         bool                   `protobuf:"varint,3,opt,name=f_bool,json=fBool,proto3" json:"f_bool,omitempty"`
-	FDouble       float64                `protobuf:"fixed64,4,opt,name=f_double,json=fDouble,proto3" json:"f_double,omitempty"`
+	FUint32       uint32                 `protobuf:"varint,3,opt,name=f_uint32,json=fUint32,proto3" json:"f_uint32,omitempty"`
+	FUint64       uint64                 `protobuf:"varint,4,opt,name=f_uint64,json=fUint64,proto3" json:"f_uint64,omitempty"`
+	FBool         bool                   `protobuf:"varint,5,opt,name=f_bool,json=fBool,proto3" json:"f_bool,omitempty"`
+	FFloat        float32                `protobuf:"fixed32,6,opt,name=f_float,json=fFloat,proto3" json:"f_float,omitempty"`
+	FDouble       float64                `protobuf:"fixed64,7,opt,name=f_double,json=fDouble,proto3" json:"f_double,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *TestFixedLen) Reset() {
-	*x = TestFixedLen{}
-	mi := &file_test_proto_msgTypes[2]
+func (x *Fixed) Reset() {
+	*x = Fixed{}
+	mi := &file_test_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *TestFixedLen) String() string {
+func (x *Fixed) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TestFixedLen) ProtoMessage() {}
+func (*Fixed) ProtoMessage() {}
 
-func (x *TestFixedLen) ProtoReflect() protoreflect.Message {
-	mi := &file_test_proto_msgTypes[2]
+func (x *Fixed) ProtoReflect() protoreflect.Message {
+	mi := &file_test_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -177,62 +60,84 @@ func (x *TestFixedLen) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TestFixedLen.ProtoReflect.Descriptor instead.
-func (*TestFixedLen) Descriptor() ([]byte, []int) {
-	return file_test_proto_rawDescGZIP(), []int{2}
+// Deprecated: Use Fixed.ProtoReflect.Descriptor instead.
+func (*Fixed) Descriptor() ([]byte, []int) {
+	return file_test_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *TestFixedLen) GetFInt32() int32 {
+func (x *Fixed) GetFInt32() int32 {
 	if x != nil {
 		return x.FInt32
 	}
 	return 0
 }
 
-func (x *TestFixedLen) GetFInt64() int64 {
+func (x *Fixed) GetFInt64() int64 {
 	if x != nil {
 		return x.FInt64
 	}
 	return 0
 }
 
-func (x *TestFixedLen) GetFBool() bool {
+func (x *Fixed) GetFUint32() uint32 {
+	if x != nil {
+		return x.FUint32
+	}
+	return 0
+}
+
+func (x *Fixed) GetFUint64() uint64 {
+	if x != nil {
+		return x.FUint64
+	}
+	return 0
+}
+
+func (x *Fixed) GetFBool() bool {
 	if x != nil {
 		return x.FBool
 	}
 	return false
 }
 
-func (x *TestFixedLen) GetFDouble() float64 {
+func (x *Fixed) GetFFloat() float32 {
+	if x != nil {
+		return x.FFloat
+	}
+	return 0
+}
+
+func (x *Fixed) GetFDouble() float64 {
 	if x != nil {
 		return x.FDouble
 	}
 	return 0
 }
 
-// Tests a message containing only variable-length scalar types.
-type TestVariableLen struct {
+// 2. Variable length scalar types
+type Var struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	VString       string                 `protobuf:"bytes,1,opt,name=v_string,json=vString,proto3" json:"v_string,omitempty"`
+	VBytes        []byte                 `protobuf:"bytes,2,opt,name=v_bytes,json=vBytes,proto3" json:"v_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *TestVariableLen) Reset() {
-	*x = TestVariableLen{}
-	mi := &file_test_proto_msgTypes[3]
+func (x *Var) Reset() {
+	*x = Var{}
+	mi := &file_test_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *TestVariableLen) String() string {
+func (x *Var) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TestVariableLen) ProtoMessage() {}
+func (*Var) ProtoMessage() {}
 
-func (x *TestVariableLen) ProtoReflect() protoreflect.Message {
-	mi := &file_test_proto_msgTypes[3]
+func (x *Var) ProtoReflect() protoreflect.Message {
+	mi := &file_test_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -243,41 +148,194 @@ func (x *TestVariableLen) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TestVariableLen.ProtoReflect.Descriptor instead.
-func (*TestVariableLen) Descriptor() ([]byte, []int) {
-	return file_test_proto_rawDescGZIP(), []int{3}
+// Deprecated: Use Var.ProtoReflect.Descriptor instead.
+func (*Var) Descriptor() ([]byte, []int) {
+	return file_test_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *TestVariableLen) GetVString() string {
+func (x *Var) GetVString() string {
 	if x != nil {
 		return x.VString
 	}
 	return ""
 }
 
-// Tests a message containing repeated fields of both fixed and variable types.
-type TestRepeated struct {
+func (x *Var) GetVBytes() []byte {
+	if x != nil {
+		return x.VBytes
+	}
+	return nil
+}
+
+// 3. Repeated fixed length types (Fully Covered)
+type RepeatedFixed struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	RFixed        []int32                `protobuf:"varint,1,rep,packed,name=r_fixed,json=rFixed,proto3" json:"r_fixed,omitempty"`
-	RVariable     []string               `protobuf:"bytes,2,rep,name=r_variable,json=rVariable,proto3" json:"r_variable,omitempty"`
+	RInt32        []int32                `protobuf:"varint,1,rep,packed,name=r_int32,json=rInt32,proto3" json:"r_int32,omitempty"`
+	RInt64        []int64                `protobuf:"varint,2,rep,packed,name=r_int64,json=rInt64,proto3" json:"r_int64,omitempty"`
+	RUint32       []uint32               `protobuf:"varint,3,rep,packed,name=r_uint32,json=rUint32,proto3" json:"r_uint32,omitempty"`
+	RUint64       []uint64               `protobuf:"varint,4,rep,packed,name=r_uint64,json=rUint64,proto3" json:"r_uint64,omitempty"`
+	RFloat        []float32              `protobuf:"fixed32,5,rep,packed,name=r_float,json=rFloat,proto3" json:"r_float,omitempty"`
+	RDouble       []float64              `protobuf:"fixed64,6,rep,packed,name=r_double,json=rDouble,proto3" json:"r_double,omitempty"`
+	RBool         []bool                 `protobuf:"varint,7,rep,packed,name=r_bool,json=rBool,proto3" json:"r_bool,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *TestRepeated) Reset() {
-	*x = TestRepeated{}
+func (x *RepeatedFixed) Reset() {
+	*x = RepeatedFixed{}
+	mi := &file_test_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RepeatedFixed) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RepeatedFixed) ProtoMessage() {}
+
+func (x *RepeatedFixed) ProtoReflect() protoreflect.Message {
+	mi := &file_test_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RepeatedFixed.ProtoReflect.Descriptor instead.
+func (*RepeatedFixed) Descriptor() ([]byte, []int) {
+	return file_test_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RepeatedFixed) GetRInt32() []int32 {
+	if x != nil {
+		return x.RInt32
+	}
+	return nil
+}
+
+func (x *RepeatedFixed) GetRInt64() []int64 {
+	if x != nil {
+		return x.RInt64
+	}
+	return nil
+}
+
+func (x *RepeatedFixed) GetRUint32() []uint32 {
+	if x != nil {
+		return x.RUint32
+	}
+	return nil
+}
+
+func (x *RepeatedFixed) GetRUint64() []uint64 {
+	if x != nil {
+		return x.RUint64
+	}
+	return nil
+}
+
+func (x *RepeatedFixed) GetRFloat() []float32 {
+	if x != nil {
+		return x.RFloat
+	}
+	return nil
+}
+
+func (x *RepeatedFixed) GetRDouble() []float64 {
+	if x != nil {
+		return x.RDouble
+	}
+	return nil
+}
+
+func (x *RepeatedFixed) GetRBool() []bool {
+	if x != nil {
+		return x.RBool
+	}
+	return nil
+}
+
+// 4. Repeated variable length types
+type RepeatedVar struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RString       []string               `protobuf:"bytes,1,rep,name=r_string,json=rString,proto3" json:"r_string,omitempty"`
+	RBytes        [][]byte               `protobuf:"bytes,2,rep,name=r_bytes,json=rBytes,proto3" json:"r_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RepeatedVar) Reset() {
+	*x = RepeatedVar{}
+	mi := &file_test_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RepeatedVar) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RepeatedVar) ProtoMessage() {}
+
+func (x *RepeatedVar) ProtoReflect() protoreflect.Message {
+	mi := &file_test_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RepeatedVar.ProtoReflect.Descriptor instead.
+func (*RepeatedVar) Descriptor() ([]byte, []int) {
+	return file_test_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *RepeatedVar) GetRString() []string {
+	if x != nil {
+		return x.RString
+	}
+	return nil
+}
+
+func (x *RepeatedVar) GetRBytes() [][]byte {
+	if x != nil {
+		return x.RBytes
+	}
+	return nil
+}
+
+// 5. Nested messages (Deep Nesting)
+type Leaf struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LeafId        int32                  `protobuf:"varint,1,opt,name=leaf_id,json=leafId,proto3" json:"leaf_id,omitempty"`
+	LeafVal       string                 `protobuf:"bytes,2,opt,name=leaf_val,json=leafVal,proto3" json:"leaf_val,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Leaf) Reset() {
+	*x = Leaf{}
 	mi := &file_test_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *TestRepeated) String() string {
+func (x *Leaf) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TestRepeated) ProtoMessage() {}
+func (*Leaf) ProtoMessage() {}
 
-func (x *TestRepeated) ProtoReflect() protoreflect.Message {
+func (x *Leaf) ProtoReflect() protoreflect.Message {
 	mi := &file_test_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -289,51 +347,46 @@ func (x *TestRepeated) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TestRepeated.ProtoReflect.Descriptor instead.
-func (*TestRepeated) Descriptor() ([]byte, []int) {
+// Deprecated: Use Leaf.ProtoReflect.Descriptor instead.
+func (*Leaf) Descriptor() ([]byte, []int) {
 	return file_test_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *TestRepeated) GetRFixed() []int32 {
+func (x *Leaf) GetLeafId() int32 {
 	if x != nil {
-		return x.RFixed
+		return x.LeafId
 	}
-	return nil
+	return 0
 }
 
-func (x *TestRepeated) GetRVariable() []string {
+func (x *Leaf) GetLeafVal() string {
 	if x != nil {
-		return x.RVariable
+		return x.LeafVal
 	}
-	return nil
+	return ""
 }
 
-// Tests that the generator correctly deal with mixed-ordered fields
-type TestOrder struct {
+type Level2 struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	VFirst        string                 `protobuf:"bytes,1,opt,name=v_first,json=vFirst,proto3" json:"v_first,omitempty"`         // Variable
-	FSecond       int32                  `protobuf:"varint,2,opt,name=f_second,json=fSecond,proto3" json:"f_second,omitempty"`     // Fixed
-	RThird        []int32                `protobuf:"varint,3,rep,packed,name=r_third,json=rThird,proto3" json:"r_third,omitempty"` // Variable
-	FFourth       int64                  `protobuf:"varint,4,opt,name=f_fourth,json=fFourth,proto3" json:"f_fourth,omitempty"`     // Fixed
-	RFifth        []string               `protobuf:"bytes,5,rep,name=r_fifth,json=rFifth,proto3" json:"r_fifth,omitempty"`         // Variable
+	Leaf          *Leaf                  `protobuf:"bytes,1,opt,name=leaf,proto3" json:"leaf,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *TestOrder) Reset() {
-	*x = TestOrder{}
+func (x *Level2) Reset() {
+	*x = Level2{}
 	mi := &file_test_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *TestOrder) String() string {
+func (x *Level2) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TestOrder) ProtoMessage() {}
+func (*Level2) ProtoMessage() {}
 
-func (x *TestOrder) ProtoReflect() protoreflect.Message {
+func (x *Level2) ProtoReflect() protoreflect.Message {
 	mi := &file_test_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -345,67 +398,40 @@ func (x *TestOrder) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TestOrder.ProtoReflect.Descriptor instead.
-func (*TestOrder) Descriptor() ([]byte, []int) {
+// Deprecated: Use Level2.ProtoReflect.Descriptor instead.
+func (*Level2) Descriptor() ([]byte, []int) {
 	return file_test_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *TestOrder) GetVFirst() string {
+func (x *Level2) GetLeaf() *Leaf {
 	if x != nil {
-		return x.VFirst
-	}
-	return ""
-}
-
-func (x *TestOrder) GetFSecond() int32 {
-	if x != nil {
-		return x.FSecond
-	}
-	return 0
-}
-
-func (x *TestOrder) GetRThird() []int32 {
-	if x != nil {
-		return x.RThird
+		return x.Leaf
 	}
 	return nil
 }
 
-func (x *TestOrder) GetFFourth() int64 {
-	if x != nil {
-		return x.FFourth
-	}
-	return 0
-}
-
-func (x *TestOrder) GetRFifth() []string {
-	if x != nil {
-		return x.RFifth
-	}
-	return nil
-}
-
-// Tests an empty message with no fields
-type TestEmpty struct {
+type Level1 struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	L2            *Level2                `protobuf:"bytes,1,opt,name=l2,proto3" json:"l2,omitempty"`
+	L1Data        string                 `protobuf:"bytes,2,opt,name=l1_data,json=l1Data,proto3" json:"l1_data,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *TestEmpty) Reset() {
-	*x = TestEmpty{}
+func (x *Level1) Reset() {
+	*x = Level1{}
 	mi := &file_test_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *TestEmpty) String() string {
+func (x *Level1) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TestEmpty) ProtoMessage() {}
+func (*Level1) ProtoMessage() {}
 
-func (x *TestEmpty) ProtoReflect() protoreflect.Message {
+func (x *Level1) ProtoReflect() protoreflect.Message {
 	mi := &file_test_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -417,34 +443,47 @@ func (x *TestEmpty) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TestEmpty.ProtoReflect.Descriptor instead.
-func (*TestEmpty) Descriptor() ([]byte, []int) {
+// Deprecated: Use Level1.ProtoReflect.Descriptor instead.
+func (*Level1) Descriptor() ([]byte, []int) {
 	return file_test_proto_rawDescGZIP(), []int{6}
 }
 
-// Inner message to be used for nesting.
-type InnerMessage struct {
+func (x *Level1) GetL2() *Level2 {
+	if x != nil {
+		return x.L2
+	}
+	return nil
+}
+
+func (x *Level1) GetL1Data() string {
+	if x != nil {
+		return x.L1Data
+	}
+	return ""
+}
+
+type Root struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	InnerId       int32                  `protobuf:"varint,1,opt,name=inner_id,json=innerId,proto3" json:"inner_id,omitempty"`
-	InnerText     string                 `protobuf:"bytes,2,opt,name=inner_text,json=innerText,proto3" json:"inner_text,omitempty"`
+	L1            *Level1                `protobuf:"bytes,1,opt,name=l1,proto3" json:"l1,omitempty"`
+	RootId        int32                  `protobuf:"varint,2,opt,name=root_id,json=rootId,proto3" json:"root_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *InnerMessage) Reset() {
-	*x = InnerMessage{}
+func (x *Root) Reset() {
+	*x = Root{}
 	mi := &file_test_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *InnerMessage) String() string {
+func (x *Root) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*InnerMessage) ProtoMessage() {}
+func (*Root) ProtoMessage() {}
 
-func (x *InnerMessage) ProtoReflect() protoreflect.Message {
+func (x *Root) ProtoReflect() protoreflect.Message {
 	mi := &file_test_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -456,49 +495,56 @@ func (x *InnerMessage) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use InnerMessage.ProtoReflect.Descriptor instead.
-func (*InnerMessage) Descriptor() ([]byte, []int) {
+// Deprecated: Use Root.ProtoReflect.Descriptor instead.
+func (*Root) Descriptor() ([]byte, []int) {
 	return file_test_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *InnerMessage) GetInnerId() int32 {
+func (x *Root) GetL1() *Level1 {
 	if x != nil {
-		return x.InnerId
+		return x.L1
+	}
+	return nil
+}
+
+func (x *Root) GetRootId() int32 {
+	if x != nil {
+		return x.RootId
 	}
 	return 0
 }
 
-func (x *InnerMessage) GetInnerText() string {
-	if x != nil {
-		return x.InnerText
-	}
-	return ""
-}
-
-// Tests a message containing nested message fields (singular and repeated).
-type TestNested struct {
+// 6. Complex Mixed
+// Interleaves fixed scalars, variable scalars, repeated fixed,
+// repeated variable, singular nested, and repeated nested.
+type ComplexMixed struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	OuterId        int64                  `protobuf:"varint,1,opt,name=outer_id,json=outerId,proto3" json:"outer_id,omitempty"`
-	SingularNested *InnerMessage          `protobuf:"bytes,2,opt,name=singular_nested,json=singularNested,proto3" json:"singular_nested,omitempty"`
-	RepeatedNested []*InnerMessage        `protobuf:"bytes,3,rep,name=repeated_nested,json=repeatedNested,proto3" json:"repeated_nested,omitempty"`
+	FInt32         int32                  `protobuf:"varint,1,opt,name=f_int32,json=fInt32,proto3" json:"f_int32,omitempty"`                        // Fixed
+	VString        string                 `protobuf:"bytes,2,opt,name=v_string,json=vString,proto3" json:"v_string,omitempty"`                      // Variable
+	RInt64         []int64                `protobuf:"varint,3,rep,packed,name=r_int64,json=rInt64,proto3" json:"r_int64,omitempty"`                 // Repeated Fixed
+	NestedLeaf     *Leaf                  `protobuf:"bytes,4,opt,name=nested_leaf,json=nestedLeaf,proto3" json:"nested_leaf,omitempty"`             // Nested Singular
+	RString        []string               `protobuf:"bytes,5,rep,name=r_string,json=rString,proto3" json:"r_string,omitempty"`                      // Repeated Variable
+	FBool          bool                   `protobuf:"varint,6,opt,name=f_bool,json=fBool,proto3" json:"f_bool,omitempty"`                           // Fixed
+	RepeatedNested []*Root                `protobuf:"bytes,7,rep,name=repeated_nested,json=repeatedNested,proto3" json:"repeated_nested,omitempty"` // Repeated Nested
+	VBytes         []byte                 `protobuf:"bytes,8,opt,name=v_bytes,json=vBytes,proto3" json:"v_bytes,omitempty"`                         // Variable
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
-func (x *TestNested) Reset() {
-	*x = TestNested{}
+func (x *ComplexMixed) Reset() {
+	*x = ComplexMixed{}
 	mi := &file_test_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *TestNested) String() string {
+func (x *ComplexMixed) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TestNested) ProtoMessage() {}
+func (*ComplexMixed) ProtoMessage() {}
 
-func (x *TestNested) ProtoReflect() protoreflect.Message {
+func (x *ComplexMixed) ProtoReflect() protoreflect.Message {
 	mi := &file_test_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -510,54 +556,88 @@ func (x *TestNested) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TestNested.ProtoReflect.Descriptor instead.
-func (*TestNested) Descriptor() ([]byte, []int) {
+// Deprecated: Use ComplexMixed.ProtoReflect.Descriptor instead.
+func (*ComplexMixed) Descriptor() ([]byte, []int) {
 	return file_test_proto_rawDescGZIP(), []int{8}
 }
 
-func (x *TestNested) GetOuterId() int64 {
+func (x *ComplexMixed) GetFInt32() int32 {
 	if x != nil {
-		return x.OuterId
+		return x.FInt32
 	}
 	return 0
 }
 
-func (x *TestNested) GetSingularNested() *InnerMessage {
+func (x *ComplexMixed) GetVString() string {
 	if x != nil {
-		return x.SingularNested
+		return x.VString
+	}
+	return ""
+}
+
+func (x *ComplexMixed) GetRInt64() []int64 {
+	if x != nil {
+		return x.RInt64
 	}
 	return nil
 }
 
-func (x *TestNested) GetRepeatedNested() []*InnerMessage {
+func (x *ComplexMixed) GetNestedLeaf() *Leaf {
+	if x != nil {
+		return x.NestedLeaf
+	}
+	return nil
+}
+
+func (x *ComplexMixed) GetRString() []string {
+	if x != nil {
+		return x.RString
+	}
+	return nil
+}
+
+func (x *ComplexMixed) GetFBool() bool {
+	if x != nil {
+		return x.FBool
+	}
+	return false
+}
+
+func (x *ComplexMixed) GetRepeatedNested() []*Root {
 	if x != nil {
 		return x.RepeatedNested
 	}
 	return nil
 }
 
-// Messages for demonstrating multi-level nesting.
-type Level3Message struct {
+func (x *ComplexMixed) GetVBytes() []byte {
+	if x != nil {
+		return x.VBytes
+	}
+	return nil
+}
+
+// 7. Empty message
+type Empty struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FinalText     string                 `protobuf:"bytes,1,opt,name=final_text,json=finalText,proto3" json:"final_text,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *Level3Message) Reset() {
-	*x = Level3Message{}
+func (x *Empty) Reset() {
+	*x = Empty{}
 	mi := &file_test_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Level3Message) String() string {
+func (x *Empty) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Level3Message) ProtoMessage() {}
+func (*Empty) ProtoMessage() {}
 
-func (x *Level3Message) ProtoReflect() protoreflect.Message {
+func (x *Empty) ProtoReflect() protoreflect.Message {
 	mi := &file_test_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -569,112 +649,9 @@ func (x *Level3Message) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Level3Message.ProtoReflect.Descriptor instead.
-func (*Level3Message) Descriptor() ([]byte, []int) {
+// Deprecated: Use Empty.ProtoReflect.Descriptor instead.
+func (*Empty) Descriptor() ([]byte, []int) {
 	return file_test_proto_rawDescGZIP(), []int{9}
-}
-
-func (x *Level3Message) GetFinalText() string {
-	if x != nil {
-		return x.FinalText
-	}
-	return ""
-}
-
-type Level2Message struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	NestedLevel3  *Level3Message         `protobuf:"bytes,1,opt,name=nested_level3,json=nestedLevel3,proto3" json:"nested_level3,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Level2Message) Reset() {
-	*x = Level2Message{}
-	mi := &file_test_proto_msgTypes[10]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Level2Message) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Level2Message) ProtoMessage() {}
-
-func (x *Level2Message) ProtoReflect() protoreflect.Message {
-	mi := &file_test_proto_msgTypes[10]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Level2Message.ProtoReflect.Descriptor instead.
-func (*Level2Message) Descriptor() ([]byte, []int) {
-	return file_test_proto_rawDescGZIP(), []int{10}
-}
-
-func (x *Level2Message) GetNestedLevel3() *Level3Message {
-	if x != nil {
-		return x.NestedLevel3
-	}
-	return nil
-}
-
-type TestDeepNested struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TopLevelId    int32                  `protobuf:"varint,1,opt,name=top_level_id,json=topLevelId,proto3" json:"top_level_id,omitempty"`
-	NestedLevel2  *Level2Message         `protobuf:"bytes,2,opt,name=nested_level2,json=nestedLevel2,proto3" json:"nested_level2,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TestDeepNested) Reset() {
-	*x = TestDeepNested{}
-	mi := &file_test_proto_msgTypes[11]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TestDeepNested) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TestDeepNested) ProtoMessage() {}
-
-func (x *TestDeepNested) ProtoReflect() protoreflect.Message {
-	mi := &file_test_proto_msgTypes[11]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TestDeepNested.ProtoReflect.Descriptor instead.
-func (*TestDeepNested) Descriptor() ([]byte, []int) {
-	return file_test_proto_rawDescGZIP(), []int{11}
-}
-
-func (x *TestDeepNested) GetTopLevelId() int32 {
-	if x != nil {
-		return x.TopLevelId
-	}
-	return 0
-}
-
-func (x *TestDeepNested) GetNestedLevel2() *Level2Message {
-	if x != nil {
-		return x.NestedLevel2
-	}
-	return nil
 }
 
 var File_test_proto protoreflect.FileDescriptor
@@ -682,53 +659,54 @@ var File_test_proto protoreflect.FileDescriptor
 const file_test_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"test.proto\x12\x04Test\"\x83\x01\n" +
-	"\vTestRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x05R\x02id\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\x12\x14\n" +
-	"\x05score\x18\x03 \x01(\x05R\x05score\x12\x18\n" +
-	"\acontent\x18\x04 \x03(\tR\acontent\x12\x18\n" +
-	"\anumbers\x18\x05 \x03(\x05R\anumbers\"\"\n" +
-	"\fTestResponse\x12\x12\n" +
-	"\x04resp\x18\x01 \x01(\tR\x04resp\"r\n" +
-	"\fTestFixedLen\x12\x17\n" +
+	"test.proto\x12\x04Test\"\xba\x01\n" +
+	"\x05Fixed\x12\x17\n" +
 	"\af_int32\x18\x01 \x01(\x05R\x06fInt32\x12\x17\n" +
-	"\af_int64\x18\x02 \x01(\x03R\x06fInt64\x12\x15\n" +
-	"\x06f_bool\x18\x03 \x01(\bR\x05fBool\x12\x19\n" +
-	"\bf_double\x18\x04 \x01(\x01R\afDouble\",\n" +
-	"\x0fTestVariableLen\x12\x19\n" +
-	"\bv_string\x18\x01 \x01(\tR\avString\"F\n" +
-	"\fTestRepeated\x12\x17\n" +
-	"\ar_fixed\x18\x01 \x03(\x05R\x06rFixed\x12\x1d\n" +
-	"\n" +
-	"r_variable\x18\x02 \x03(\tR\trVariable\"\x8c\x01\n" +
-	"\tTestOrder\x12\x17\n" +
-	"\av_first\x18\x01 \x01(\tR\x06vFirst\x12\x19\n" +
-	"\bf_second\x18\x02 \x01(\x05R\afSecond\x12\x17\n" +
-	"\ar_third\x18\x03 \x03(\x05R\x06rThird\x12\x19\n" +
-	"\bf_fourth\x18\x04 \x01(\x03R\afFourth\x12\x17\n" +
-	"\ar_fifth\x18\x05 \x03(\tR\x06rFifth\"\v\n" +
-	"\tTestEmpty\"H\n" +
-	"\fInnerMessage\x12\x19\n" +
-	"\binner_id\x18\x01 \x01(\x05R\ainnerId\x12\x1d\n" +
-	"\n" +
-	"inner_text\x18\x02 \x01(\tR\tinnerText\"\xa1\x01\n" +
-	"\n" +
-	"TestNested\x12\x19\n" +
-	"\bouter_id\x18\x01 \x01(\x03R\aouterId\x12;\n" +
-	"\x0fsingular_nested\x18\x02 \x01(\v2\x12.Test.InnerMessageR\x0esingularNested\x12;\n" +
-	"\x0frepeated_nested\x18\x03 \x03(\v2\x12.Test.InnerMessageR\x0erepeatedNested\".\n" +
-	"\rLevel3Message\x12\x1d\n" +
-	"\n" +
-	"final_text\x18\x01 \x01(\tR\tfinalText\"I\n" +
-	"\rLevel2Message\x128\n" +
-	"\rnested_level3\x18\x01 \x01(\v2\x13.Test.Level3MessageR\fnestedLevel3\"l\n" +
-	"\x0eTestDeepNested\x12 \n" +
-	"\ftop_level_id\x18\x01 \x01(\x05R\n" +
-	"topLevelId\x128\n" +
-	"\rnested_level2\x18\x02 \x01(\v2\x13.Test.Level2MessageR\fnestedLevel22<\n" +
-	"\vTestService\x12-\n" +
-	"\x04Test\x12\x11.Test.TestRequest\x1a\x12.Test.TestResponseB\bZ\x06./Testb\x06proto3"
+	"\af_int64\x18\x02 \x01(\x03R\x06fInt64\x12\x19\n" +
+	"\bf_uint32\x18\x03 \x01(\rR\afUint32\x12\x19\n" +
+	"\bf_uint64\x18\x04 \x01(\x04R\afUint64\x12\x15\n" +
+	"\x06f_bool\x18\x05 \x01(\bR\x05fBool\x12\x17\n" +
+	"\af_float\x18\x06 \x01(\x02R\x06fFloat\x12\x19\n" +
+	"\bf_double\x18\a \x01(\x01R\afDouble\"9\n" +
+	"\x03Var\x12\x19\n" +
+	"\bv_string\x18\x01 \x01(\tR\avString\x12\x17\n" +
+	"\av_bytes\x18\x02 \x01(\fR\x06vBytes\"\xc2\x01\n" +
+	"\rRepeatedFixed\x12\x17\n" +
+	"\ar_int32\x18\x01 \x03(\x05R\x06rInt32\x12\x17\n" +
+	"\ar_int64\x18\x02 \x03(\x03R\x06rInt64\x12\x19\n" +
+	"\br_uint32\x18\x03 \x03(\rR\arUint32\x12\x19\n" +
+	"\br_uint64\x18\x04 \x03(\x04R\arUint64\x12\x17\n" +
+	"\ar_float\x18\x05 \x03(\x02R\x06rFloat\x12\x19\n" +
+	"\br_double\x18\x06 \x03(\x01R\arDouble\x12\x15\n" +
+	"\x06r_bool\x18\a \x03(\bR\x05rBool\"A\n" +
+	"\vRepeatedVar\x12\x19\n" +
+	"\br_string\x18\x01 \x03(\tR\arString\x12\x17\n" +
+	"\ar_bytes\x18\x02 \x03(\fR\x06rBytes\":\n" +
+	"\x04Leaf\x12\x17\n" +
+	"\aleaf_id\x18\x01 \x01(\x05R\x06leafId\x12\x19\n" +
+	"\bleaf_val\x18\x02 \x01(\tR\aleafVal\"(\n" +
+	"\x06Level2\x12\x1e\n" +
+	"\x04leaf\x18\x01 \x01(\v2\n" +
+	".Test.LeafR\x04leaf\"?\n" +
+	"\x06Level1\x12\x1c\n" +
+	"\x02l2\x18\x01 \x01(\v2\f.Test.Level2R\x02l2\x12\x17\n" +
+	"\al1_data\x18\x02 \x01(\tR\x06l1Data\"=\n" +
+	"\x04Root\x12\x1c\n" +
+	"\x02l1\x18\x01 \x01(\v2\f.Test.Level1R\x02l1\x12\x17\n" +
+	"\aroot_id\x18\x02 \x01(\x05R\x06rootId\"\x88\x02\n" +
+	"\fComplexMixed\x12\x17\n" +
+	"\af_int32\x18\x01 \x01(\x05R\x06fInt32\x12\x19\n" +
+	"\bv_string\x18\x02 \x01(\tR\avString\x12\x17\n" +
+	"\ar_int64\x18\x03 \x03(\x03R\x06rInt64\x12+\n" +
+	"\vnested_leaf\x18\x04 \x01(\v2\n" +
+	".Test.LeafR\n" +
+	"nestedLeaf\x12\x19\n" +
+	"\br_string\x18\x05 \x03(\tR\arString\x12\x15\n" +
+	"\x06f_bool\x18\x06 \x01(\bR\x05fBool\x123\n" +
+	"\x0frepeated_nested\x18\a \x03(\v2\n" +
+	".Test.RootR\x0erepeatedNested\x12\x17\n" +
+	"\av_bytes\x18\b \x01(\fR\x06vBytes\"\a\n" +
+	"\x05EmptyB\bZ\x06./Testb\x06proto3"
 
 var (
 	file_test_proto_rawDescOnce sync.Once
@@ -742,33 +720,30 @@ func file_test_proto_rawDescGZIP() []byte {
 	return file_test_proto_rawDescData
 }
 
-var file_test_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_test_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_test_proto_goTypes = []any{
-	(*TestRequest)(nil),     // 0: Test.TestRequest
-	(*TestResponse)(nil),    // 1: Test.TestResponse
-	(*TestFixedLen)(nil),    // 2: Test.TestFixedLen
-	(*TestVariableLen)(nil), // 3: Test.TestVariableLen
-	(*TestRepeated)(nil),    // 4: Test.TestRepeated
-	(*TestOrder)(nil),       // 5: Test.TestOrder
-	(*TestEmpty)(nil),       // 6: Test.TestEmpty
-	(*InnerMessage)(nil),    // 7: Test.InnerMessage
-	(*TestNested)(nil),      // 8: Test.TestNested
-	(*Level3Message)(nil),   // 9: Test.Level3Message
-	(*Level2Message)(nil),   // 10: Test.Level2Message
-	(*TestDeepNested)(nil),  // 11: Test.TestDeepNested
+	(*Fixed)(nil),         // 0: Test.Fixed
+	(*Var)(nil),           // 1: Test.Var
+	(*RepeatedFixed)(nil), // 2: Test.RepeatedFixed
+	(*RepeatedVar)(nil),   // 3: Test.RepeatedVar
+	(*Leaf)(nil),          // 4: Test.Leaf
+	(*Level2)(nil),        // 5: Test.Level2
+	(*Level1)(nil),        // 6: Test.Level1
+	(*Root)(nil),          // 7: Test.Root
+	(*ComplexMixed)(nil),  // 8: Test.ComplexMixed
+	(*Empty)(nil),         // 9: Test.Empty
 }
 var file_test_proto_depIdxs = []int32{
-	7,  // 0: Test.TestNested.singular_nested:type_name -> Test.InnerMessage
-	7,  // 1: Test.TestNested.repeated_nested:type_name -> Test.InnerMessage
-	9,  // 2: Test.Level2Message.nested_level3:type_name -> Test.Level3Message
-	10, // 3: Test.TestDeepNested.nested_level2:type_name -> Test.Level2Message
-	0,  // 4: Test.TestService.Test:input_type -> Test.TestRequest
-	1,  // 5: Test.TestService.Test:output_type -> Test.TestResponse
-	5,  // [5:6] is the sub-list for method output_type
-	4,  // [4:5] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	4, // 0: Test.Level2.leaf:type_name -> Test.Leaf
+	5, // 1: Test.Level1.l2:type_name -> Test.Level2
+	6, // 2: Test.Root.l1:type_name -> Test.Level1
+	4, // 3: Test.ComplexMixed.nested_leaf:type_name -> Test.Leaf
+	7, // 4: Test.ComplexMixed.repeated_nested:type_name -> Test.Root
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_test_proto_init() }
@@ -782,9 +757,9 @@ func file_test_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_test_proto_rawDesc), len(file_test_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   10,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   0,
 		},
 		GoTypes:           file_test_proto_goTypes,
 		DependencyIndexes: file_test_proto_depIdxs,
