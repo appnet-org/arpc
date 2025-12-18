@@ -8,15 +8,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 pushd "${SCRIPT_DIR}/../../" > /dev/null
 
 # Build settings
+TAG="latest" 
 DOCKERFILE_PATH="${SCRIPT_DIR}/Dockerfile"
 IMAGE_NAME="kvstore-symphony"
-FULL_IMAGE="appnetorg/${IMAGE_NAME}:latest"
+FULL_IMAGE="appnetorg/${IMAGE_NAME}:${TAG}"
+
+echo "Building image with tag: ${TAG}"
 
 # Build the Docker image from the repo root
-sudo docker build --network=host -f "${DOCKERFILE_PATH}" -t "${IMAGE_NAME}:latest" .
+sudo docker build --network=host -f "${DOCKERFILE_PATH}" -t "${IMAGE_NAME}:${TAG}" .
 
 # Tag and push
-sudo docker tag "${IMAGE_NAME}:latest" "${FULL_IMAGE}"
+sudo docker tag "${IMAGE_NAME}:${TAG}" "${FULL_IMAGE}"
 sudo docker push "${FULL_IMAGE}"
 
 # Return to original directory

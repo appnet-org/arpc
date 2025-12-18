@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"sync"
 
 	"github.com/appnet-org/arpc/pkg/common"
 	"github.com/appnet-org/arpc/pkg/logging"
@@ -16,6 +17,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// responseData holds response information for a pending RPC call
+type responseData struct {
+	data       []byte
+	packetType packet.PacketType
+	err        error
+}
+
 // Client represents an RPC client with a transport and serializer.
 type Client struct {
 	transport       *transport.UDPTransport
@@ -23,6 +31,12 @@ type Client struct {
 	metadataCodec   metadata.MetadataCodec
 	defaultAddr     string
 	rpcElementChain *element.RPCElementChain
+
+	// Response dispatcher for handling concurrent calls
+	pendingCalls map[uint64]chan *responseData
+	pendingMu    sync.RWMutex
+	receiverDone chan struct{}
+	receiverOnce sync.Once
 }
 
 // NewClient creates a new Client using the given serializer and target address.
@@ -34,13 +48,18 @@ func NewClient(serializer serializer.Serializer, addr string, rpcElements []elem
 	if err != nil {
 		return nil, err
 	}
-	return &Client{
+	c := &Client{
 		transport:       t,
 		serializer:      serializer,
 		metadataCodec:   metadata.MetadataCodec{},
 		defaultAddr:     addr,
 		rpcElementChain: element.NewRPCElementChain(rpcElements...),
-	}, nil
+		pendingCalls:    make(map[uint64]chan *responseData),
+		receiverDone:    make(chan struct{}),
+	}
+	// Start the background receiver goroutine
+	go c.receiveLoop()
+	return c, nil
 }
 
 // NewClientWithLocalAddr creates a new Client using the given serializer, target address, and local address.
@@ -50,18 +69,75 @@ func NewClientWithLocalAddr(serializer serializer.Serializer, addr, localAddr st
 	if err != nil {
 		return nil, err
 	}
-	return &Client{
+	c := &Client{
 		transport:       t,
 		serializer:      serializer,
 		metadataCodec:   metadata.MetadataCodec{},
 		defaultAddr:     addr,
 		rpcElementChain: element.NewRPCElementChain(rpcElements...),
-	}, nil
+		pendingCalls:    make(map[uint64]chan *responseData),
+		receiverDone:    make(chan struct{}),
+	}
+	// Start the background receiver goroutine
+	go c.receiveLoop()
+	return c, nil
 }
 
 // Transport returns the underlying UDP transport for cleanup purposes
 func (c *Client) Transport() *transport.UDPTransport {
 	return c.transport
+}
+
+// receiveLoop runs in a background goroutine and dispatches responses to pending calls
+func (c *Client) receiveLoop() {
+	for {
+		// Check for shutdown signal (non-blocking)
+		select {
+		case <-c.receiverDone:
+			return
+		default:
+		}
+
+		// Block on receive (this will block until data arrives or error occurs)
+		data, _, respID, packetType, err := c.transport.Receive(packet.MaxUDPPayloadSize, transport.RoleClient)
+
+		// Check if we should dispatch this response
+		if data != nil || err != nil {
+			c.pendingMu.RLock()
+			respChan, exists := c.pendingCalls[respID]
+			c.pendingMu.RUnlock()
+
+			if exists {
+				// Send response to the waiting goroutine
+				respChan <- &responseData{
+					data:       data,
+					packetType: packetType,
+					err:        err,
+				}
+			} else {
+				// No one waiting for this response - log and return buffer to pool
+				if data != nil {
+					logging.Debug("Ignoring response with no pending call",
+						zap.Uint64("rpcID", respID))
+					c.transport.GetBufferPool().Put(data)
+				}
+			}
+		}
+	}
+}
+
+// registerPendingCall registers a channel for a pending RPC call
+func (c *Client) registerPendingCall(rpcID uint64, ch chan *responseData) {
+	c.pendingMu.Lock()
+	c.pendingCalls[rpcID] = ch
+	c.pendingMu.Unlock()
+}
+
+// unregisterPendingCall removes a pending call registration
+func (c *Client) unregisterPendingCall(rpcID uint64) {
+	c.pendingMu.Lock()
+	delete(c.pendingCalls, rpcID)
+	c.pendingMu.Unlock()
 }
 
 // frameRequest constructs a binary message with
@@ -248,6 +324,11 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		return fmt.Errorf("failed to frame request: %w", err)
 	}
 
+	// Create a response channel and register it before sending
+	respChan := make(chan *responseData, 1)
+	c.registerPendingCall(rpcReq.ID, respChan)
+	defer c.unregisterPendingCall(rpcReq.ID)
+
 	// Send the framed request
 	err = c.transport.Send(c.defaultAddr, rpcReq.ID, framedReq, packet.PacketTypeRequest)
 
@@ -258,39 +339,31 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 
-	// Wait and process the response
-	for {
-		data, _, respID, packetType, err := c.transport.Receive(packet.MaxUDPPayloadSize, transport.RoleClient)
-		if err != nil {
-			return fmt.Errorf("failed to receive response: %w", err)
-		}
+	// Wait for the response from the dispatcher
+	respData := <-respChan
 
-		if data == nil {
-			continue // Either still waiting for fragments or we received an non-data/error packet
-		}
+	// Check for receive error
+	if respData.err != nil {
+		return fmt.Errorf("failed to receive response: %w", respData.err)
+	}
 
-		if respID != rpcReq.ID {
-			logging.Debug("Ignoring response with mismatched RPC ID",
-				zap.Uint64("receivedID", respID),
-				zap.Uint64("expectedID", rpcReq.ID))
-			// Return buffer to pool for mismatched RPC ID
-			c.transport.GetBufferPool().Put(data)
-			continue
-		}
+	// Check if we got data
+	if respData.data == nil {
+		return fmt.Errorf("received nil response data")
+	}
 
-		// Process the packet based on its type
-		switch packetType {
-		case packet.PacketTypeResponse:
-			return c.handleResponsePacket(ctx, data, respID, resp)
-		case packet.PacketTypeError, packet.PacketTypeUnknown:
-			// handleErrorPacket will return the buffer to pool
-			return c.handleErrorPacket(ctx, data, packetType)
-		default:
-			logging.Debug("Ignoring packet with unknown type", zap.String("packetType", packetType.Name))
-			// Return buffer to pool for unknown packet type
-			c.transport.GetBufferPool().Put(data)
-			continue
-		}
+	// Process the packet based on its type
+	switch respData.packetType {
+	case packet.PacketTypeResponse:
+		return c.handleResponsePacket(ctx, respData.data, rpcReq.ID, resp)
+	case packet.PacketTypeError, packet.PacketTypeUnknown:
+		// handleErrorPacket will return the buffer to pool
+		return c.handleErrorPacket(ctx, respData.data, respData.packetType)
+	default:
+		logging.Debug("Ignoring packet with unknown type", zap.String("packetType", respData.packetType.Name))
+		// Return buffer to pool for unknown packet type
+		c.transport.GetBufferPool().Put(respData.data)
+		return fmt.Errorf("unexpected packet type: %s", respData.packetType.Name)
 	}
 }
 
@@ -326,4 +399,15 @@ func (c *Client) GetRegisteredPackets() []packet.PacketType {
 // GetTransport returns the underlying transport for advanced operations
 func (c *Client) GetTransport() *transport.UDPTransport {
 	return c.transport
+}
+
+// Close closes the client and stops the background receiver goroutine
+func (c *Client) Close() error {
+	// Signal the receiver goroutine to stop (only once)
+	c.receiverOnce.Do(func() {
+		close(c.receiverDone)
+	})
+
+	// Close the transport
+	return c.transport.Close()
 }
