@@ -262,7 +262,7 @@ func (c *Client) handleResponsePacket(ctx context.Context, data []byte, rpcID ui
 	}
 
 	// Process response through RPC elements
-	rpcResp, ctx, err = c.rpcElementChain.ProcessResponse(ctx, rpcResp)
+	rpcResp, _, err = c.rpcElementChain.ProcessResponse(ctx, rpcResp)
 	if err != nil {
 		return err
 	}
