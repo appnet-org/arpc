@@ -23,9 +23,9 @@ ARPC_DIR = os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
 wrk_path = os.path.join(ARPC_DIR, "benchmark/scripts/wrk/wrk")
 
 manifest_dict = {
-    "tcp-no-proxy": os.path.join(SCRIPT_DIR, "benchmark/scripts/benchmark/buffer-manifest/kv-store-arpc-tcp.yaml"),
-    "tcp-streaming": os.path.join(SCRIPT_DIR, "benchmark/scripts/benchmark/buffer-manifest/kv-store-arpc-tcp-proxy-streaming.yaml"),
-    "tcp-buffering": os.path.join(SCRIPT_DIR, "benchmark/scripts/benchmark/buffer-manifest/kv-store-arpc-tcp-proxy-buffering.yaml"),
+    "tcp-no-proxy": os.path.join(SCRIPT_DIR, "benchmark/scripts/benchmark/latency/buffer-manifest/kv-store-arpc-tcp.yaml"),
+    "tcp-streaming": os.path.join(SCRIPT_DIR, "benchmark/scripts/benchmark/latency/buffer-manifest/kv-store-arpc-tcp-proxy-streaming.yaml"),
+    "tcp-buffering": os.path.join(SCRIPT_DIR, "benchmark/scripts/benchmark/latency/buffer-manifest/kv-store-arpc-tcp-proxy-buffering.yaml"),
 }
 
 
