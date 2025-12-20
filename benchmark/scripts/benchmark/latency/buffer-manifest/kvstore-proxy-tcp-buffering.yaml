@@ -34,9 +34,10 @@ spec:
         - name: LOG_LEVEL
           value: debug
       - name: symphony-proxy
-        image: appnetorg/symphony-proxy-h2:latest
+        image: appnetorg/symphony-proxy-grpc:latest
         command:
-        - /app/proxy-grpc-buffering
+        - /app/proxy
+        - --buffering
         env:
         - name: LOG_LEVEL
           value: debug
@@ -99,9 +100,10 @@ spec:
         - name: LOG_LEVEL
           value: debug
       - name: symphony-proxy
-        image: appnetorg/symphony-proxy-h2:latest
+        image: appnetorg/symphony-proxy-grpc:latest
         command:
-        - /app/proxy-grpc-buffering
+        - /app/proxy
+        - --buffering
         env:
         - name: LOG_LEVEL
           value: debug

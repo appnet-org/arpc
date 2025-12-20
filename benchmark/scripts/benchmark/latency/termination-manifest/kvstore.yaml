@@ -18,7 +18,7 @@ kind: Deployment
 metadata:
   name: frontend
 spec:
-  replicas: 1
+  replicas: 5
   template:
     metadata:
       name: frontend
@@ -56,7 +56,7 @@ kind: Deployment
 metadata:
   name: kvstore
 spec:
-  replicas: 1
+  replicas: 5
   template:
     metadata:
       name: kvstore
