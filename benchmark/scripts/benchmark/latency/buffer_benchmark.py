@@ -3,6 +3,7 @@ import os
 import sys
 import logging
 import time
+import json
 
 # Configure logging
 logging.basicConfig(
@@ -17,15 +18,15 @@ logger = logging.getLogger(__name__)
 
 # Get the directory of this script
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ARPC_DIR = os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
+ARPC_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR))))
 
 # Use relative paths from the script directory
-wrk_path = os.path.join(ARPC_DIR, "benchmark/scripts/wrk/wrk")
+wrk_path = os.path.join(ARPC_DIR, "benchmark/scripts/wrk2/wrk")
 
 manifest_dict = {
-    "tcp-no-proxy": os.path.join(SCRIPT_DIR, "benchmark/scripts/benchmark/latency/buffer-manifest/kv-store-arpc-tcp.yaml"),
-    "tcp-streaming": os.path.join(SCRIPT_DIR, "benchmark/scripts/benchmark/latency/buffer-manifest/kv-store-arpc-tcp-proxy-streaming.yaml"),
-    "tcp-buffering": os.path.join(SCRIPT_DIR, "benchmark/scripts/benchmark/latency/buffer-manifest/kv-store-arpc-tcp-proxy-buffering.yaml"),
+    "kv-store-grpc-no-proxy": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/latency/buffer-manifest/kvstore-no-proxy.yaml"),
+    "kv-store-grpc-proxy-tcp-streaming": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore-proxy-tcp.yaml"),
+    "kv-store-grpc-proxy-tcp-buffering": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore-proxy-h2.yaml"),
 }
 
 

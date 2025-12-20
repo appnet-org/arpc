@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Get the directory of this script
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ARPC_DIR = os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
+ARPC_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR))))
 
 # Use relative paths from the script directory
 wrk_path = os.path.join(ARPC_DIR, "benchmark/scripts/wrk/wrk")
@@ -35,9 +35,9 @@ manifest_dict = {
     "kv-store-grpc": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore.yaml"),
     "kv-store-grpc-proxy-tcp": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore-proxy-tcp.yaml"),
     "kv-store-grpc-proxy-h2": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore-proxy-h2.yaml"),
-    "kv-store-arpc-h2": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-tcp.yaml"),
-    "kv-store-arpc-h2-proxy-tcp": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-h2-proxy-tcp.yaml"),
-    "kv-store-arpc-h2-proxy-h2": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-h2-proxy-h2.yaml"),
+    # "kv-store-arpc-h2": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-tcp.yaml"),
+    # "kv-store-arpc-h2-proxy-tcp": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-h2-proxy-tcp.yaml"),
+    # "kv-store-arpc-h2-proxy-h2": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-h2-proxy-h2.yaml"),
 }
 
 # check if all manifests exist
