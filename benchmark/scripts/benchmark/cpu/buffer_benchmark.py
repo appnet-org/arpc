@@ -206,7 +206,7 @@ def run_wrk2_and_get_cpu(
     cores_per_node=64,
     mpstat_duration=30,
     wrk2_duration=60,
-    target_rate=10000,
+    target_rate=1000,
 ):
     """Run wrk2 and collect CPU metrics for a specific value size."""
     logger.info(f"Running wrk2 for {manifest_name} with value_size={value_size} (num_of_packet={num_of_packet})")
