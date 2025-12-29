@@ -186,10 +186,6 @@ spec:
           name: istio-token
         - mountPath: /etc/istio/pod
           name: istio-podinfo
-        - mountPath: /etc/buffer.wasm
-          name: buffer-wasm
-        - mountPath: /etc/stream.wasm
-          name: stream-wasm
       initContainers:
       - args:
         - istio-iptables
@@ -236,14 +232,6 @@ spec:
           runAsNonRoot: true
           runAsUser: 1337
       volumes:
-      - name: buffer-wasm
-        hostPath:
-          path: /tmp/appnet/buffer.wasm
-          type: File
-      - name: stream-wasm
-        hostPath:
-          path: /tmp/appnet/stream.wasm
-          type: File
       - name: workload-socket
       - name: credential-socket
       - name: workload-certs
@@ -461,10 +449,6 @@ spec:
           name: istio-token
         - mountPath: /etc/istio/pod
           name: istio-podinfo
-        - mountPath: /etc/buffer.wasm
-          name: buffer-wasm
-        - mountPath: /etc/stream.wasm
-          name: stream-wasm
       initContainers:
       - args:
         - istio-iptables
@@ -511,14 +495,6 @@ spec:
           runAsNonRoot: true
           runAsUser: 1337
       volumes:
-      - name: buffer-wasm
-        hostPath:
-          path: /tmp/appnet/buffer.wasm
-          type: File
-      - name: stream-wasm
-        hostPath:
-          path: /tmp/appnet/stream.wasm
-          type: File
       - name: workload-socket
       - name: credential-socket
       - name: workload-certs

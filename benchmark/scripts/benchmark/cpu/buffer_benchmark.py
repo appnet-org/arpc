@@ -44,8 +44,8 @@ if not os.path.exists(wrk_path):
 
 manifest_dict = {
     "kv-store-grpc-no-proxy": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/buffer-manifest/kvstore.yaml"),
-    "kv-store-grpc-proxy-h2-buffering": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/buffer-manifest/kvstore-proxy-h2-buffering.yaml"),
-    "kv-store-grpc-proxy-h2-streaming": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/buffer-manifest/kvstore-proxy-h2-streaming.yaml"),
+    "kv-store-grpc-envoy-h2-buffering": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/buffer-manifest/kvstore-envoy-h2-buffering.yaml"),
+    "kv-store-grpc-envoy-h2-streaming": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/buffer-manifest/kvstore-envoy-h2-streaming.yaml"),
 }
 
 # check if all manifests exist

@@ -37,8 +37,10 @@ lua_path = os.path.join(ARPC_DIR, "benchmark/meta-kv-trace/kvstore-wrk.lua")
 
 manifest_dict = {
     "kv-store-grpc": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/termination-manifest/kvstore.yaml"),
-    "kv-store-grpc-proxy-tcp": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/termination-manifest/kvstore-proxy-tcp.yaml"),
-    "kv-store-grpc-proxy-h2": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/termination-manifest/kvstore-proxy-h2.yaml"),
+    # "kv-store-grpc-proxy-tcp": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/termination-manifest/kvstore-proxy-tcp.yaml"),
+    # "kv-store-grpc-proxy-h2": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/termination-manifest/kvstore-proxy-h2.yaml"),
+    "kv-store-grpc-envoy-tcp": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/termination-manifest/kvstore-envoy-tcp.yaml"),
+    "kv-store-grpc-envoy-h2": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/termination-manifest/kvstore-envoy-h2.yaml"),
 }
 
 # check if all manifests exist
@@ -136,7 +138,7 @@ def run_wrk2_and_get_cpu(
     cores_per_node=64,
     mpstat_duration=30,
     wrk2_duration=60,
-    target_rate=10000,
+    target_rate=3000,
 ):
     logger.info(f"Running wrk2 for {manifest_name}")
     cmd = [

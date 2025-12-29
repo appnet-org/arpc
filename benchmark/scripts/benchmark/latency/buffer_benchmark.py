@@ -28,9 +28,9 @@ if not os.path.exists(wrk_path):
     exit(1)
 
 manifest_dict = {
-    "kv-store-grpc-no-proxy": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/latency/buffer-manifest/kvstore-no-proxy.yaml"),
-    "kv-store-grpc-proxy-tcp-streaming": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/latency/buffer-manifest/kvstore-proxy-tcp-buffering.yaml"),
-    "kv-store-grpc-proxy-tcp-buffering": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/latency/buffer-manifest/kvstore-proxy-tcp-streaming.yaml"),
+    "kv-store-grpc-no-proxy": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/latency/buffer-manifest/kvstore.yaml"),
+    "kv-store-grpc-envoy-buffering": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/latency/buffer-manifest/kvstore-envoy-h2-buffering.yaml"),
+    "kv-store-grpc-envoy-streaming": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/latency/buffer-manifest/kvstore-envoy-h2-streaming.yaml"),
 }
 
 
@@ -125,9 +125,9 @@ def test_application(num_requests=10, timeout_duration=1):
 
 def cleanup_all_resources():
     """Delete all Kubernetes resources in the current namespace."""
-    logger.info("Cleaning up all resources using 'kubectl delete all --all'...")
+    logger.info("Cleaning up all resources using 'kubectl delete all,envoyfilters --all'...")
     result = subprocess.run(
-        ["kubectl", "delete", "all", "--all"],
+        ["kubectl", "delete", "all,envoyfilters", "--all"],
         capture_output=True,
         text=True
     )
