@@ -155,6 +155,7 @@ func runProxyServer(port int, state *ProxyState) error {
 		}
 
 		// Create a copy of the data to avoid race conditions
+		// TODO: We could pre-allocate the buffer and reuse it for each packet
 		data := make([]byte, n)
 		copy(data, buf[:n])
 
