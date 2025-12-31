@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/appnet-org/arpc/pkg/common"
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/packet"
@@ -148,35 +147,6 @@ func (c *Client) unregisterPendingCall(rpcID uint64) {
 	c.pendingMu.Unlock()
 }
 
-// frameRequest constructs a binary message with
-// [metadataLen(2B)][metadata][payload]
-func (c *Client) frameRequest(metadataBytes, payload []byte, pool *common.BufferPool) ([]byte, error) {
-	// Pre-calculate buffer size (header: 2 bytes)
-	totalSize := 2 + len(metadataBytes) + len(payload)
-
-	var buf []byte
-	if pool != nil {
-		buf = pool.GetSize(totalSize)
-	} else {
-		buf = make([]byte, totalSize)
-	}
-
-	// metadata
-	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(metadataBytes)))
-	copy(buf[2:], metadataBytes)
-
-	// payload
-	payloadStart := 2 + len(metadataBytes)
-	copy(buf[payloadStart:], payload)
-
-	return buf, nil
-}
-
-func (c *Client) parseFramedResponse(data []byte) (payload []byte, err error) {
-	// Response is just the raw payload now, no framing
-	return data, nil
-}
-
 func (c *Client) handleErrorPacket(ctx context.Context, data []byte, errType packet.PacketType) error {
 	// Convert data to string for error message
 	errMsg := string(data)
@@ -206,16 +176,9 @@ func (c *Client) handleErrorPacket(ctx context.Context, data []byte, errType pac
 }
 
 func (c *Client) handleResponsePacket(ctx context.Context, data []byte, rpcID uint64, resp any) error {
-	// Parse framed response: extract payload
-	respPayloadBytes, err := c.parseFramedResponse(data)
-	if err != nil {
-		// Return buffer to pool on parse error
-		c.transport.GetBufferPool().Put(data)
-		return fmt.Errorf("failed to parse framed response: %w", err)
-	}
-
+	// Data is already the raw payload, no framing to parse
 	// Deserialize the response into resp
-	if err := c.serializer.Unmarshal(respPayloadBytes, resp); err != nil {
+	if err := c.serializer.Unmarshal(data, resp); err != nil {
 		// Return buffer to pool on unmarshal error
 		c.transport.GetBufferPool().Put(data)
 		return fmt.Errorf("failed to unmarshal response: %w", err)
@@ -234,7 +197,7 @@ func (c *Client) handleResponsePacket(ctx context.Context, data []byte, rpcID ui
 	}
 
 	// Process response through RPC elements
-	rpcResp, _, err = c.rpcElementChain.ProcessResponse(ctx, rpcResp)
+	rpcResp, _, err := c.rpcElementChain.ProcessResponse(ctx, rpcResp)
 	if err != nil {
 		return err
 	}
@@ -261,43 +224,19 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		return err
 	}
 
-	// Extract metadata from context
-	md := metadata.FromOutgoingContext(ctx)
-	var metadataBytes []byte
-	if len(md) > 0 {
-		metadataBytes, err = c.metadataCodec.EncodeHeaders(md, c.transport.GetBufferPool())
-		if err != nil {
-			return fmt.Errorf("failed to encode metadata: %w", err)
-		}
-		logging.Debug("Encoded metadata", zap.String("metadata", fmt.Sprintf("%x", metadataBytes)))
-	}
-
 	// Serialize the request payload
 	reqPayloadBytes, err := c.serializer.Marshal(rpcReq.Payload)
-	// logging.Debug("Serialized request payload", zap.String("payload", fmt.Sprintf("%x", reqPayloadBytes)))
 	if err != nil {
-		// Return metadata buffer to pool on error
-		if len(md) > 0 && metadataBytes != nil {
-			c.transport.GetBufferPool().Put(metadataBytes)
-		}
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	// Lookup service and method IDs from registry
 	serviceID, ok := c.serviceRegistry.GetServiceID(rpcReq.ServiceName)
 	if !ok {
-		// Return metadata buffer to pool on error
-		if len(md) > 0 && metadataBytes != nil {
-			c.transport.GetBufferPool().Put(metadataBytes)
-		}
 		return fmt.Errorf("service not found in registry: %s", rpcReq.ServiceName)
 	}
 	methodID, ok := c.serviceRegistry.GetMethodID(rpcReq.ServiceName, rpcReq.Method)
 	if !ok {
-		// Return metadata buffer to pool on error
-		if len(md) > 0 && metadataBytes != nil {
-			c.transport.GetBufferPool().Put(metadataBytes)
-		}
 		return fmt.Errorf("method not found in registry: %s.%s", rpcReq.ServiceName, rpcReq.Method)
 	}
 
@@ -307,29 +246,13 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		binary.LittleEndian.PutUint32(reqPayloadBytes[9:13], methodID)
 	}
 
-	// Frame the request into binary format using buffer pool
-	framedReq, err := c.frameRequest(metadataBytes, reqPayloadBytes, c.transport.GetBufferPool())
-
-	// Return metadata buffer to pool after frameRequest copies it
-	if len(md) > 0 && metadataBytes != nil {
-		c.transport.GetBufferPool().Put(metadataBytes)
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to frame request: %w", err)
-	}
-
 	// Create a response channel and register it before sending
 	respChan := make(chan *responseData, 1)
 	c.registerPendingCall(rpcReq.ID, respChan)
 	defer c.unregisterPendingCall(rpcReq.ID)
 
-	// Send the framed request
-	err = c.transport.Send(c.defaultAddr, rpcReq.ID, framedReq, packet.PacketTypeRequest)
-
-	// Return buffer to pool after sending (transport.Send copies the data)
-	c.transport.GetBufferPool().Put(framedReq)
-
+	// Send the payload directly (no framing)
+	err = c.transport.Send(c.defaultAddr, rpcReq.ID, reqPayloadBytes, packet.PacketTypeRequest)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}

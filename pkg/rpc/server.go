@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/appnet-org/arpc/pkg/common"
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/packet"
@@ -66,47 +65,6 @@ func (s *Server) RegisterService(desc *ServiceDesc, impl any) {
 	logging.Info("Registered service", zap.String("serviceName", desc.ServiceName), zap.Uint32("serviceID", desc.ServiceID))
 }
 
-// parseFramedRequest extracts metadata and payload segments from a request frame.
-// Wire format: [metadataLen(2B)][metadata][payload]
-func (s *Server) parseFramedRequest(data []byte) (metadata.Metadata, []byte, error) {
-	offset := 0
-
-	// Metadata
-	var md metadata.Metadata
-	if offset+2 > len(data) {
-		return nil, nil, fmt.Errorf("data too short for metadata length")
-	}
-	metadataLen := int(binary.LittleEndian.Uint16(data[offset:]))
-	offset += 2
-
-	if metadataLen > 0 {
-		if offset+metadataLen > len(data) {
-			return nil, nil, fmt.Errorf("metadata length %d exceeds data length", metadataLen)
-		}
-		metadataBytes := data[offset : offset+metadataLen]
-		offset += metadataLen
-
-		// Decode metadata
-		var err error
-		md, err = s.metadataCodec.DecodeHeaders(metadataBytes)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to decode metadata: %w", err)
-		}
-		logging.Debug("Decoded metadata", zap.Any("metadata", md))
-	}
-
-	// Payload
-	payload := data[offset:]
-
-	return md, payload, nil
-}
-
-// frameResponse just returns the raw response payload
-func (s *Server) frameResponse(payload []byte, pool *common.BufferPool) ([]byte, error) {
-	// Just return the payload directly - no framing needed
-	return payload, nil
-}
-
 // Start begins listening for incoming RPC requests, dispatching to the appropriate service/method handler.
 func (s *Server) Start() {
 	logging.Info("Server started... Waiting for messages.")
@@ -126,17 +84,8 @@ func (s *Server) Start() {
 			continue // Either still waiting for fragments or we received an non-data packet
 		}
 
-		// Parse request payload
-		md, reqPayloadBytes, err := s.parseFramedRequest(data)
-		if err != nil {
-			logging.Error("Failed to parse framed request", zap.Error(err))
-			// Return buffer to pool on parse error
-			s.transport.GetBufferPool().Put(data)
-			if err := s.transport.Send(addr.String(), rpcID, []byte(err.Error()), packet.PacketTypeUnknown); err != nil {
-				logging.Error("Error sending error response", zap.Error(err))
-			}
-			continue
-		}
+		// Data is already the raw payload
+		reqPayloadBytes := data
 
 		// Read service and method IDs from Symphony reserved header (bytes 5-9 and 9-13)
 		if len(reqPayloadBytes) < 13 {
@@ -150,11 +99,8 @@ func (s *Server) Start() {
 		serviceID := binary.LittleEndian.Uint32(reqPayloadBytes[5:9])
 		methodID := binary.LittleEndian.Uint32(reqPayloadBytes[9:13])
 
-		// Create context with incoming metadata
+		// Create context (no metadata)
 		ctx := context.Background()
-		if len(md) > 0 {
-			ctx = metadata.NewIncomingContext(ctx, md)
-		}
 
 		// Create RPC request for element processing
 		rpcReq := &element.RPCRequest{
@@ -220,21 +166,8 @@ func (s *Server) Start() {
 			continue
 		}
 
-		// Frame response using buffer pool
-		framedResp, err := s.frameResponse(respPayloadBytes, s.transport.GetBufferPool())
-		if err != nil {
-			logging.Error("Failed to frame response", zap.Error(err))
-			if err := s.transport.Send(addr.String(), rpcID, []byte(err.Error()), packet.PacketTypeUnknown); err != nil {
-				logging.Error("Error sending error response", zap.Error(err))
-			}
-			continue
-		}
-
-		// Send the response
-		err = s.transport.Send(addr.String(), rpcID, framedResp, packet.PacketTypeResponse)
-
-		// Return buffer to pool after sending (transport.Send copies the data)
-		s.transport.GetBufferPool().Put(framedResp)
+		// Send the response payload directly (no framing)
+		err = s.transport.Send(addr.String(), rpcID, respPayloadBytes, packet.PacketTypeResponse)
 
 		if err != nil {
 			logging.Error("Error sending response", zap.Error(err))
