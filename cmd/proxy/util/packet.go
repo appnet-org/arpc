@@ -50,8 +50,11 @@ func (p PacketType) String() string {
 type PacketVerdict int
 
 const (
+	// PacketVerdictUnknown indicates no verdict exists yet (zero value).
+	PacketVerdictUnknown PacketVerdict = iota
+
 	// PacketVerdictPass allows the packet to continue processing (XDP_PASS equivalent).
-	PacketVerdictPass PacketVerdict = iota
+	PacketVerdictPass
 
 	// PacketVerdictDrop drops the packet (XDP_DROP equivalent).
 	PacketVerdictDrop
@@ -60,6 +63,8 @@ const (
 // String returns the string representation of PacketVerdict
 func (p PacketVerdict) String() string {
 	switch p {
+	case PacketVerdictUnknown:
+		return "packet_verdict_unknown"
 	case PacketVerdictPass:
 		return "packet_verdict_pass"
 	case PacketVerdictDrop:

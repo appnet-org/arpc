@@ -22,6 +22,8 @@ type PacketBuffer struct {
 	timeout       time.Duration
 	cleanupTicker *time.Ticker
 	done          chan struct{}
+	verdicts      map[uint64]util.PacketVerdict
+	verdictsMu    sync.RWMutex
 }
 
 // NewPacketBuffer creates a new packet buffer
@@ -31,6 +33,7 @@ func NewPacketBuffer(timeout time.Duration) *PacketBuffer {
 		incoming: make(map[string]map[uint64]map[uint16][]byte),
 		timeouts: make(map[string]map[uint64]time.Time),
 		done:     make(chan struct{}),
+		verdicts: make(map[uint64]util.PacketVerdict),
 	}
 
 	// Start cleanup routine
@@ -50,47 +53,31 @@ func (pb *PacketBuffer) Close() {
 
 // ProcessPacket processes a packet fragment. If buffering is enabled, it buffers fragments
 // and returns a complete packet when all fragments are received. If buffering is disabled
-// or the packet is already complete, it returns immediately. Returns nil, nil if still
-// waiting for more fragments.
-func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, requestMode, responseMode util.ExecutionMode) (*util.BufferedPacket, error) {
-	logging.Debug("Processing packet with execution modes",
-		zap.String("requestMode", requestMode.String()),
-		zap.String("responseMode", responseMode.String()))
-
+// or the packet is already complete, it returns immediately. Returns nil, PacketVerdictUnknown, nil if still
+// waiting for more fragments. Returns PacketVerdictUnknown if no verdict exists for this RPC ID.
+func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.BufferedPacket, util.PacketVerdict, error) {
 	// Parse packet using the packet codec
 	dataPacket, err := pb.deserializePacket(data)
 	if err != nil {
 		// Try to print packet type
 		logging.Error("Failed to deserialize packet", zap.String("packetType", string(data[0])))
-		return nil, err
+		return nil, util.PacketVerdictUnknown, err
 	}
 
 	peer := &net.UDPAddr{IP: net.IP(dataPacket.DstIP[:]), Port: int(dataPacket.DstPort)}
-
-	// Determine which execution mode to check based on packet type
 	packetType := util.PacketType(dataPacket.PacketTypeID)
-	var executionMode util.ExecutionMode
 
-	switch packetType {
-	case util.PacketTypeRequest:
-		executionMode = requestMode
-	case util.PacketTypeResponse, util.PacketTypeError:
-		executionMode = responseMode
-	default:
-		// For unknown/other packet types, default to requestMode
-		executionMode = requestMode
-	}
+	// Check if a verdict exists for this RPC ID and retrieve it
+	pb.verdictsMu.RLock()
+	verdict, verdictExists := pb.verdicts[dataPacket.RPCID]
+	pb.verdictsMu.RUnlock()
 
-	// If the appropriate mode is StreamingMode, return the packet as is
-	if executionMode == util.StreamingMode {
-		isFull := true
+	if verdictExists {
+		// Verdict exists, forward the packet immediately without buffering
+		isFull := dataPacket.TotalPackets == 1
 		seqNumber := uint16(0)
-		totalPackets := uint16(1)
-		// Check if this is a fragment
-		if dataPacket.TotalPackets > 1 {
-			isFull = false
+		if !isFull {
 			seqNumber = dataPacket.SeqNumber
-			totalPackets = dataPacket.TotalPackets
 		}
 		return &util.BufferedPacket{
 			Payload:      dataPacket.Payload,
@@ -104,10 +91,26 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, requestMode
 			SrcPort:      dataPacket.SrcPort,
 			IsFull:       isFull,
 			SeqNumber:    seqNumber,
-			TotalPackets: totalPackets,
-		}, nil
+			TotalPackets: dataPacket.TotalPackets,
+		}, verdict, nil
 	}
 
+	// Check if this is the first packet of the RPC
+	if dataPacket.SeqNumber == 0 {
+		// Check if offset_private < MTU?
+		// if not, add to buffer
+	} else {
+		// Add fragment to buffer
+		pb.addFragmentToBuffer(src, dataPacket)
+	}
+	// Check if this is the last packet of the RPC
+
+	// Still waiting for more fragments
+	return nil, util.PacketVerdictUnknown, nil
+}
+
+// addFragmentToBuffer adds a packet fragment to the buffer for reassembly
+func (pb *PacketBuffer) addFragmentToBuffer(src *net.UDPAddr, dataPacket *packet.DataPacket) {
 	// Create connection key for this source
 	connKey := src.String()
 
@@ -127,64 +130,7 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr, requestMode
 	pb.incoming[connKey][dataPacket.RPCID][dataPacket.SeqNumber] = dataPacket.Payload
 	pb.timeouts[connKey][dataPacket.RPCID] = time.Now()
 
-	logging.Debug("Buffered packet fragment",
-		zap.String("connKey", connKey),
-		zap.Uint64("rpcID", dataPacket.RPCID),
-		zap.Uint16("seqNumber", dataPacket.SeqNumber),
-		zap.Uint16("totalPackets", dataPacket.TotalPackets),
-		zap.Int("fragmentsReceived", len(pb.incoming[connKey][dataPacket.RPCID])))
-
-	// Check if we have all fragments
-	if len(pb.incoming[connKey][dataPacket.RPCID]) == int(dataPacket.TotalPackets) {
-		// Reassemble the complete message payload
-		completePayload, err := pb.reassemblePayload(dataPacket, pb.incoming[connKey][dataPacket.RPCID])
-		if err != nil {
-			logging.Error("Failed to reassemble packet", zap.Error(err))
-			// Clean up and return original payload
-			pb.cleanupFragments(connKey, dataPacket.RPCID)
-			payload := dataPacket.Payload
-			return &util.BufferedPacket{
-				Payload:      payload,
-				Source:       src,
-				Peer:         peer,
-				PacketType:   util.PacketType(dataPacket.PacketTypeID),
-				RPCID:        dataPacket.RPCID,
-				DstIP:        dataPacket.DstIP,
-				DstPort:      dataPacket.DstPort,
-				SrcIP:        dataPacket.SrcIP,
-				SrcPort:      dataPacket.SrcPort,
-				IsFull:       false,
-				SeqNumber:    dataPacket.SeqNumber,
-				TotalPackets: dataPacket.TotalPackets,
-			}, nil
-		}
-
-		// Clean up fragment storage
-		pb.cleanupFragments(connKey, dataPacket.RPCID)
-
-		logging.Debug("Complete packet reassembled",
-			zap.String("connKey", connKey),
-			zap.Uint64("rpcID", dataPacket.RPCID),
-			zap.Int("totalSize", len(completePayload)))
-
-		return &util.BufferedPacket{
-			Payload:      completePayload,
-			Source:       src,
-			Peer:         peer,
-			PacketType:   util.PacketType(dataPacket.PacketTypeID),
-			RPCID:        dataPacket.RPCID,
-			DstIP:        dataPacket.DstIP,
-			DstPort:      dataPacket.DstPort,
-			SrcIP:        dataPacket.SrcIP,
-			SrcPort:      dataPacket.SrcPort,
-			IsFull:       true,
-			SeqNumber:    0,
-			TotalPackets: dataPacket.TotalPackets, // Actual number of packets that were reassembled
-		}, nil
-	}
-
-	// Still waiting for more fragments
-	return nil, nil
+	// TODO: check if we have enough data
 }
 
 // deserializePacket extracts packet information using the existing packet codec

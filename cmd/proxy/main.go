@@ -167,11 +167,8 @@ func runProxyServer(port int, state *ProxyState) error {
 func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte) {
 	ctx := context.Background()
 
-	// Determine the required buffering mode for the element chain
-	requestMode, responseMode := state.elementChain.RequiredBufferingMode()
-
 	// Process packet (may return nil if still buffering fragments)
-	bufferedPacket, err := state.packetBuffer.ProcessPacket(data, src, requestMode, responseMode)
+	bufferedPacket, existingVerdict, err := state.packetBuffer.ProcessPacket(data, src)
 	if err != nil {
 		logging.Error("Error processing packet through buffer", zap.Error(err))
 		return
@@ -183,15 +180,26 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		return
 	}
 
-	// Process packet through the element chain
-	err = runElementsChain(ctx, state, bufferedPacket)
-	if err != nil {
-		logging.Error("Error processing packet through element chain or packet was dropped by an element", zap.Error(err))
-		// Send error packet back to the source
-		if sendErr := util.SendErrorPacket(conn, bufferedPacket.Source, bufferedPacket.RPCID, err.Error()); sendErr != nil {
-			logging.Error("Failed to send error packet", zap.Error(sendErr))
-		}
+	// If verdict exists and it's a drop, don't forward
+	if existingVerdict == util.PacketVerdictDrop {
+		logging.Debug("Packet dropped due to existing drop verdict", zap.Uint64("rpcID", bufferedPacket.RPCID))
 		return
+	}
+
+	// If verdict exists (not Unknown), skip element chain and forward directly
+	if existingVerdict != util.PacketVerdictUnknown {
+		logging.Debug("Forwarding packet with preexisting verdict, skipping element chain", zap.Uint64("rpcID", bufferedPacket.RPCID))
+	} else {
+		// Process packet through the element chain
+		err = runElementsChain(ctx, state, bufferedPacket)
+		if err != nil {
+			logging.Error("Error processing packet through element chain or packet was dropped by an element", zap.Error(err))
+			// Send error packet back to the source
+			if sendErr := util.SendErrorPacket(conn, bufferedPacket.Source, bufferedPacket.RPCID, err.Error()); sendErr != nil {
+				logging.Error("Failed to send error packet", zap.Error(sendErr))
+			}
+			return
+		}
 	}
 
 	// Fragment the packet if needed and forward all fragments
@@ -237,6 +245,11 @@ func runElementsChain(ctx context.Context, state *ProxyState, packet *util.Buffe
 		logging.Debug("Skipping element chain processing for packet type", zap.String("packetType", packet.PacketType.String()))
 		return nil
 	}
+
+	// Store the verdict for this RPC ID
+	state.packetBuffer.verdictsMu.Lock()
+	state.packetBuffer.verdicts[packet.RPCID] = verdict
+	state.packetBuffer.verdictsMu.Unlock()
 
 	// Check verdict - if dropped, don't forward the packet
 	if verdict == util.PacketVerdictDrop || err != nil {
