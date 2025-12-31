@@ -168,6 +168,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	ctx := context.Background()
 
 	// Process packet (may return nil if still buffering fragments)
+	// Returns a buffered packet if we have enough data to cover the public segment or we already have a verdict, nil otherwise
 	bufferedPacket, existingVerdict, err := state.packetBuffer.ProcessPacket(data, src)
 	if err != nil {
 		logging.Error("Error processing packet through buffer", zap.Error(err))
@@ -180,7 +181,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		return
 	}
 
-	// If verdict exists and it's a drop, don't forward
+	// If verdict exists and it's a drop, don't forward (We should already sent the error packet)
 	if existingVerdict == util.PacketVerdictDrop {
 		logging.Debug("Packet dropped due to existing drop verdict", zap.Uint64("rpcID", bufferedPacket.RPCID))
 		return

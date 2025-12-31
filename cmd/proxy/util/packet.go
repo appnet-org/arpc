@@ -16,7 +16,7 @@ type BufferedPacket struct {
 	SrcPort uint16
 	// Fragmentation information
 	IsFull       bool   // true for full messages, false for partial messages
-	SeqNumber    uint16 // sequence number (0 for full messages)
+	SeqNumber    int16  // sequence number (-1 for full messages or public segment)
 	TotalPackets uint16 // total number of packets (0 for full messages)
 }
 

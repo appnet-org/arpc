@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
 	"sync"
@@ -90,27 +91,72 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.Buff
 			SrcIP:        dataPacket.SrcIP,
 			SrcPort:      dataPacket.SrcPort,
 			IsFull:       isFull,
-			SeqNumber:    seqNumber,
+			SeqNumber:    int16(seqNumber),
 			TotalPackets: dataPacket.TotalPackets,
 		}, verdict, nil
 	}
 
-	// Check if this is the first packet of the RPC
-	if dataPacket.SeqNumber == 0 {
-		// Check if offset_private < MTU?
-		// if not, add to buffer
-	} else {
-		// Add fragment to buffer
-		pb.addFragmentToBuffer(src, dataPacket)
+	// If this is the first packet and offset_private < MTU, process immediately
+	if dataPacket.SeqNumber == 0 && isOffsetPrivateLessThanMTU(dataPacket.Payload) {
+		return &util.BufferedPacket{
+			Payload:      dataPacket.Payload,
+			Source:       src,
+			Peer:         peer,
+			PacketType:   packetType,
+			RPCID:        dataPacket.RPCID,
+			DstIP:        dataPacket.DstIP,
+			DstPort:      dataPacket.DstPort,
+			SrcIP:        dataPacket.SrcIP,
+			SrcPort:      dataPacket.SrcPort,
+			IsFull:       dataPacket.TotalPackets == 1,
+			SeqNumber:    int16(dataPacket.SeqNumber),
+			TotalPackets: dataPacket.TotalPackets,
+		}, util.PacketVerdictUnknown, nil
 	}
-	// Check if this is the last packet of the RPC
+
+	// Otherwise, add fragment to buffer and check if we have enough data
+	publicSegment := pb.addFragmentToBuffer(src, dataPacket)
+	if publicSegment != nil {
+		// We have enough data to cover the public segment
+		return &util.BufferedPacket{
+			Payload:      publicSegment,
+			Source:       src,
+			Peer:         peer,
+			PacketType:   packetType,
+			RPCID:        dataPacket.RPCID,
+			DstIP:        dataPacket.DstIP,
+			DstPort:      dataPacket.DstPort,
+			SrcIP:        dataPacket.SrcIP,
+			SrcPort:      dataPacket.SrcPort,
+			IsFull:       false, // This is only the public segment, not the full packet
+			SeqNumber:    -1,
+			TotalPackets: dataPacket.TotalPackets,
+		}, util.PacketVerdictUnknown, nil
+	}
 
 	// Still waiting for more fragments
 	return nil, util.PacketVerdictUnknown, nil
 }
 
+// offsetToPrivate extracts the offset to private segment from the payload
+// The offset is stored as a little-endian uint32 at bytes 1-5
+func offsetToPrivate(payload []byte) int {
+	if len(payload) < 5 {
+		// Returns a large value if payload is too short to prevent incorrect processing
+		return int(packet.MaxUDPPayloadSize) + 1
+	}
+	return int(binary.LittleEndian.Uint32(payload[1:5]))
+}
+
+// isOffsetPrivateLessThanMTU checks if the offset_private is less than the MTU
+// If it is, we have the entire public partition and can process the packet immediately.
+func isOffsetPrivateLessThanMTU(payload []byte) bool {
+	return offsetToPrivate(payload) < packet.MaxUDPPayloadSize
+}
+
 // addFragmentToBuffer adds a packet fragment to the buffer for reassembly
-func (pb *PacketBuffer) addFragmentToBuffer(src *net.UDPAddr, dataPacket *packet.DataPacket) {
+// Returns the assembled public segment if enough data is available, nil otherwise
+func (pb *PacketBuffer) addFragmentToBuffer(src *net.UDPAddr, dataPacket *packet.DataPacket) []byte {
 	// Create connection key for this source
 	connKey := src.String()
 
@@ -130,7 +176,48 @@ func (pb *PacketBuffer) addFragmentToBuffer(src *net.UDPAddr, dataPacket *packet
 	pb.incoming[connKey][dataPacket.RPCID][dataPacket.SeqNumber] = dataPacket.Payload
 	pb.timeouts[connKey][dataPacket.RPCID] = time.Now()
 
-	// TODO: check if we have enough data
+	// Now, check if we have enough data to cover the public segment
+	fragments := pb.incoming[connKey][dataPacket.RPCID]
+
+	// Check if first packet exists and get offsetToPrivate
+	firstPacketPayload, hasFirstPacket := fragments[0]
+	if !hasFirstPacket {
+		return nil
+	}
+
+	offsetPrivate := offsetToPrivate(firstPacketPayload)
+
+	// Check if we have contiguous data from fragment 0 up to the offset
+	cumulativeSize := 0
+	seqNum := uint16(0)
+	for cumulativeSize < offsetPrivate {
+		fragmentPayload, hasFragment := fragments[seqNum]
+		if !hasFragment {
+			// Missing fragment means we don't have contiguous data yet
+			return nil
+		}
+		cumulativeSize += len(fragmentPayload)
+		seqNum++
+	}
+
+	// We have enough contiguous data - reassemble the public segment
+	publicSegment := make([]byte, 0, offsetPrivate)
+	cumulativeSize = 0
+	seqNum = 0
+	for cumulativeSize < offsetPrivate {
+		fragmentPayload := fragments[seqNum]
+		// Only take the portion we need to reach offsetPrivate
+		remaining := offsetPrivate - cumulativeSize
+		if len(fragmentPayload) <= remaining {
+			publicSegment = append(publicSegment, fragmentPayload...)
+			cumulativeSize += len(fragmentPayload)
+		} else {
+			publicSegment = append(publicSegment, fragmentPayload[:remaining]...)
+			cumulativeSize = offsetPrivate
+		}
+		seqNum++
+	}
+	return publicSegment
 }
 
 // deserializePacket extracts packet information using the existing packet codec
@@ -263,17 +350,28 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPa
 	// Use the payload directly from bufferedPacket
 	completePayload := bufferedPacket.Payload
 	chunkSize := packet.MaxUDPPayloadSize - 29 // 29 bytes for header
-	totalPackets := uint16((len(completePayload) + chunkSize - 1) / chunkSize)
 
-	// If only one packet is needed, create a single packet and return it
-	if totalPackets <= 1 {
-		// Reconstruct the full packet from payload
+	// Check if payload fits in a single packet
+	if len(completePayload) <= chunkSize {
+		// Single packet - preserve original sequence number and TotalPackets if forwarding a fragment
+		seqNum := uint16(0)
+		totalPackets := uint16(1)
+
+		if bufferedPacket.SeqNumber >= 0 {
+			// Forwarding an existing fragment - preserve its sequence number and TotalPackets
+			seqNum = uint16(bufferedPacket.SeqNumber)
+			if bufferedPacket.TotalPackets > 0 {
+				totalPackets = bufferedPacket.TotalPackets
+			}
+		}
+
+		// Create a single packet from payload
 		codec := &packet.DataPacketCodec{}
 		singlePacket := &packet.DataPacket{
 			PacketTypeID: packet.PacketTypeID(uint8(bufferedPacket.PacketType)),
 			RPCID:        bufferedPacket.RPCID,
-			TotalPackets: 1,
-			SeqNumber:    0,
+			TotalPackets: totalPackets,
+			SeqNumber:    seqNum,
 			DstIP:        bufferedPacket.DstIP,
 			DstPort:      bufferedPacket.DstPort,
 			SrcIP:        bufferedPacket.SrcIP,
@@ -297,11 +395,12 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPa
 	}
 
 	// The complete payload exceeds MTU, need to fragment it for transmission
-
-	// Need to fragment the packet
+	// This creates a NEW fragmented message, so sequence numbers start from 0
+	// TODO: This assumes that the modifcation does not change the total number of packets.
+	// This is not always the case, so we need to handle this case by on-demand fragmenting.
+	totalPackets := uint16((len(completePayload) + chunkSize - 1) / chunkSize)
 	codec := &packet.DataPacketCodec{}
 	fragments := make([]FragmentedPacket, 0, totalPackets)
-
 	for i := range int(totalPackets) {
 		start := i * chunkSize
 		end := min(start+chunkSize, len(completePayload))
@@ -311,7 +410,7 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPa
 			PacketTypeID: packet.PacketTypeID(uint8(bufferedPacket.PacketType)),
 			RPCID:        bufferedPacket.RPCID,
 			TotalPackets: totalPackets,
-			SeqNumber:    uint16(i),
+			SeqNumber:    uint16(i), // New fragmented message, start from 0
 			DstIP:        bufferedPacket.DstIP,
 			DstPort:      bufferedPacket.DstPort,
 			SrcIP:        bufferedPacket.SrcIP,
