@@ -55,22 +55,17 @@ func (s GetRequest) Message() *capnp.Message {
 func (s GetRequest) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s GetRequest) Key() (string, error) {
+func (s GetRequest) Key() ([]byte, error) {
 	p, err := capnp.Struct(s).Ptr(0)
-	return p.Text(), err
+	return []byte(p.Data()), err
 }
 
 func (s GetRequest) HasKey() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s GetRequest) KeyBytes() ([]byte, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return p.TextBytes(), err
-}
-
-func (s GetRequest) SetKey(v string) error {
-	return capnp.Struct(s).SetText(0, v)
+func (s GetRequest) SetKey(v []byte) error {
+	return capnp.Struct(s).SetData(0, v)
 }
 
 // GetRequest_List is a list of GetRequest.
@@ -137,40 +132,30 @@ func (s SetRequest) Message() *capnp.Message {
 func (s SetRequest) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s SetRequest) Key() (string, error) {
+func (s SetRequest) Key() ([]byte, error) {
 	p, err := capnp.Struct(s).Ptr(0)
-	return p.Text(), err
+	return []byte(p.Data()), err
 }
 
 func (s SetRequest) HasKey() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s SetRequest) KeyBytes() ([]byte, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return p.TextBytes(), err
+func (s SetRequest) SetKey(v []byte) error {
+	return capnp.Struct(s).SetData(0, v)
 }
 
-func (s SetRequest) SetKey(v string) error {
-	return capnp.Struct(s).SetText(0, v)
-}
-
-func (s SetRequest) Value() (string, error) {
+func (s SetRequest) Value() ([]byte, error) {
 	p, err := capnp.Struct(s).Ptr(1)
-	return p.Text(), err
+	return []byte(p.Data()), err
 }
 
 func (s SetRequest) HasValue() bool {
 	return capnp.Struct(s).HasPtr(1)
 }
 
-func (s SetRequest) ValueBytes() ([]byte, error) {
-	p, err := capnp.Struct(s).Ptr(1)
-	return p.TextBytes(), err
-}
-
-func (s SetRequest) SetValue(v string) error {
-	return capnp.Struct(s).SetText(1, v)
+func (s SetRequest) SetValue(v []byte) error {
+	return capnp.Struct(s).SetData(1, v)
 }
 
 // SetRequest_List is a list of SetRequest.
@@ -199,10 +184,10 @@ const schema_f19eb35d82052732 = "x\xda\x12\xa8w`1\xe4\x15gb`\x0a\x94`e" +
 	"UpjIPja){jqI\x00#c " +
 	"\x073\x0b\x03\x03\x0b#\x03\x83\xa0\xa6\x12\x03C\xa0\x0a" +
 	"3c\xa0\x01\x13\xa3 #\xa3\x08#HP\xd7\x88\x81" +
-	"!P\x83\x991\xd0\x84\x89\x91=;\xb5\x92\x91\x87\x81" +
-	"\x89\x91\x87\x81Q\xbe,1\xa74\x15\xc6C2\xde\x1d" +
+	"!P\x83\x991\xd0\x84\x89\x91=;\xb5\x92\x91\x97\x81" +
+	"\x89\x91\x97\x81Q\xbe,1\xa74\x15\xc6C2\xde\x1d" +
 	"\xd5x\x16\xb8\xf1\xbc \xe39\x98\x19\x03EPM\x02" +
-	"\x04\x00\x00\xff\xff:\xa48\xd7"
+	"\x04\x00\x00\xff\xff;\xce8\xdd"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{

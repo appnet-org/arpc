@@ -104,8 +104,8 @@ func init() {
 
 			msg, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
 			req, _ := kv_capnp.NewRootSetRequest(seg)
-			req.SetKey(key)
-			req.SetValue(value)
+			req.SetKey([]byte(key))
+			req.SetValue([]byte(value))
 			capnpBufs[i], _ = msg.Marshal()
 		} else {
 			// GetRequest
@@ -121,7 +121,7 @@ func init() {
 
 			msg, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
 			req, _ := kv_capnp.NewRootGetRequest(seg)
-			req.SetKey(key)
+			req.SetKey([]byte(key))
 			capnpBufs[i], _ = msg.Marshal()
 		}
 	}
@@ -353,11 +353,11 @@ func BenchmarkCapnp_Write(b *testing.B) {
 
 		if entry.Op == "SET" {
 			req, _ := kv_capnp.NewRootSetRequest(seg)
-			req.SetKey(item.Key)
-			req.SetValue(item.Value)
+			req.SetKey([]byte(item.Key))
+			req.SetValue([]byte(item.Value))
 		} else {
 			req, _ := kv_capnp.NewRootGetRequest(seg)
-			req.SetKey(item.Key)
+			req.SetKey([]byte(item.Key))
 		}
 		_, _ = msg.Marshal()
 	}
