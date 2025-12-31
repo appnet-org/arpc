@@ -7,6 +7,37 @@ import (
 	"github.com/appnet-org/arpc/pkg/rpc/element"
 )
 
+// Service IDs
+const (
+	ServiceID_KVService = 1
+)
+
+// Service name <-> ID mappings
+var serviceNameToID = map[string]uint32{
+	"KVService": ServiceID_KVService,
+}
+
+var serviceIDToName = map[uint32]string{
+	ServiceID_KVService: "KVService",
+}
+
+// Method IDs for KVService
+const (
+	KVService_MethodID_Get = 1
+	KVService_MethodID_Set = 2
+)
+
+// Method name <-> ID mappings for KVService
+var KVService_methodNameToID = map[string]uint32{
+	"Get": KVService_MethodID_Get,
+	"Set": KVService_MethodID_Set,
+}
+
+var KVService_methodIDToName = map[uint32]string{
+	KVService_MethodID_Get: "Get",
+	KVService_MethodID_Set: "Set",
+}
+
 // KVServiceClient is the client API for KVService service.
 type KVServiceClient interface {
 	Get(ctx context.Context, req *GetRequest) (*GetResponse, error)
@@ -18,6 +49,10 @@ type arpcKVServiceClient struct {
 }
 
 func NewKVServiceClient(client *rpc.Client) KVServiceClient {
+	// Create and register service registry
+	registry := rpc.NewServiceRegistry()
+	registry.RegisterService("KVService", ServiceID_KVService, KVService_methodNameToID)
+	client.SetServiceRegistry(registry)
 	return &arpcKVServiceClient{client: client}
 }
 
@@ -45,14 +80,17 @@ type KVServiceServer interface {
 func RegisterKVServiceServer(s *rpc.Server, srv KVServiceServer) {
 	s.RegisterService(&rpc.ServiceDesc{
 		ServiceName: "KVService",
+		ServiceID:   ServiceID_KVService,
 		ServiceImpl: srv,
-		Methods: map[string]*rpc.MethodDesc{
-			"Get": {
+		MethodsByID: map[uint32]*rpc.MethodDesc{
+			KVService_MethodID_Get: {
 				MethodName: "Get",
+				MethodID:   KVService_MethodID_Get,
 				Handler:    _KVService_Get_Handler,
 			},
-			"Set": {
+			KVService_MethodID_Set: {
 				MethodName: "Set",
+				MethodID:   KVService_MethodID_Set,
 				Handler:    _KVService_Set_Handler,
 			},
 		},

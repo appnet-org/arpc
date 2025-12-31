@@ -126,13 +126,74 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 	}
 	srcPort := uint16(localAddr.Port)
 
-	// Fragment the data into multiple packets if it exceeds the UDP payload limit
+	// Only DataPackets (Request/Response) use Symphony fragmentation
+	// All other packet types use the old FragmentData approach
+	if packetType == packet.PacketTypeRequest || packetType == packet.PacketTypeResponse {
+		// Calculate effective MTU (subtract DataPacket header overhead)
+		const dataPacketHeaderSize = 29                                 // 1+8+2+2+4+2+4+2+4 bytes
+		effectiveMTU := packet.MaxUDPPayloadSize - dataPacketHeaderSize // 1400 - 29 = 1371
+
+		// Use FragmentPackets for intelligent head/tail-aligned fragmentation
+		fragments, err := FragmentPackets(data, effectiveMTU)
+		if err != nil {
+			return err
+		}
+
+		totalPackets := uint16(len(fragments))
+
+		// Send each fragment with transport headers
+		for seqNum, fragment := range fragments {
+			// Create DataPacket
+			pkt := &packet.DataPacket{
+				PacketTypeID: packetType.TypeID,
+				RPCID:        rpcID,
+				TotalPackets: totalPackets,
+				SeqNumber:    uint16(seqNum),
+				DstIP:        dstIP,
+				DstPort:      dstPort,
+				SrcIP:        srcIP,
+				SrcPort:      srcPort,
+				Payload:      fragment,
+			}
+
+			// Get handler chain and process
+			handler, exists := t.handlers.GetHandlerChain(packetType.TypeID, RoleClient)
+			if !exists {
+				return fmt.Errorf("no handler chain found for packet type: %s", packetType.Name)
+			}
+
+			if err := handler.OnSend(pkt, udpAddr); err != nil {
+				return fmt.Errorf("handler processing failed: %w", err)
+			}
+
+			// Serialize and send
+			packetData, err := packet.SerializePacket(pkt, packetType, t.bufferPool)
+			logging.Debug("Serialized packet", zap.Uint64("rpcID", rpcID))
+			if err != nil {
+				return err
+			}
+
+			_, err = t.conn.WriteToUDP(packetData, udpAddr)
+			logging.Debug("Sent packet", zap.Uint64("rpcID", rpcID))
+
+			// Return buffer to pool after sending (WriteToUDP copies the data, so it's safe)
+			t.bufferPool.Put(packetData)
+
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	// For all other packet types, use the old FragmentData approach
 	packets, err := t.reassembler.FragmentData(data, rpcID, packetType, dstIP, dstPort, srcIP, srcPort)
 	if err != nil {
 		return err
 	}
 
-	// Iterate through each fragment and send it via the UDP connection
+	// Iterate through each packet and send it via the UDP connection
 	for _, pkt := range packets {
 		// Get the handler chain for this packet type
 		handler, exists := t.handlers.GetHandlerChain(packetType.TypeID, RoleClient)

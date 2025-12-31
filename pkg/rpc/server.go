@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/appnet-org/arpc/pkg/common"
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/metadata"
 	"github.com/appnet-org/arpc/pkg/packet"
@@ -21,6 +20,7 @@ type MethodHandler func(srv any, ctx context.Context, dec func(any) error, req *
 // MethodDesc represents an RPC service's method specification.
 type MethodDesc struct {
 	MethodName string
+	MethodID   uint32
 	Handler    MethodHandler
 }
 
@@ -28,7 +28,8 @@ type MethodDesc struct {
 type ServiceDesc struct {
 	ServiceImpl any
 	ServiceName string
-	Methods     map[string]*MethodDesc
+	ServiceID   uint32
+	MethodsByID map[uint32]*MethodDesc
 }
 
 // Server is the core RPC server handling transport, serialization, and registered services.
@@ -37,6 +38,7 @@ type Server struct {
 	serializer      serializer.Serializer
 	metadataCodec   metadata.MetadataCodec
 	services        map[string]*ServiceDesc
+	servicesByID    map[uint32]*ServiceDesc
 	rpcElementChain *element.RPCElementChain
 }
 
@@ -51,6 +53,7 @@ func NewServer(addr string, serializer serializer.Serializer, rpcElements []elem
 		serializer:      serializer,
 		metadataCodec:   metadata.MetadataCodec{},
 		services:        make(map[string]*ServiceDesc),
+		servicesByID:    make(map[uint32]*ServiceDesc),
 		rpcElementChain: element.NewRPCElementChain(rpcElements...),
 	}, nil
 }
@@ -58,95 +61,8 @@ func NewServer(addr string, serializer serializer.Serializer, rpcElements []elem
 // RegisterService registers a service and its methods with the server.
 func (s *Server) RegisterService(desc *ServiceDesc, impl any) {
 	s.services[desc.ServiceName] = desc
-	logging.Info("Registered service", zap.String("serviceName", desc.ServiceName))
-}
-
-// parseFramedRequest extracts service, method, metadata, and payload segments from a request frame.
-// Wire format: [dst ip(4B)][dst port(2B)][src port(2B)][serviceLen(2B)][service][methodLen(2B)][method][metadataLen(2B)][metadata][payload]
-func (s *Server) parseFramedRequest(data []byte) (string, string, metadata.Metadata, []byte, error) {
-	offset := 0
-
-	// Service
-	if offset+2 > len(data) {
-		return "", "", nil, nil, fmt.Errorf("data too short for service length")
-	}
-	serviceLen := int(binary.LittleEndian.Uint16(data[offset:]))
-	offset += 2
-	if offset+serviceLen > len(data) {
-		return "", "", nil, nil, fmt.Errorf("service length %d exceeds data length", serviceLen)
-	}
-	service := string(data[offset : offset+serviceLen])
-	offset += serviceLen
-
-	// Method
-	if offset+2 > len(data) {
-		return "", "", nil, nil, fmt.Errorf("data too short for method length")
-	}
-	methodLen := int(binary.LittleEndian.Uint16(data[offset:]))
-	offset += 2
-	if offset+methodLen > len(data) {
-		return "", "", nil, nil, fmt.Errorf("method length %d exceeds data length", methodLen)
-	}
-	method := string(data[offset : offset+methodLen])
-	offset += methodLen
-
-	// Metadata
-	var md metadata.Metadata
-	if offset+2 > len(data) {
-		return "", "", nil, nil, fmt.Errorf("data too short for metadata length")
-	}
-	metadataLen := int(binary.LittleEndian.Uint16(data[offset:]))
-	offset += 2
-
-	if metadataLen > 0 {
-		if offset+metadataLen > len(data) {
-			return "", "", nil, nil, fmt.Errorf("metadata length %d exceeds data length", metadataLen)
-		}
-		metadataBytes := data[offset : offset+metadataLen]
-		offset += metadataLen
-
-		// Decode metadata
-		var err error
-		md, err = s.metadataCodec.DecodeHeaders(metadataBytes)
-		if err != nil {
-			return "", "", nil, nil, fmt.Errorf("failed to decode metadata: %w", err)
-		}
-		logging.Debug("Decoded metadata", zap.Any("metadata", md))
-	}
-
-	// Payload
-	payload := data[offset:]
-
-	return service, method, md, payload, nil
-}
-
-// frameResponse constructs a binary message with
-// [serviceLen(2B)][service][methodLen(2B)][method][payload]
-func (s *Server) frameResponse(service, method string, payload []byte, pool *common.BufferPool) ([]byte, error) {
-	// total size = 2 + len(service) + 2 + len(method) + len(payload)
-	totalSize := 4 + len(service) + len(method) + len(payload)
-
-	var buf []byte
-	if pool != nil {
-		buf = pool.GetSize(totalSize)
-	} else {
-		buf = make([]byte, totalSize)
-	}
-
-	// service length
-	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(service)))
-	copy(buf[2:], service)
-
-	// method length
-	methodStart := 2 + len(service)
-	binary.LittleEndian.PutUint16(buf[methodStart:methodStart+2], uint16(len(method)))
-	copy(buf[methodStart+2:], method)
-
-	// payload
-	payloadStart := methodStart + 2 + len(method)
-	copy(buf[payloadStart:], payload)
-
-	return buf, nil
+	s.servicesByID[desc.ServiceID] = desc
+	logging.Info("Registered service", zap.String("serviceName", desc.ServiceName), zap.Uint32("serviceID", desc.ServiceID))
 }
 
 // Start begins listening for incoming RPC requests, dispatching to the appropriate service/method handler.
@@ -168,35 +84,35 @@ func (s *Server) Start() {
 			continue // Either still waiting for fragments or we received an non-data packet
 		}
 
-		// Parse request payload
-		serviceName, methodName, md, reqPayloadBytes, err := s.parseFramedRequest(data)
-		if err != nil {
-			logging.Error("Failed to parse framed request", zap.Error(err))
-			// Return buffer to pool on parse error
+		// Data is already the raw payload
+		reqPayloadBytes := data
+
+		// Read service and method IDs from Symphony reserved header (bytes 5-9 and 9-13)
+		if len(reqPayloadBytes) < 13 {
+			logging.Error("Request payload too short to contain service/method IDs")
 			s.transport.GetBufferPool().Put(data)
-			if err := s.transport.Send(addr.String(), rpcID, []byte(err.Error()), packet.PacketTypeUnknown); err != nil {
+			if err := s.transport.Send(addr.String(), rpcID, []byte("invalid request: missing service/method IDs"), packet.PacketTypeUnknown); err != nil {
 				logging.Error("Error sending error response", zap.Error(err))
 			}
 			continue
 		}
+		serviceID := binary.LittleEndian.Uint32(reqPayloadBytes[5:9])
+		methodID := binary.LittleEndian.Uint32(reqPayloadBytes[9:13])
 
-		// Create context with incoming metadata
+		// Create context (no metadata)
 		ctx := context.Background()
-		if len(md) > 0 {
-			ctx = metadata.NewIncomingContext(ctx, md)
-		}
 
 		// Create RPC request for element processing
 		rpcReq := &element.RPCRequest{
 			ID:          rpcID,
-			ServiceName: serviceName,
-			Method:      methodName,
+			ServiceName: "", // Will be filled in if needed
+			Method:      "", // Will be filled in if needed
 		}
 
-		// Lookup service and method
-		svcDesc, ok := s.services[rpcReq.ServiceName]
+		// Lookup service by ID
+		svcDesc, ok := s.servicesByID[serviceID]
 		if !ok {
-			logging.Warn("Unknown service", zap.String("serviceName", rpcReq.ServiceName))
+			logging.Warn("Unknown service", zap.Uint32("serviceID", serviceID))
 			// Return buffer to pool before sending error
 			s.transport.GetBufferPool().Put(data)
 			if err := s.transport.Send(addr.String(), rpcID, []byte("unknown service"), packet.PacketTypeError); err != nil {
@@ -204,15 +120,19 @@ func (s *Server) Start() {
 			}
 			continue
 		}
-		methodDesc, ok := svcDesc.Methods[rpcReq.Method]
+		rpcReq.ServiceName = svcDesc.ServiceName
+
+		// Lookup method by ID
+		methodDesc, ok := svcDesc.MethodsByID[methodID]
 		if !ok {
 			logging.Warn("Unknown method",
-				zap.String("serviceName", rpcReq.ServiceName),
-				zap.String("methodName", rpcReq.Method))
+				zap.Uint32("serviceID", serviceID),
+				zap.Uint32("methodID", methodID))
 			// Return buffer to pool for unknown method
 			s.transport.GetBufferPool().Put(data)
 			continue
 		}
+		rpcReq.Method = methodDesc.MethodName
 
 		// Invoke method handler with context containing metadata
 		rpcResp, _, err := methodDesc.Handler(svcDesc.ServiceImpl, ctx, func(v any) error {
@@ -246,21 +166,8 @@ func (s *Server) Start() {
 			continue
 		}
 
-		// Frame response using buffer pool
-		framedResp, err := s.frameResponse(rpcReq.ServiceName, rpcReq.Method, respPayloadBytes, s.transport.GetBufferPool())
-		if err != nil {
-			logging.Error("Failed to frame response", zap.Error(err))
-			if err := s.transport.Send(addr.String(), rpcID, []byte(err.Error()), packet.PacketTypeUnknown); err != nil {
-				logging.Error("Error sending error response", zap.Error(err))
-			}
-			continue
-		}
-
-		// Send the response
-		err = s.transport.Send(addr.String(), rpcID, framedResp, packet.PacketTypeResponse)
-
-		// Return buffer to pool after sending (transport.Send copies the data)
-		s.transport.GetBufferPool().Put(framedResp)
+		// Send the response payload directly (no framing)
+		err = s.transport.Send(addr.String(), rpcID, respPayloadBytes, packet.PacketTypeResponse)
 
 		if err != nil {
 			logging.Error("Error sending response", zap.Error(err))

@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"sort"
+	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -51,122 +51,578 @@ func generateMessage(g *protogen.GeneratedFile, msg *protogen.Message) {
 // ==========================================
 
 func generateStructType(g *protogen.GeneratedFile, msg *protogen.Message) {
+	// Generate helper marshal/unmarshal functions for public and private segments
+	generatePublicMarshal(g, msg)
+	generatePrivateMarshal(g, msg)
+	generatePublicUnmarshal(g, msg)
+	generatePrivateUnmarshal(g, msg)
+
+	// Generate the main marshal/unmarshal that combines both segments
 	generateStructMarshal(g, msg)
 	generateStructUnmarshal(g, msg)
 }
 
-func generateStructMarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
-	g.P("func (m *", msg.GoIdent, ") MarshalSymphony() ([]byte, error) {")
+// generateSegmentMarshalFunction generates a helper function to marshal a specific segment (public or private)
+func generateSegmentMarshalFunction(g *protogen.GeneratedFile, msg *protogen.Message, fields []*protogen.Field, segmentName string) {
+	funcName := fmt.Sprintf("MarshalSymphony%s", segmentName)
+	g.P(fmt.Sprintf("// %s marshals only the %s fields (without header)", funcName, strings.ToLower(segmentName)))
+	g.P("func (m *", msg.GoIdent, ") ", funcName, "() ([]byte, error) {")
 
-	// Handle empty messages specially
-	if len(msg.Fields) == 0 {
-		g.P("    // Empty message - just return version byte")
-		g.P("    return []byte{0x01}, nil")
+	if len(fields) == 0 {
+		g.P("    return []byte{}, nil")
 		g.P("}")
 		g.P()
 		return
 	}
 
-	// Get field order
-	fieldOrder := fieldOrdering(msg)
-
-	// Calculate exact size and get table size
-	tableSize := generateSizeCalculation(g, msg, "size", "m", 0)
-
-	// Pre-allocate buffer with exact size
-	g.P("    buf := make([]byte, size)")
-	g.P()
-
-	// Write version byte (magic number 0x01)
-	g.P("    // Version byte (magic number)")
-	g.P("    buf[0] = 0x01")
-	g.P()
-
-	// Calculate table start offset
-	tableStart := 1
-	g.P(fmt.Sprintf("    tableStart := %d", tableStart))
-	g.P("    _ = tableStart // avoid unused warning")
-	g.P()
-
-	// Calculate payload start (after table)
-	payloadStart := tableStart + tableSize
-	g.P(fmt.Sprintf("    payloadStart := %d", payloadStart))
-	g.P("    _ = payloadStart // avoid unused warning")
-	g.P("    payloadOffset := 0 // avoid no new variables warning")
-	g.P("    _ = payloadOffset // avoid unused warning")
-	g.P("    dataLen := 0 // avoid no new variables warning")
-	g.P("    _ = dataLen // avoid unused warning")
-	g.P("    count := 0 // avoid no new variables warning")
-	g.P("    _ = count // avoid unused warning")
-	g.P("    currentOffset := 0 // avoid no new variables warning")
-	g.P("    _ = currentOffset // avoid unused warning")
-	g.P()
-
-	// Write table entries in field order
-	tableOffset := 0 // Relative to tableStart
-	for _, fieldNum := range fieldOrder {
-		field := findFieldByNumber(msg, fieldNum)
-		if field == nil {
-			continue
-		}
-
+	// Calculate size
+	g.P("    size := 0")
+	tableSize := 0
+	for _, field := range fields {
 		if isFixedLengthField(field) {
-			fieldSize := getFieldSize(field)
-			generateFixedFieldMarshal(g, field, tableOffset)
-			tableOffset += fieldSize
-		} else if isVariableLengthField(field) {
-			// Variable-length fields: write offset in table, then write payload
-			generateVariableFieldMarshal(g, field, tableOffset)
-			tableOffset += 4 // 32-bit offset in table
-			// Update payload offset: 4 bytes (length) + actual data length
-			g.P(fmt.Sprintf("    payloadOffset += 4 + len(m.%s)", field.GoName))
-		} else if isRepeatedFixedLengthField(field) {
-			// Repeated fixed-length fields: write offset in table, then write payload
-			generateRepeatedFixedFieldMarshal(g, field, tableOffset)
-			tableOffset += 4 // 32-bit offset in table
-			// Update payload offset: 4 bytes (count) + count * fieldSize
-			fieldSize := getFieldSize(field)
-			g.P(fmt.Sprintf("    payloadOffset += 4 + %d*len(m.%s)", fieldSize, field.GoName))
-		} else if isRepeatedVariableLengthField(field) {
-			// Repeated variable-length fields: write offset in table, then write payload
-			generateRepeatedVariableFieldMarshal(g, field, tableOffset)
-			tableOffset += 4 // 32-bit offset in table
-			// Update payload offset: 4 bytes (count) + for each item: 4 bytes (length) + data
-			g.P("    payloadOffset += 4 // count")
-			g.P(fmt.Sprintf("    for _, item := range m.%s {", field.GoName))
-			g.P("        payloadOffset += 4 + len(item) // 4 bytes length prefix + data")
-			g.P("    }")
-		} else if isNestedMessageField(field) {
-			// Nested messages: write offset in table, then write payload
-			generateNestedFieldMarshal(g, field, tableOffset)
-			tableOffset += 4 // 32-bit offset in table
-			// payloadOffset is updated inside generateNestedFieldMarshal
-		} else if isRepeatedNestedMessageField(field) {
-			// Repeated nested messages: write offset in table, then write payload
-			generateRepeatedNestedFieldMarshal(g, field, tableOffset)
-			tableOffset += 4 // 32-bit offset in table
-			// payloadOffset is updated inside generateRepeatedNestedFieldMarshal
+			tableSize += getFieldSize(field)
 		} else {
-			panic(fmt.Sprintf("Unknown field type: %s", field.GoName))
+			tableSize += 4
 		}
 	}
+	g.P(fmt.Sprintf("    size += %d // table", tableSize))
+
+	// Calculate payload size
+	for _, field := range fields {
+		goName := field.GoName
+		if isVariableLengthField(field) {
+			g.P(fmt.Sprintf("    size += 4 + len(m.%s)", goName))
+		} else if isRepeatedFixedLengthField(field) {
+			fieldSize := getFieldSize(field)
+			g.P(fmt.Sprintf("    size += 4 + %d*len(m.%s)", fieldSize, goName))
+		} else if isRepeatedVariableLengthField(field) {
+			g.P(fmt.Sprintf("    size += 4 // count for %s", goName))
+			g.P(fmt.Sprintf("    for _, item := range m.%s {", goName))
+			g.P("        size += 4 + len(item)")
+			g.P("    }")
+		} else if isNestedMessageField(field) {
+			g.P(fmt.Sprintf("    if m.%s != nil {", goName))
+			g.P(fmt.Sprintf("        nested, _ := m.%s.MarshalSymphony()", goName))
+			g.P("        size += 4 + len(nested)")
+			g.P("    }")
+		} else if isRepeatedNestedMessageField(field) {
+			g.P(fmt.Sprintf("    size += 4 // count for %s", goName))
+			g.P(fmt.Sprintf("    for _, item := range m.%s {", goName))
+			g.P("        nested, _ := item.MarshalSymphony()")
+			g.P("        size += 4 + len(nested)")
+			g.P("    }")
+		}
+	}
+
+	g.P("    buf := make([]byte, size)")
+	g.P("    dataLen := 0")
+	g.P("    _ = dataLen")
+	g.P("    count := 0")
+	g.P("    _ = count")
+	g.P("    currentOffset := 0")
+	g.P("    _ = currentOffset")
+	g.P("    tableStart := 0")
+	g.P("    payloadStart := tableStart + ", fmt.Sprintf("%d", tableSize))
+	g.P("    payloadOffset := 0")
+	if len(fields) > 0 {
+		g.P("    _ = payloadStart")
+		g.P("    _ = payloadOffset")
+	}
+	g.P()
+
+	generateSegmentMarshal(g, fields, "tableStart", "payloadStart", "payloadOffset")
 
 	g.P("    return buf, nil")
 	g.P("}")
 	g.P()
 }
 
+// generatePublicMarshal generates a helper function to marshal only public fields
+func generatePublicMarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
+	publicFields, _ := classifyFields(msg)
+	generateSegmentMarshalFunction(g, msg, publicFields, "Public")
+}
+
+// generatePrivateMarshal generates a helper function to marshal only private fields
+func generatePrivateMarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
+	_, privateFields := classifyFields(msg)
+	generateSegmentMarshalFunction(g, msg, privateFields, "Private")
+}
+
+// generateSegmentUnmarshalFunction generates a helper function to unmarshal a specific segment (public or private)
+func generateSegmentUnmarshalFunction(g *protogen.GeneratedFile, msg *protogen.Message, fields []*protogen.Field, segmentName string) {
+	funcName := fmt.Sprintf("UnmarshalSymphony%s", segmentName)
+	g.P(fmt.Sprintf("// %s unmarshals only the %s fields (without header)", funcName, strings.ToLower(segmentName)))
+	g.P("func (m *", msg.GoIdent, ") ", funcName, "(data []byte) error {")
+
+	if len(fields) == 0 {
+		g.P("    return nil")
+		g.P("}")
+		g.P()
+		return
+	}
+
+	g.P("    payloadOffset := 0")
+	g.P("    _ = payloadOffset")
+	g.P("    dataLen := 0")
+	g.P("    _ = dataLen")
+	g.P("    count := 0")
+	g.P("    _ = count")
+	g.P("    currentOffset := 0")
+	g.P("    _ = currentOffset")
+	g.P("    tableStart := 0")
+	g.P("    _ = tableStart")
+	g.P()
+
+	generateSegmentUnmarshal(g, fields, "tableStart", "data")
+
+	g.P("    return nil")
+	g.P("}")
+	g.P()
+}
+
+// generatePublicUnmarshal generates a helper function to unmarshal only public fields
+func generatePublicUnmarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
+	publicFields, _ := classifyFields(msg)
+	generateSegmentUnmarshalFunction(g, msg, publicFields, "Public")
+}
+
+// generatePrivateUnmarshal generates a helper function to unmarshal only private fields
+func generatePrivateUnmarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
+	_, privateFields := classifyFields(msg)
+	generateSegmentUnmarshalFunction(g, msg, privateFields, "Private")
+}
+
+func generateStructMarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
+	publicFields, privateFields := classifyFields(msg)
+
+	g.P("func (m *", msg.GoIdent, ") MarshalSymphony() ([]byte, error) {")
+
+	// Handle empty messages specially
+	if len(msg.Fields) == 0 {
+		g.P("    // Empty message - public segment with header only, empty private segment")
+		g.P("    buf := make([]byte, 14) // 1 version + 12 reserved + 1 version for private")
+		g.P("    buf[0] = 0x01 // public version")
+		g.P("    binary.LittleEndian.PutUint32(buf[1:5], 13) // offset_to_private")
+		g.P("    // service_name and method_name stay 0")
+		g.P("    buf[13] = 0x01 // private version")
+		g.P("    return buf, nil")
+		g.P("}")
+		g.P()
+		return
+	}
+
+	// Calculate exact size
+	publicTableSize := generateSizeCalculation(g, msg, "size", "m", 0)
+
+	// Pre-allocate buffer with exact size
+	g.P("    buf := make([]byte, size)")
+	g.P()
+
+	// Variables for tracking positions
+	g.P("    dataLen := 0 // avoid no new variables warning")
+	g.P("    _ = dataLen")
+	g.P("    count := 0")
+	g.P("    _ = count")
+	g.P("    currentOffset := 0")
+	g.P("    _ = currentOffset")
+	g.P()
+
+	// Write public segment
+	g.P("    // === PUBLIC SEGMENT ===")
+	g.P("    buf[0] = 0x01 // version byte")
+	g.P()
+
+	// Calculate public segment size (dynamically from 'size' variable)
+	// We need to figure out where private segment starts
+	// Public segment = 1(version) + 12(reserved) + publicTable + publicPayload
+	g.P("    // Calculate offset to private segment")
+	g.P("    publicSegmentSize := 13") // 1 + 12 for version and reserved
+
+	// Calculate public table size
+	for _, field := range publicFields {
+		if isFixedLengthField(field) {
+			g.P(fmt.Sprintf("    publicSegmentSize += %d // field %s", getFieldSize(field), field.GoName))
+		} else {
+			g.P("    publicSegmentSize += 4 // offset placeholder")
+		}
+	}
+
+	// Add public payload sizes
+	for _, field := range publicFields {
+		goName := field.GoName
+		fieldNum := field.Desc.Number()
+
+		if isVariableLengthField(field) {
+			g.P(fmt.Sprintf("    publicSegmentSize += 4 + len(m.%s) // field %d payload", goName, fieldNum))
+		} else if isRepeatedFixedLengthField(field) {
+			fieldSize := getFieldSize(field)
+			g.P(fmt.Sprintf("    publicSegmentSize += 4 + %d*len(m.%s) // field %d payload", fieldSize, goName, fieldNum))
+		} else if isRepeatedVariableLengthField(field) {
+			g.P(fmt.Sprintf("    publicSegmentSize += 4 // field %d count", fieldNum))
+			g.P(fmt.Sprintf("    for _, item := range m.%s {", goName))
+			g.P("        publicSegmentSize += 4 + len(item)")
+			g.P("    }")
+		} else if isNestedMessageField(field) {
+			g.P(fmt.Sprintf("    if m.%s != nil {", goName))
+			g.P(fmt.Sprintf("        nestedData%d, _ := m.%s.MarshalSymphony()", fieldNum, goName))
+			g.P(fmt.Sprintf("        publicSegmentSize += 4 + len(nestedData%d) // field %d payload", fieldNum, fieldNum))
+			g.P("    }")
+		} else if isRepeatedNestedMessageField(field) {
+			g.P(fmt.Sprintf("    publicSegmentSize += 4 // field %d count", fieldNum))
+			g.P(fmt.Sprintf("    for _, item := range m.%s {", goName))
+			g.P("        nestedData, _ := item.MarshalSymphony()")
+			g.P("        publicSegmentSize += 4 + len(nestedData)")
+			g.P("    }")
+		}
+	}
+	g.P()
+
+	// Write reserved header
+	g.P("    // Write reserved header")
+	g.P("    binary.LittleEndian.PutUint32(buf[1:5], uint32(publicSegmentSize)) // offset_to_private")
+	g.P("    binary.LittleEndian.PutUint32(buf[5:9], 0) // service_id")
+	g.P("    binary.LittleEndian.PutUint32(buf[9:13], 0) // method_id")
+	g.P()
+
+	// Write public fields
+	g.P("    // Write public fields")
+	g.P("    publicTableStart := 13")
+	g.P("    publicPayloadStart := publicTableStart + ", fmt.Sprintf("%d", publicTableSize))
+	g.P("    publicPayloadOffset := 0")
+	g.P("    _ = publicPayloadStart")
+	g.P("    _ = publicPayloadOffset")
+	g.P()
+
+	generateSegmentMarshal(g, publicFields, "publicTableStart", "publicPayloadStart", "publicPayloadOffset")
+
+	// Write private segment
+	g.P("    // === PRIVATE SEGMENT ===")
+	g.P("    privateStart := publicSegmentSize")
+	g.P("    buf[privateStart] = 0x01 // version byte")
+	g.P()
+
+	// Calculate private table size
+	privateTableSize := 0
+	for _, field := range privateFields {
+		if isFixedLengthField(field) {
+			privateTableSize += getFieldSize(field)
+		} else {
+			privateTableSize += 4
+		}
+	}
+
+	g.P("    // Write private fields")
+	g.P(fmt.Sprintf("    privateTableStart := privateStart + 1 // %d bytes table", privateTableSize))
+	g.P("    privatePayloadStart := privateTableStart + ", fmt.Sprintf("%d", privateTableSize))
+	g.P("    privatePayloadOffset := 0")
+	g.P("    _ = privatePayloadStart")
+	g.P("    _ = privatePayloadOffset")
+	g.P()
+
+	// Pass "privateStart" as the relative offset base for private segment
+	g.P("    // Private segment offsets are stored relative to privateStart")
+	generateSegmentMarshal(g, privateFields, "privateTableStart", "privatePayloadStart", "privatePayloadOffset", "privateStart")
+
+	g.P("    return buf, nil")
+	g.P("}")
+	g.P()
+}
+
+// generateSegmentMarshal generates code to marshal fields in a segment
+// offsetBaseVar: optional parameter - if provided, offsets are stored relative to this base
+func generateSegmentMarshal(g *protogen.GeneratedFile, fields []*protogen.Field, tableStartVar, payloadStartVar, payloadOffsetVar string, offsetBaseVar ...string) {
+	if len(fields) == 0 {
+		return
+	}
+
+	// Check if we should use relative offsets
+	relativeBase := ""
+	if len(offsetBaseVar) > 0 {
+		relativeBase = offsetBaseVar[0]
+	}
+
+	tableOffset := 0
+	for _, field := range fields {
+		if isFixedLengthField(field) {
+			fieldSize := getFieldSize(field)
+			generateFixedFieldMarshal(g, field, tableStartVar, tableOffset)
+			tableOffset += fieldSize
+		} else if isVariableLengthField(field) {
+			generateVariableFieldMarshal(g, field, tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase)
+			tableOffset += 4
+		} else if isRepeatedFixedLengthField(field) {
+			generateRepeatedFixedFieldMarshal(g, field, tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase)
+			tableOffset += 4
+		} else if isRepeatedVariableLengthField(field) {
+			generateRepeatedVariableFieldMarshal(g, field, tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase)
+			tableOffset += 4
+		} else if isNestedMessageField(field) {
+			generateNestedFieldMarshal(g, field, tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase)
+			tableOffset += 4
+		} else if isRepeatedNestedMessageField(field) {
+			generateRepeatedNestedFieldMarshal(g, field, tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase)
+			tableOffset += 4
+		}
+	}
+}
+
+// Helper function to generate remarshal logic for setters
+func generateRemarshalLogic(g *protogen.GeneratedFile, msg *protogen.Message, goName string, isPublic bool) {
+	msgType := msg.GoIdent.GoName
+
+	if isPublic {
+		// For public fields: unmarshal complete (will only get public fields), update, marshal complete, truncate
+		g.P("    // Need to remarshal: unmarshal, update, marshal, truncate to public-only")
+		g.P(fmt.Sprintf("    var temp %s", msgType))
+		g.P("    // Create a fake complete buffer by appending a minimal private segment")
+		g.P("    // Calculate private table size")
+
+		// Calculate how many bytes the private table needs
+		_, privateFields := classifyFields(msg)
+		privateTableSize := 0
+		for _, field := range privateFields {
+			if isFixedLengthField(field) {
+				privateTableSize += getFieldSize(field)
+			} else {
+				privateTableSize += 4 // offset for variable/repeated/nested fields
+			}
+		}
+
+		g.P(fmt.Sprintf("    privateTableSize := %d // bytes needed for empty private table", privateTableSize))
+		g.P("    fakeComplete := make([]byte, len(*m)+1+privateTableSize) // version byte + private table")
+		g.P("    copy(fakeComplete, *m)")
+		g.P("    // Update offsetToPrivate to point to the appended private segment")
+		g.P("    binary.LittleEndian.PutUint32(fakeComplete[1:5], uint32(len(*m)))")
+		g.P("    fakeComplete[len(*m)] = 0x01 // private segment version")
+		g.P("    if err := temp.UnmarshalSymphony(fakeComplete); err != nil {")
+		g.P("        return fmt.Errorf(\"failed to unmarshal: %w\", err)")
+		g.P("    }")
+		g.P(fmt.Sprintf("    temp.%s = v", goName))
+		g.P("    fullData, err := temp.MarshalSymphony()")
+		g.P("    if err != nil {")
+		g.P("        return fmt.Errorf(\"failed to marshal: %w\", err)")
+		g.P("    }")
+		g.P("    offsetToPrivate := int(binary.LittleEndian.Uint32(fullData[1:5]))")
+		g.P("    *m = ", msgType, "Raw(fullData[:offsetToPrivate])")
+		g.P("    return nil")
+	} else {
+		// For private fields, unmarshal complete buffer, update, and marshal complete buffer
+		g.P("    // Need to remarshal: unmarshal, update, marshal")
+		g.P(fmt.Sprintf("    var temp %s", msgType))
+		g.P("    if err := temp.UnmarshalSymphony([]byte(*m)); err != nil {")
+		g.P("        return fmt.Errorf(\"failed to unmarshal: %w\", err)")
+		g.P("    }")
+		g.P(fmt.Sprintf("    temp.%s = v", goName))
+		g.P("    newData, err := temp.MarshalSymphony()")
+		g.P("    if err != nil {")
+		g.P("        return fmt.Errorf(\"failed to marshal: %w\", err)")
+		g.P("    }")
+		g.P("    *m = ", msgType, "Raw(newData)")
+		g.P("    return nil")
+	}
+}
+
+func generateFixedFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int) {
+	fieldNum := field.Desc.Number()
+	goName := field.GoName
+	fieldSize := getFieldSize(field)
+
+	g.P(fmt.Sprintf("    // Field %d (%s): fixed-length (%d bytes)", fieldNum, goName, fieldSize))
+
+	switch field.Desc.Kind() {
+	case protoreflect.BoolKind:
+		g.P(fmt.Sprintf("    if m.%s {", goName))
+		g.P(fmt.Sprintf("        buf[%s+%d] = 1", tableStartVar, tableOffset))
+		g.P("    } else {")
+		g.P(fmt.Sprintf("        buf[%s+%d] = 0", tableStartVar, tableOffset))
+		g.P("    }")
+	case protoreflect.Int32Kind, protoreflect.EnumKind:
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32(m.%s))", tableStartVar, tableOffset, goName))
+	case protoreflect.Uint32Kind:
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], m.%s)", tableStartVar, tableOffset, goName))
+	case protoreflect.Int64Kind:
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint64(buf[%s+%d:], uint64(m.%s))", tableStartVar, tableOffset, goName))
+	case protoreflect.Uint64Kind:
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint64(buf[%s+%d:], m.%s)", tableStartVar, tableOffset, goName))
+	case protoreflect.FloatKind:
+		mathQualified := g.QualifiedGoIdent(math.Ident("Float32bits"))
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], %s(m.%s))", tableStartVar, tableOffset, mathQualified, goName))
+	case protoreflect.DoubleKind:
+		mathQualified := g.QualifiedGoIdent(math.Ident("Float64bits"))
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint64(buf[%s+%d:], %s(m.%s))", tableStartVar, tableOffset, mathQualified, goName))
+	}
+	g.P()
+}
+
+func generateVariableFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, payloadStartVar, payloadOffsetVar string, relativeBase ...string) {
+	fieldNum := field.Desc.Number()
+	goName := field.GoName
+
+	g.P(fmt.Sprintf("    // Field %d (%s): variable-length", fieldNum, goName))
+
+	// Calculate the offset to store: either absolute or relative
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		// Store offset relative to the base (for private segments)
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32((%s+%s)-%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase[0]))
+	} else {
+		// Store absolute offset (for public segments)
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32(%s+%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar))
+	}
+
+	g.P(fmt.Sprintf("    dataLen = len(m.%s)", goName))
+	g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%s:], uint32(dataLen))", payloadStartVar, payloadOffsetVar))
+	g.P(fmt.Sprintf("    copy(buf[%s+%s+4:], m.%s)", payloadStartVar, payloadOffsetVar, goName))
+	g.P(fmt.Sprintf("    %s += 4 + len(m.%s)", payloadOffsetVar, goName))
+	g.P()
+}
+
+func generateRepeatedFixedFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, payloadStartVar, payloadOffsetVar string, relativeBase ...string) {
+	fieldNum := field.Desc.Number()
+	goName := field.GoName
+	fieldSize := getFieldSize(field)
+
+	g.P(fmt.Sprintf("    // Field %d (%s): repeated fixed-length", fieldNum, goName))
+
+	// Calculate the offset to store: either absolute or relative
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32((%s+%s)-%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase[0]))
+	} else {
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32(%s+%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar))
+	}
+	g.P(fmt.Sprintf("    count = len(m.%s)", goName))
+	g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%s:], uint32(count))", payloadStartVar, payloadOffsetVar))
+	g.P(fmt.Sprintf("    for i, v := range m.%s {", goName))
+
+	switch field.Desc.Kind() {
+	case protoreflect.BoolKind:
+		g.P("        if v {")
+		g.P(fmt.Sprintf("            buf[%s+%s+4+%d*i] = 1", payloadStartVar, payloadOffsetVar, fieldSize))
+		g.P("        } else {")
+		g.P(fmt.Sprintf("            buf[%s+%s+4+%d*i] = 0", payloadStartVar, payloadOffsetVar, fieldSize))
+		g.P("        }")
+	case protoreflect.Int32Kind, protoreflect.EnumKind:
+		g.P(fmt.Sprintf("        binary.LittleEndian.PutUint32(buf[%s+%s+4+%d*i:], uint32(v))", payloadStartVar, payloadOffsetVar, fieldSize))
+	case protoreflect.Uint32Kind:
+		g.P(fmt.Sprintf("        binary.LittleEndian.PutUint32(buf[%s+%s+4+%d*i:], v)", payloadStartVar, payloadOffsetVar, fieldSize))
+	case protoreflect.Int64Kind:
+		g.P(fmt.Sprintf("        binary.LittleEndian.PutUint64(buf[%s+%s+4+%d*i:], uint64(v))", payloadStartVar, payloadOffsetVar, fieldSize))
+	case protoreflect.Uint64Kind:
+		g.P(fmt.Sprintf("        binary.LittleEndian.PutUint64(buf[%s+%s+4+%d*i:], v)", payloadStartVar, payloadOffsetVar, fieldSize))
+	case protoreflect.FloatKind:
+		mathQualified := g.QualifiedGoIdent(math.Ident("Float32bits"))
+		g.P(fmt.Sprintf("        binary.LittleEndian.PutUint32(buf[%s+%s+4+%d*i:], %s(v))", payloadStartVar, payloadOffsetVar, fieldSize, mathQualified))
+	case protoreflect.DoubleKind:
+		mathQualified := g.QualifiedGoIdent(math.Ident("Float64bits"))
+		g.P(fmt.Sprintf("        binary.LittleEndian.PutUint64(buf[%s+%s+4+%d*i:], %s(v))", payloadStartVar, payloadOffsetVar, fieldSize, mathQualified))
+	}
+	g.P("    }")
+	g.P(fmt.Sprintf("    %s += 4 + %d*len(m.%s)", payloadOffsetVar, fieldSize, goName))
+	g.P()
+}
+
+func generateRepeatedVariableFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, payloadStartVar, payloadOffsetVar string, relativeBase ...string) {
+	fieldNum := field.Desc.Number()
+	goName := field.GoName
+
+	g.P(fmt.Sprintf("    // Field %d (%s): repeated variable-length", fieldNum, goName))
+
+	// Calculate the offset to store: either absolute or relative
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32((%s+%s)-%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase[0]))
+	} else {
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32(%s+%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar))
+	}
+	g.P(fmt.Sprintf("    count = len(m.%s)", goName))
+	g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%s:], uint32(count))", payloadStartVar, payloadOffsetVar))
+	g.P(fmt.Sprintf("    currentOffset = %s + %s + 4", payloadStartVar, payloadOffsetVar))
+	g.P(fmt.Sprintf("    for _, item := range m.%s {", goName))
+	g.P("        itemLen := len(item)")
+	g.P("        binary.LittleEndian.PutUint32(buf[currentOffset:], uint32(itemLen))")
+	g.P("        copy(buf[currentOffset+4:], item)")
+	g.P("        currentOffset += 4 + itemLen")
+	g.P("    }")
+	g.P(fmt.Sprintf("    %s += 4 // count", payloadOffsetVar))
+	g.P(fmt.Sprintf("    for _, item := range m.%s {", goName))
+	g.P(fmt.Sprintf("        %s += 4 + len(item)", payloadOffsetVar))
+	g.P("    }")
+	g.P()
+}
+
+func generateNestedFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, payloadStartVar, payloadOffsetVar string, relativeBase ...string) {
+	fieldNum := field.Desc.Number()
+	goName := field.GoName
+
+	g.P(fmt.Sprintf("    // Field %d (%s): nested message", fieldNum, goName))
+	g.P(fmt.Sprintf("    if m.%s != nil {", goName))
+
+	// Calculate the offset to store: either absolute or relative
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		g.P(fmt.Sprintf("        binary.LittleEndian.PutUint32(buf[%s+%d:], uint32((%s+%s)-%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase[0]))
+	} else {
+		g.P(fmt.Sprintf("        binary.LittleEndian.PutUint32(buf[%s+%d:], uint32(%s+%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar))
+	}
+	g.P(fmt.Sprintf("        nestedData, err := m.%s.MarshalSymphony()", goName))
+	g.P("        if err != nil {")
+	g.P("            return nil, fmt.Errorf(\"failed to marshal nested message: %w\", err)")
+	g.P("        }")
+	g.P("        nestedSize := len(nestedData)")
+	g.P(fmt.Sprintf("        binary.LittleEndian.PutUint32(buf[%s+%s:], uint32(nestedSize))", payloadStartVar, payloadOffsetVar))
+	g.P(fmt.Sprintf("        copy(buf[%s+%s+4:], nestedData)", payloadStartVar, payloadOffsetVar))
+	g.P(fmt.Sprintf("        %s += 4 + nestedSize", payloadOffsetVar))
+	g.P("    } else {")
+	g.P(fmt.Sprintf("        binary.LittleEndian.PutUint32(buf[%s+%d:], 0)", tableStartVar, tableOffset))
+	g.P("    }")
+	g.P()
+}
+
+func generateRepeatedNestedFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, payloadStartVar, payloadOffsetVar string, relativeBase ...string) {
+	fieldNum := field.Desc.Number()
+	goName := field.GoName
+
+	g.P(fmt.Sprintf("    // Field %d (%s): repeated nested message", fieldNum, goName))
+
+	// Calculate the offset to store: either absolute or relative
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32((%s+%s)-%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase[0]))
+	} else {
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32(%s+%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar))
+	}
+	g.P(fmt.Sprintf("    count = len(m.%s)", goName))
+	g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%s:], uint32(count))", payloadStartVar, payloadOffsetVar))
+	g.P(fmt.Sprintf("    %s += 4", payloadOffsetVar))
+	g.P(fmt.Sprintf("    currentOffset = %s + %s", payloadStartVar, payloadOffsetVar))
+	g.P(fmt.Sprintf("    for _, item := range m.%s {", goName))
+	g.P("        nestedData, err := item.MarshalSymphony()")
+	g.P("        if err != nil {")
+	g.P("            return nil, fmt.Errorf(\"failed to marshal nested message: %w\", err)")
+	g.P("        }")
+	g.P("        nestedSize := len(nestedData)")
+	g.P("        binary.LittleEndian.PutUint32(buf[currentOffset:], uint32(nestedSize))")
+	g.P("        copy(buf[currentOffset+4:], nestedData)")
+	g.P("        currentOffset += 4 + nestedSize")
+	g.P(fmt.Sprintf("        %s += 4 + nestedSize", payloadOffsetVar))
+	g.P("    }")
+	g.P()
+}
+
 func generateStructUnmarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
+	publicFields, privateFields := classifyFields(msg)
+
 	g.P("func (m *", msg.GoIdent, ") UnmarshalSymphony(data []byte) error {")
 
 	// Handle empty messages specially
 	if len(msg.Fields) == 0 {
-		g.P("    // Empty message - just validate version byte")
-		g.P("    if len(data) < 1 {")
+		g.P("    // Empty message - just validate version bytes")
+		g.P("    if len(data) < 14 {")
 		g.P("        return fmt.Errorf(\"invalid data: too short\")")
 		g.P("    }")
 		g.P("    if data[0] != 0x01 {")
-		g.P("        return fmt.Errorf(\"invalid data: wrong version\")")
+		g.P("        return fmt.Errorf(\"invalid data: wrong public version\")")
+		g.P("    }")
+		g.P("    offsetToPrivate := int(binary.LittleEndian.Uint32(data[1:5]))")
+		g.P("    if offsetToPrivate >= len(data) || data[offsetToPrivate] != 0x01 {")
+		g.P("        return fmt.Errorf(\"missing private segment\")")
 		g.P("    }")
 		g.P("    return nil")
 		g.P("}")
@@ -174,72 +630,306 @@ func generateStructUnmarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
 		return
 	}
 
-	// Check minimum size
-	g.P("    if len(data) < 1 {")
+	// Check minimum size and validate public segment
+	g.P("    if len(data) < 13 {")
 	g.P("        return fmt.Errorf(\"invalid data: too short\")")
 	g.P("    }")
 	g.P()
-
-	// Read version byte
-	g.P("    // Read version byte (magic number)")
+	g.P("    // Validate public segment version")
 	g.P("    if data[0] != 0x01 {")
-	g.P("        return fmt.Errorf(\"invalid data: wrong version\")")
+	g.P("        return fmt.Errorf(\"invalid data: wrong public version\")")
+	g.P("    }")
+	g.P()
+	g.P("    // Read reserved header")
+	g.P("    offsetToPrivate := int(binary.LittleEndian.Uint32(data[1:5]))")
+	g.P("    // service_name := binary.LittleEndian.Uint32(data[5:9])  // not used yet")
+	g.P("    // method_name := binary.LittleEndian.Uint32(data[9:13])  // not used yet")
+	g.P()
+	g.P("    // Assert private segment exists")
+	g.P("    if offsetToPrivate >= len(data) || data[offsetToPrivate] != 0x01 {")
+	g.P("        return fmt.Errorf(\"missing private segment\")")
 	g.P("    }")
 	g.P()
 
-	// Calculate table start
-	g.P("    tableStart := 1")
-	g.P("    _ = tableStart // avoid unused warning")
-	g.P("    payloadOffset := 0 // avoid no new variables warning")
-	g.P("    _ = payloadOffset // avoid unused warning")
-	g.P("    dataLen := 0 // avoid no new variables warning")
-	g.P("    _ = dataLen // avoid unused warning")
-	g.P("    count := 0 // avoid no new variables warning")
-	g.P("    _ = count // avoid unused warning")
-	g.P("    currentOffset := 0 // avoid no new variables warning")
-	g.P("    _ = currentOffset // avoid unused warning")
+	// Variables
+	g.P("    payloadOffset := 0")
+	g.P("    _ = payloadOffset")
+	g.P("    dataLen := 0")
+	g.P("    _ = dataLen")
+	g.P("    count := 0")
+	g.P("    _ = count")
+	g.P("    currentOffset := 0")
+	g.P("    _ = currentOffset")
 	g.P()
 
-	// Read table entries based on field order
-	fieldOrder := fieldOrdering(msg)
-	tableOffset := 0 // Relative to tableStart
-	for _, fieldNum := range fieldOrder {
-		field := findFieldByNumber(msg, fieldNum)
-		if field == nil {
-			continue
-		}
+	// Unmarshal public fields
+	g.P("    // === PUBLIC FIELDS ===")
+	g.P("    publicTableStart := 13")
+	g.P("    _ = publicTableStart")
+	generateSegmentUnmarshal(g, publicFields, "publicTableStart", "data", "")
 
-		if isFixedLengthField(field) {
-			fieldSize := getFieldSize(field)
-			generateFixedFieldUnmarshal(g, field, tableOffset)
-			tableOffset += fieldSize
-		} else if isVariableLengthField(field) {
-			// Variable-length fields: read offset from table, then read payload
-			generateVariableFieldUnmarshal(g, field, tableOffset)
-			tableOffset += 4 // 32-bit offset in table
-		} else if isRepeatedFixedLengthField(field) {
-			// Repeated fixed-length fields: read offset from table, then read payload
-			generateRepeatedFixedFieldUnmarshal(g, field, tableOffset)
-			tableOffset += 4 // 32-bit offset in table
-		} else if isRepeatedVariableLengthField(field) {
-			// Repeated variable-length fields: read offset from table, then read payload
-			generateRepeatedVariableFieldUnmarshal(g, field, tableOffset)
-			tableOffset += 4 // 32-bit offset in table
-		} else if isNestedMessageField(field) {
-			// Nested messages: read offset from table, then read payload
-			generateNestedFieldUnmarshal(g, field, tableOffset)
-			tableOffset += 4 // 32-bit offset in table
-		} else if isRepeatedNestedMessageField(field) {
-			// Repeated nested messages: read offset from table, then read payload
-			generateRepeatedNestedFieldUnmarshal(g, field, tableOffset)
-			tableOffset += 4 // 32-bit offset in table
-		} else {
-			panic(fmt.Sprintf("Unknown field type: %s", field.GoName))
-		}
-	}
+	// Unmarshal private fields
+	g.P("    // === PRIVATE FIELDS ===")
+	g.P("    privateTableStart := offsetToPrivate + 1")
+	g.P("    _ = privateTableStart")
+	g.P("    // Private segment offsets are relative to offsetToPrivate")
+	generateSegmentUnmarshal(g, privateFields, "privateTableStart", "data", "offsetToPrivate")
 
 	g.P("    return nil")
 	g.P("}")
+	g.P()
+}
+
+// generateSegmentUnmarshal generates code to unmarshal fields from a segment
+// offsetBaseVar: optional parameter - if provided, stored offsets are relative to this base
+func generateSegmentUnmarshal(g *protogen.GeneratedFile, fields []*protogen.Field, tableStartVar, dataVar string, offsetBaseVar ...string) {
+	if len(fields) == 0 {
+		return
+	}
+
+	// Check if we should use relative offsets
+	relativeBase := ""
+	if len(offsetBaseVar) > 0 {
+		relativeBase = offsetBaseVar[0]
+	}
+
+	tableOffset := 0
+	for _, field := range fields {
+		if isFixedLengthField(field) {
+			fieldSize := getFieldSize(field)
+			generateFixedFieldUnmarshal(g, field, tableStartVar, tableOffset, dataVar)
+			tableOffset += fieldSize
+		} else if isVariableLengthField(field) {
+			generateVariableFieldUnmarshal(g, field, tableStartVar, tableOffset, dataVar, relativeBase)
+			tableOffset += 4
+		} else if isRepeatedFixedLengthField(field) {
+			generateRepeatedFixedFieldUnmarshal(g, field, tableStartVar, tableOffset, dataVar, relativeBase)
+			tableOffset += 4
+		} else if isRepeatedVariableLengthField(field) {
+			generateRepeatedVariableFieldUnmarshal(g, field, tableStartVar, tableOffset, dataVar, relativeBase)
+			tableOffset += 4
+		} else if isNestedMessageField(field) {
+			generateNestedFieldUnmarshal(g, field, tableStartVar, tableOffset, dataVar, relativeBase)
+			tableOffset += 4
+		} else if isRepeatedNestedMessageField(field) {
+			generateRepeatedNestedFieldUnmarshal(g, field, tableStartVar, tableOffset, dataVar, relativeBase)
+			tableOffset += 4
+		}
+	}
+}
+
+func generateFixedFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, dataVar string) {
+	fieldNum := field.Desc.Number()
+	goName := field.GoName
+	fieldSize := getFieldSize(field)
+
+	g.P(fmt.Sprintf("    // Field %d (%s): fixed-length (%d bytes)", fieldNum, goName, fieldSize))
+	g.P(fmt.Sprintf("    if len(%s) < %s+%d {", dataVar, tableStartVar, tableOffset+fieldSize))
+	g.P("        return fmt.Errorf(\"invalid data: too short for field\")")
+	g.P("    }")
+
+	switch field.Desc.Kind() {
+	case protoreflect.BoolKind:
+		g.P(fmt.Sprintf("    m.%s = %s[%s+%d] != 0", goName, dataVar, tableStartVar, tableOffset))
+	case protoreflect.Int32Kind, protoreflect.EnumKind:
+		g.P(fmt.Sprintf("    m.%s = int32(binary.LittleEndian.Uint32(%s[%s+%d:]))", goName, dataVar, tableStartVar, tableOffset))
+	case protoreflect.Uint32Kind:
+		g.P(fmt.Sprintf("    m.%s = binary.LittleEndian.Uint32(%s[%s+%d:])", goName, dataVar, tableStartVar, tableOffset))
+	case protoreflect.Int64Kind:
+		g.P(fmt.Sprintf("    m.%s = int64(binary.LittleEndian.Uint64(%s[%s+%d:]))", goName, dataVar, tableStartVar, tableOffset))
+	case protoreflect.Uint64Kind:
+		g.P(fmt.Sprintf("    m.%s = binary.LittleEndian.Uint64(%s[%s+%d:])", goName, dataVar, tableStartVar, tableOffset))
+	case protoreflect.FloatKind:
+		mathQualified := g.QualifiedGoIdent(math.Ident("Float32frombits"))
+		g.P(fmt.Sprintf("    m.%s = %s(binary.LittleEndian.Uint32(%s[%s+%d:]))", goName, mathQualified, dataVar, tableStartVar, tableOffset))
+	case protoreflect.DoubleKind:
+		mathQualified := g.QualifiedGoIdent(math.Ident("Float64frombits"))
+		g.P(fmt.Sprintf("    m.%s = %s(binary.LittleEndian.Uint64(%s[%s+%d:]))", goName, mathQualified, dataVar, tableStartVar, tableOffset))
+	}
+	g.P()
+}
+
+func generateVariableFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, dataVar string, relativeBase ...string) {
+	fieldNum := field.Desc.Number()
+	goName := field.GoName
+
+	g.P(fmt.Sprintf("    // Field %d (%s): variable-length", fieldNum, goName))
+	g.P(fmt.Sprintf("    if len(%s) >= %s+%d+4 {", dataVar, tableStartVar, tableOffset))
+	g.P(fmt.Sprintf("        payloadOffset = int(binary.LittleEndian.Uint32(%s[%s+%d:]))", dataVar, tableStartVar, tableOffset))
+
+	// If reading from a segment with relative offsets, add the base
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		g.P("        if payloadOffset > 0 {")
+		g.P(fmt.Sprintf("            payloadOffset += %s // convert relative offset to absolute", relativeBase[0]))
+		g.P("        }")
+	}
+
+	g.P("        if payloadOffset > 0 && len(data) >= payloadOffset+4 {")
+	g.P("            dataLen = int(binary.LittleEndian.Uint32(data[payloadOffset:]))")
+	g.P("            if len(data) >= payloadOffset+4+dataLen {")
+	if field.Desc.Kind() == protoreflect.StringKind {
+		g.P(fmt.Sprintf("                m.%s = string(data[payloadOffset+4 : payloadOffset+4+dataLen])", goName))
+	} else {
+		g.P(fmt.Sprintf("                m.%s = make([]byte, dataLen)", goName))
+		g.P(fmt.Sprintf("                copy(m.%s, data[payloadOffset+4:payloadOffset+4+dataLen])", goName))
+	}
+	g.P("            }")
+	g.P("        }")
+	g.P("    }")
+	g.P()
+}
+
+func generateRepeatedFixedFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, dataVar string, relativeBase ...string) {
+	fieldNum := field.Desc.Number()
+	goName := field.GoName
+	fieldSize := getFieldSize(field)
+
+	g.P(fmt.Sprintf("    // Field %d (%s): repeated fixed-length", fieldNum, goName))
+	g.P(fmt.Sprintf("    if len(%s) >= %s+%d+4 {", dataVar, tableStartVar, tableOffset))
+	g.P(fmt.Sprintf("        payloadOffset = int(binary.LittleEndian.Uint32(%s[%s+%d:]))", dataVar, tableStartVar, tableOffset))
+
+	// If reading from a segment with relative offsets, add the base
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		g.P("        if payloadOffset > 0 {")
+		g.P(fmt.Sprintf("            payloadOffset += %s // convert relative offset to absolute", relativeBase[0]))
+		g.P("        }")
+	}
+
+	g.P("        if payloadOffset > 0 && len(data) >= payloadOffset+4 {")
+	g.P("            count = int(binary.LittleEndian.Uint32(data[payloadOffset:]))")
+	g.P(fmt.Sprintf("            if len(data) >= payloadOffset+4+count*%d {", fieldSize))
+	g.P(fmt.Sprintf("                m.%s = make([]%s, count)", goName, getGoTypeBase(g, field)))
+	g.P("                for i := 0; i < count; i++ {")
+
+	switch field.Desc.Kind() {
+	case protoreflect.BoolKind:
+		g.P(fmt.Sprintf("                    m.%s[i] = data[payloadOffset+4+%d*i] != 0", goName, fieldSize))
+	case protoreflect.Int32Kind, protoreflect.EnumKind:
+		g.P(fmt.Sprintf("                    m.%s[i] = int32(binary.LittleEndian.Uint32(data[payloadOffset+4+%d*i:]))", goName, fieldSize))
+	case protoreflect.Uint32Kind:
+		g.P(fmt.Sprintf("                    m.%s[i] = binary.LittleEndian.Uint32(data[payloadOffset+4+%d*i:])", goName, fieldSize))
+	case protoreflect.Int64Kind:
+		g.P(fmt.Sprintf("                    m.%s[i] = int64(binary.LittleEndian.Uint64(data[payloadOffset+4+%d*i:]))", goName, fieldSize))
+	case protoreflect.Uint64Kind:
+		g.P(fmt.Sprintf("                    m.%s[i] = binary.LittleEndian.Uint64(data[payloadOffset+4+%d*i:])", goName, fieldSize))
+	case protoreflect.FloatKind:
+		mathQualified := g.QualifiedGoIdent(math.Ident("Float32frombits"))
+		g.P(fmt.Sprintf("                    m.%s[i] = %s(binary.LittleEndian.Uint32(data[payloadOffset+4+%d*i:]))", goName, mathQualified, fieldSize))
+	case protoreflect.DoubleKind:
+		mathQualified := g.QualifiedGoIdent(math.Ident("Float64frombits"))
+		g.P(fmt.Sprintf("                    m.%s[i] = %s(binary.LittleEndian.Uint64(data[payloadOffset+4+%d*i:]))", goName, mathQualified, fieldSize))
+	}
+
+	g.P("                }")
+	g.P("            }")
+	g.P("        }")
+	g.P("    }")
+	g.P()
+}
+
+func generateRepeatedVariableFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, dataVar string, relativeBase ...string) {
+	fieldNum := field.Desc.Number()
+	goName := field.GoName
+
+	g.P(fmt.Sprintf("    // Field %d (%s): repeated variable-length", fieldNum, goName))
+	g.P(fmt.Sprintf("    if len(%s) >= %s+%d+4 {", dataVar, tableStartVar, tableOffset))
+	g.P(fmt.Sprintf("        payloadOffset = int(binary.LittleEndian.Uint32(%s[%s+%d:]))", dataVar, tableStartVar, tableOffset))
+
+	// If reading from a segment with relative offsets, add the base
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		g.P("        if payloadOffset > 0 {")
+		g.P(fmt.Sprintf("            payloadOffset += %s // convert relative offset to absolute", relativeBase[0]))
+		g.P("        }")
+	}
+
+	g.P("        if payloadOffset > 0 && len(data) >= payloadOffset+4 {")
+	g.P("            count = int(binary.LittleEndian.Uint32(data[payloadOffset:]))")
+	g.P(fmt.Sprintf("            m.%s = make([]%s, 0, count)", goName, getGoTypeBase(g, field)))
+	g.P("            currentOffset = payloadOffset + 4")
+	g.P("            for i := 0; i < count; i++ {")
+	g.P("                if len(data) >= currentOffset+4 {")
+	g.P("                    itemLen := int(binary.LittleEndian.Uint32(data[currentOffset:]))")
+	g.P("                    if len(data) >= currentOffset+4+itemLen {")
+	if field.Desc.Kind() == protoreflect.StringKind {
+		g.P(fmt.Sprintf("                        m.%s = append(m.%s, string(data[currentOffset+4:currentOffset+4+itemLen]))", goName, goName))
+	} else {
+		g.P("                        itemData := make([]byte, itemLen)")
+		g.P("                        copy(itemData, data[currentOffset+4:currentOffset+4+itemLen])")
+		g.P(fmt.Sprintf("                        m.%s = append(m.%s, itemData)", goName, goName))
+	}
+	g.P("                        currentOffset += 4 + itemLen")
+	g.P("                    }")
+	g.P("                }")
+	g.P("            }")
+	g.P("        }")
+	g.P("    }")
+	g.P()
+}
+
+func generateNestedFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, dataVar string, relativeBase ...string) {
+	fieldNum := field.Desc.Number()
+	goName := field.GoName
+	msgType := g.QualifiedGoIdent(field.Message.GoIdent)
+
+	g.P(fmt.Sprintf("    // Field %d (%s): nested message", fieldNum, goName))
+	g.P(fmt.Sprintf("    if len(%s) >= %s+%d+4 {", dataVar, tableStartVar, tableOffset))
+	g.P(fmt.Sprintf("        payloadOffset = int(binary.LittleEndian.Uint32(%s[%s+%d:]))", dataVar, tableStartVar, tableOffset))
+
+	// If reading from a segment with relative offsets, add the base
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		g.P("        if payloadOffset > 0 {")
+		g.P(fmt.Sprintf("            payloadOffset += %s // convert relative offset to absolute", relativeBase[0]))
+		g.P("        }")
+	}
+
+	g.P("        if payloadOffset > 0 && len(data) >= payloadOffset+4 {")
+	g.P("            dataLen = int(binary.LittleEndian.Uint32(data[payloadOffset:]))")
+	g.P("            if len(data) >= payloadOffset+4+dataLen {")
+	g.P(fmt.Sprintf("                m.%s = &%s{}", goName, msgType))
+	g.P(fmt.Sprintf("                if err := m.%s.UnmarshalSymphony(data[payloadOffset+4 : payloadOffset+4+dataLen]); err != nil {", goName))
+	g.P("                    return fmt.Errorf(\"failed to unmarshal nested message: %w\", err)")
+	g.P("                }")
+	g.P("            }")
+	g.P("        }")
+	g.P("    }")
+	g.P()
+}
+
+func generateRepeatedNestedFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, dataVar string, relativeBase ...string) {
+	fieldNum := field.Desc.Number()
+	goName := field.GoName
+	msgType := g.QualifiedGoIdent(field.Message.GoIdent)
+
+	g.P(fmt.Sprintf("    // Field %d (%s): repeated nested message", fieldNum, goName))
+	g.P(fmt.Sprintf("    if len(%s) >= %s+%d+4 {", dataVar, tableStartVar, tableOffset))
+	g.P(fmt.Sprintf("        payloadOffset = int(binary.LittleEndian.Uint32(%s[%s+%d:]))", dataVar, tableStartVar, tableOffset))
+
+	// If reading from a segment with relative offsets, add the base
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		g.P("        if payloadOffset > 0 {")
+		g.P(fmt.Sprintf("            payloadOffset += %s // convert relative offset to absolute", relativeBase[0]))
+		g.P("        }")
+	}
+
+	g.P("        if payloadOffset > 0 && len(data) >= payloadOffset+4 {")
+	g.P("            count = int(binary.LittleEndian.Uint32(data[payloadOffset:]))")
+	g.P(fmt.Sprintf("            m.%s = make([]*%s, 0, count)", goName, msgType))
+	g.P("            currentOffset = payloadOffset + 4")
+	g.P("            for i := 0; i < count; i++ {")
+	g.P("                if len(data) >= currentOffset+4 {")
+	g.P("                    itemLen := int(binary.LittleEndian.Uint32(data[currentOffset:]))")
+	g.P("                    if len(data) >= currentOffset+4+itemLen {")
+	g.P(fmt.Sprintf("                        item := &%s{}", msgType))
+	g.P("                        if err := item.UnmarshalSymphony(data[currentOffset+4 : currentOffset+4+itemLen]); err != nil {")
+	g.P("                            return fmt.Errorf(\"failed to unmarshal nested message: %w\", err)")
+	g.P("                        }")
+	g.P(fmt.Sprintf("                        m.%s = append(m.%s, item)", goName, goName))
+	g.P("                        currentOffset += 4 + itemLen")
+	g.P("                    }")
+	g.P("                }")
+	g.P("            }")
+	g.P("        }")
+	g.P("    }")
 	g.P()
 }
 
@@ -279,31 +969,48 @@ func generateRawUnmarshal(g *protogen.GeneratedFile, rawName string) {
 }
 
 func generateRawGetters(g *protogen.GeneratedFile, msg *protogen.Message, rawName string) {
-	fieldOrder := fieldOrdering(msg)
-	fieldOffsets := calculateFieldOffsets(msg, fieldOrder)
+	publicFields, privateFields := classifyFields(msg)
+	// Public fields start at offset 13 (1 version + 12 reserved)
+	publicOffsets := calculateFieldOffsets(publicFields, 13)
+	// Private fields start at offset 1 (relative to private segment start)
+	privateOffsets := calculateFieldOffsets(privateFields, 1)
 
 	for _, field := range msg.Fields {
+		isPublic := isPublicField(field)
+		var offset int
+		if isPublic {
+			offset = publicOffsets[field]
+		} else {
+			offset = privateOffsets[field]
+		}
+
 		goType := getGoType(g, field, true) // true = Raw type
 		g.P("func (m ", rawName, ") Get", field.GoName, "() ", goType, " {")
 
+		// Private fields must assert complete buffer
+		if !isPublic {
+			g.P("    // ASSERT: Private field requires complete buffer")
+			g.P("    if len(m) < 5 {")
+			g.P("        panic(\"private getter called on invalid buffer\")")
+			g.P("    }")
+			g.P("    offsetToPrivate := int(binary.LittleEndian.Uint32(m[1:5]))")
+			g.P("    if offsetToPrivate >= len(m) || m[offsetToPrivate] != 0x01 {")
+			g.P("        panic(\"private getter called on public-only buffer\")")
+			g.P("    }")
+		}
+
 		if isFixedLengthField(field) {
-			offset := fieldOffsets[field]
-			generateRawFixedFieldGetter(g, field, offset)
+			generateRawFixedFieldGetter(g, field, offset, isPublic)
 		} else if isVariableLengthField(field) {
-			offset := fieldOffsets[field]
-			generateRawVariableFieldGetter(g, field, offset)
+			generateRawVariableFieldGetter(g, field, offset, isPublic)
 		} else if isRepeatedFixedLengthField(field) {
-			offset := fieldOffsets[field]
-			generateRawRepeatedFixedFieldGetter(g, field, offset)
+			generateRawRepeatedFixedFieldGetter(g, field, offset, isPublic)
 		} else if isRepeatedVariableLengthField(field) {
-			offset := fieldOffsets[field]
-			generateRawRepeatedVariableFieldGetter(g, field, offset)
+			generateRawRepeatedVariableFieldGetter(g, field, offset, isPublic)
 		} else if isNestedMessageField(field) {
-			offset := fieldOffsets[field]
-			generateRawNestedFieldGetter(g, field, offset)
+			generateRawNestedFieldGetter(g, field, offset, isPublic)
 		} else if isRepeatedNestedMessageField(field) {
-			offset := fieldOffsets[field]
-			generateRawRepeatedNestedFieldGetter(g, field, offset)
+			generateRawRepeatedNestedFieldGetter(g, field, offset, isPublic)
 		} else {
 			panic(fmt.Sprintf("Unknown field type: %s", field.GoName))
 		}
@@ -314,31 +1021,57 @@ func generateRawGetters(g *protogen.GeneratedFile, msg *protogen.Message, rawNam
 }
 
 func generateRawSetters(g *protogen.GeneratedFile, msg *protogen.Message, rawName string) {
-	fieldOrder := fieldOrdering(msg)
-	fieldOffsets := calculateFieldOffsets(msg, fieldOrder)
+	publicFields, privateFields := classifyFields(msg)
+	// Public fields start at offset 13 (1 version + 12 reserved)
+	publicOffsets := calculateFieldOffsets(publicFields, 13)
+	// Private fields start at offset 1 (relative to private segment start)
+	privateOffsets := calculateFieldOffsets(privateFields, 1)
 
 	for _, field := range msg.Fields {
+		isPublic := isPublicField(field)
+		var offset int
+		if isPublic {
+			offset = publicOffsets[field]
+		} else {
+			offset = privateOffsets[field]
+		}
+
 		goType := getGoType(g, field, true) // true = Raw type
 		g.P("func (m *", rawName, ") Set", field.GoName, "(v ", goType, ") error {")
 
+		// Public fields must assert public-only buffer
+		if isPublic {
+			g.P("    // ASSERT: Public field setter requires public-only buffer")
+			g.P("    if len(*m) >= 5 {")
+			g.P("        offsetToPrivate := int(binary.LittleEndian.Uint32((*m)[1:5]))")
+			g.P("        if offsetToPrivate < len(*m) && (*m)[offsetToPrivate] == 0x01 {")
+			g.P("            panic(\"public setter called on complete buffer\")")
+			g.P("        }")
+			g.P("    }")
+		} else {
+			// Private fields must assert complete buffer
+			g.P("    // ASSERT: Private field setter requires complete buffer")
+			g.P("    if len(*m) < 5 {")
+			g.P("        panic(\"private setter called on invalid buffer\")")
+			g.P("    }")
+			g.P("    offsetToPrivate := int(binary.LittleEndian.Uint32((*m)[1:5]))")
+			g.P("    if offsetToPrivate >= len(*m) || (*m)[offsetToPrivate] != 0x01 {")
+			g.P("        panic(\"private setter called on public-only buffer\")")
+			g.P("    }")
+		}
+
 		if isFixedLengthField(field) {
-			offset := fieldOffsets[field]
-			generateRawFixedFieldSetter(g, field, offset)
+			generateRawFixedFieldSetter(g, field, offset, isPublic)
 		} else if isVariableLengthField(field) {
-			offset := fieldOffsets[field]
-			generateRawVariableFieldSetter(g, field, offset, msg)
+			generateRawVariableFieldSetter(g, field, offset, msg, isPublic)
 		} else if isRepeatedFixedLengthField(field) {
-			offset := fieldOffsets[field]
-			generateRawRepeatedFixedFieldSetter(g, field, offset, msg)
+			generateRawRepeatedFixedFieldSetter(g, field, offset, msg, isPublic)
 		} else if isRepeatedVariableLengthField(field) {
-			offset := fieldOffsets[field]
-			generateRawRepeatedVariableFieldSetter(g, field, offset, msg)
+			generateRawRepeatedVariableFieldSetter(g, field, offset, msg, isPublic)
 		} else if isNestedMessageField(field) {
-			offset := fieldOffsets[field]
-			generateRawNestedFieldSetter(g, field, offset, msg)
+			generateRawNestedFieldSetter(g, field, offset, msg, isPublic)
 		} else if isRepeatedNestedMessageField(field) {
-			offset := fieldOffsets[field]
-			generateRawRepeatedNestedFieldSetter(g, field, offset, msg)
+			generateRawRepeatedNestedFieldSetter(g, field, offset, msg, isPublic)
 		} else {
 			panic(fmt.Sprintf("Unknown field type: %s", field.GoName))
 		}
@@ -355,43 +1088,49 @@ func generateRawSetters(g *protogen.GeneratedFile, msg *protogen.Message, rawNam
 // getGoType returns the Go type for a field.
 // isRaw determines if we should return the "Raw" version of nested messages (e.g. LeafRaw vs *Leaf)
 func getGoType(g *protogen.GeneratedFile, field *protogen.Field, isRaw bool) string {
-	typ := ""
-	switch field.Desc.Kind() {
-	case protoreflect.BoolKind:
-		typ = "bool"
-	case protoreflect.Int32Kind, protoreflect.EnumKind:
-		typ = "int32"
-	case protoreflect.Uint32Kind:
-		typ = "uint32"
-	case protoreflect.Int64Kind:
-		typ = "int64"
-	case protoreflect.Uint64Kind:
-		typ = "uint64"
-	case protoreflect.FloatKind:
-		typ = "float32"
-	case protoreflect.DoubleKind:
-		typ = "float64"
-	case protoreflect.StringKind:
-		typ = "string"
-	case protoreflect.BytesKind:
-		typ = "[]byte"
-	case protoreflect.MessageKind:
-		if isRaw {
-			// For Raw types, nested fields are also Raw types (e.g. LeafRaw)
-			// Note: This assumes the Raw type is in the same package or imported similarly.
-			// We append "Raw" to the Go Ident name.
-			typ = g.QualifiedGoIdent(field.Message.GoIdent) + "Raw"
-		} else {
-			// For Standard structs, nested fields are pointers to structs (e.g. *Leaf)
-			typ = "*" + g.QualifiedGoIdent(field.Message.GoIdent)
-		}
-	default:
-		typ = "interface{}"
-	}
+	typ := getGoTypeBase(g, field, isRaw)
 	if field.Desc.IsList() {
 		return "[]" + typ
 	}
 	return typ
+}
+
+// getGoTypeBase returns the base Go type without the [] prefix for repeated fields
+func getGoTypeBase(g *protogen.GeneratedFile, field *protogen.Field, isRaw ...bool) string {
+	useRaw := false
+	if len(isRaw) > 0 {
+		useRaw = isRaw[0]
+	}
+
+	switch field.Desc.Kind() {
+	case protoreflect.BoolKind:
+		return "bool"
+	case protoreflect.Int32Kind, protoreflect.EnumKind:
+		return "int32"
+	case protoreflect.Uint32Kind:
+		return "uint32"
+	case protoreflect.Int64Kind:
+		return "int64"
+	case protoreflect.Uint64Kind:
+		return "uint64"
+	case protoreflect.FloatKind:
+		return "float32"
+	case protoreflect.DoubleKind:
+		return "float64"
+	case protoreflect.StringKind:
+		return "string"
+	case protoreflect.BytesKind:
+		return "[]byte"
+	case protoreflect.MessageKind:
+		if useRaw {
+			// For Raw types, nested fields are also Raw types (e.g. LeafRaw)
+			return g.QualifiedGoIdent(field.Message.GoIdent) + "Raw"
+		}
+		// For Standard structs, nested fields are pointers to structs (e.g. *Leaf)
+		return "*" + g.QualifiedGoIdent(field.Message.GoIdent)
+	default:
+		return "interface{}"
+	}
 }
 
 func getZeroValue(field *protogen.Field) string {
@@ -410,29 +1149,48 @@ func getZeroValue(field *protogen.Field) string {
 	}
 }
 
-func fieldOrdering(msg *protogen.Message) []byte {
-	fieldOrder := make([]byte, 0, len(msg.Fields))
+// Helper functions for field classification and size calculation
 
-	// Create a copy to sort
-	sortedFields := make([]*protogen.Field, len(msg.Fields))
-	copy(sortedFields, msg.Fields)
-
-	// Sort fields by number to ensure deterministic order
-	sort.Slice(sortedFields, func(i, j int) bool {
-		return sortedFields[i].Desc.Number() < sortedFields[j].Desc.Number()
-	})
-
-	for _, field := range sortedFields {
-		fieldNum := field.Desc.Number()
-		if fieldNum < 0 || fieldNum > 255 {
-			panic(fmt.Sprintf("field %d (%s): number out of range (0-255)", fieldNum, field.GoName))
-		}
-		fieldOrder = append(fieldOrder, byte(fieldNum))
+// isPublicField checks if field has is_public = true option
+func isPublicField(field *protogen.Field) bool {
+	if field.Desc.Options() == nil {
+		return false
 	}
-	return fieldOrder
+
+	// Check the string representation as a workaround
+	// Extensions appear in the format: "50001:1" where 50001 is the extension field number
+	// and 1 means true (boolean true)
+	optsStr := fmt.Sprintf("%v", field.Desc.Options())
+
+	// Check if the options string contains "50001:1" (is_public = true)
+	if optsStr != "" && optsStr != "<nil>" {
+		// The extension 50001 with value 1 (true) appears as "50001:1"
+		return containsSubstring(optsStr, "50001:1")
+	}
+
+	return false
 }
 
-// Helper functions for field classification and size calculation
+func containsSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+// classifyFields splits fields into public and private lists, preserving declaration order
+func classifyFields(msg *protogen.Message) (public, private []*protogen.Field) {
+	for _, field := range msg.Fields {
+		if isPublicField(field) {
+			public = append(public, field)
+		} else {
+			private = append(private, field)
+		}
+	}
+	return
+}
 
 // isFixedLengthField returns true if the field has a fixed size
 func isFixedLengthField(field *protogen.Field) bool {
@@ -463,27 +1221,13 @@ func getFieldSize(field *protogen.Field) int {
 	}
 }
 
-// findFieldByNumber finds a field by its field number
-func findFieldByNumber(msg *protogen.Message, fieldNum byte) *protogen.Field {
-	for _, field := range msg.Fields {
-		if byte(field.Desc.Number()) == fieldNum {
-			return field
-		}
-	}
-	return nil
-}
-
-// calculateFieldOffsets calculates the table offset for each field based on field order
-func calculateFieldOffsets(msg *protogen.Message, fieldOrder []byte) map[*protogen.Field]int {
+// calculateFieldOffsets calculates the table offset for each field based on field list
+// tableStart is the offset where the table begins (after version and any header)
+func calculateFieldOffsets(fields []*protogen.Field, tableStart int) map[*protogen.Field]int {
 	offsets := make(map[*protogen.Field]int)
-	tableStart := 1 // After version byte
 	offset := tableStart
 
-	for _, fieldNum := range fieldOrder {
-		field := findFieldByNumber(msg, fieldNum)
-		if field == nil {
-			continue
-		}
+	for _, field := range fields {
 		offsets[field] = offset
 		if isFixedLengthField(field) {
 			offset += getFieldSize(field)
@@ -496,68 +1240,80 @@ func calculateFieldOffsets(msg *protogen.Message, fieldOrder []byte) map[*protog
 }
 
 // generateRawFixedFieldGetter generates code to read a fixed-length field from Raw type
-func generateRawFixedFieldGetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
+func generateRawFixedFieldGetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int, isPublic bool) {
+	fieldNum := field.Desc.Number()
 	goName := field.GoName
 	fieldSize := getFieldSize(field)
 
-	g.P(fmt.Sprintf("    // Field %d (%s): fixed-length (%d bytes) at offset %d", fieldNum, goName, fieldSize, tableOffset))
-	g.P(fmt.Sprintf("    if len(m) < %d {", tableOffset+fieldSize))
+	// For private fields, adjust offset to be relative to private segment
+	offsetExpr := fmt.Sprintf("%d", tableOffset)
+	if !isPublic {
+		offsetExpr = fmt.Sprintf("offsetToPrivate+%d", tableOffset)
+	}
+
+	g.P(fmt.Sprintf("    // Field %d (%s): fixed-length (%d bytes)", fieldNum, goName, fieldSize))
+	g.P(fmt.Sprintf("    if len(m) < %s+%d {", offsetExpr, fieldSize))
 	g.P("        return ", getZeroValue(field))
 	g.P("    }")
 
 	switch field.Desc.Kind() {
 	case protoreflect.BoolKind:
-		g.P(fmt.Sprintf("    return m[%d] != 0", tableOffset))
+		g.P(fmt.Sprintf("    return m[%s] != 0", offsetExpr))
 	case protoreflect.Int32Kind, protoreflect.EnumKind:
-		g.P(fmt.Sprintf("    return int32(binary.LittleEndian.Uint32(m[%d:]))", tableOffset))
+		g.P(fmt.Sprintf("    return int32(binary.LittleEndian.Uint32(m[%s:]))", offsetExpr))
 	case protoreflect.Uint32Kind:
-		g.P(fmt.Sprintf("    return binary.LittleEndian.Uint32(m[%d:])", tableOffset))
+		g.P(fmt.Sprintf("    return binary.LittleEndian.Uint32(m[%s:])", offsetExpr))
 	case protoreflect.Int64Kind:
-		g.P(fmt.Sprintf("    return int64(binary.LittleEndian.Uint64(m[%d:]))", tableOffset))
+		g.P(fmt.Sprintf("    return int64(binary.LittleEndian.Uint64(m[%s:]))", offsetExpr))
 	case protoreflect.Uint64Kind:
-		g.P(fmt.Sprintf("    return binary.LittleEndian.Uint64(m[%d:])", tableOffset))
+		g.P(fmt.Sprintf("    return binary.LittleEndian.Uint64(m[%s:])", offsetExpr))
 	case protoreflect.FloatKind:
 		mathQualified := g.QualifiedGoIdent(math.Ident("Float32frombits"))
-		g.P(fmt.Sprintf("    return %s(binary.LittleEndian.Uint32(m[%d:]))", mathQualified, tableOffset))
+		g.P(fmt.Sprintf("    return %s(binary.LittleEndian.Uint32(m[%s:]))", mathQualified, offsetExpr))
 	case protoreflect.DoubleKind:
 		mathQualified := g.QualifiedGoIdent(math.Ident("Float64frombits"))
-		g.P(fmt.Sprintf("    return %s(binary.LittleEndian.Uint64(m[%d:]))", mathQualified, tableOffset))
+		g.P(fmt.Sprintf("    return %s(binary.LittleEndian.Uint64(m[%s:]))", mathQualified, offsetExpr))
 	}
 }
 
 // generateRawFixedFieldSetter generates code to write a fixed-length field to Raw type
-func generateRawFixedFieldSetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
+func generateRawFixedFieldSetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int, isPublic bool) {
+	fieldNum := field.Desc.Number()
 	goName := field.GoName
 	fieldSize := getFieldSize(field)
 
-	g.P(fmt.Sprintf("    // Field %d (%s): fixed-length (%d bytes) at offset %d", fieldNum, goName, fieldSize, tableOffset))
-	g.P(fmt.Sprintf("    if len(*m) < %d {", tableOffset+fieldSize))
+	// For private fields, adjust offset to be relative to private segment
+	offsetExpr := fmt.Sprintf("%d", tableOffset)
+	if !isPublic {
+		offsetExpr = fmt.Sprintf("offsetToPrivate+%d", tableOffset)
+	}
+
+	g.P(fmt.Sprintf("    // Field %d (%s): fixed-length (%d bytes)", fieldNum, goName, fieldSize))
+	g.P(fmt.Sprintf("    if len(*m) < %s+%d {", offsetExpr, fieldSize))
 	g.P("        return fmt.Errorf(\"buffer too short\")")
 	g.P("    }")
 
 	switch field.Desc.Kind() {
 	case protoreflect.BoolKind:
 		g.P("    if v {")
-		g.P(fmt.Sprintf("        (*m)[%d] = 1", tableOffset))
+		g.P(fmt.Sprintf("        (*m)[%s] = 1", offsetExpr))
 		g.P("    } else {")
-		g.P(fmt.Sprintf("        (*m)[%d] = 0", tableOffset))
+		g.P(fmt.Sprintf("        (*m)[%s] = 0", offsetExpr))
 		g.P("    }")
 	case protoreflect.Int32Kind, protoreflect.EnumKind:
-		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32((*m)[%d:], uint32(v))", tableOffset))
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32((*m)[%s:], uint32(v))", offsetExpr))
 	case protoreflect.Uint32Kind:
-		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32((*m)[%d:], v)", tableOffset))
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32((*m)[%s:], v)", offsetExpr))
 	case protoreflect.Int64Kind:
-		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint64((*m)[%d:], uint64(v))", tableOffset))
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint64((*m)[%s:], uint64(v))", offsetExpr))
 	case protoreflect.Uint64Kind:
-		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint64((*m)[%d:], v)", tableOffset))
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint64((*m)[%s:], v)", offsetExpr))
 	case protoreflect.FloatKind:
 		mathQualified := g.QualifiedGoIdent(math.Ident("Float32bits"))
-		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32((*m)[%d:], %s(v))", tableOffset, mathQualified))
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32((*m)[%s:], %s(v))", offsetExpr, mathQualified))
 	case protoreflect.DoubleKind:
 		mathQualified := g.QualifiedGoIdent(math.Ident("Float64bits"))
-		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint64((*m)[%d:], %s(v))", tableOffset, mathQualified))
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint64((*m)[%s:], %s(v))", offsetExpr, mathQualified))
 	}
 	g.P("    return nil")
 }
@@ -612,11 +1368,78 @@ func isRepeatedNestedMessageField(field *protogen.Field) bool {
 	return field.Desc.IsList() && field.Desc.Kind() == protoreflect.MessageKind
 }
 
+// generateSegmentSizeCalculation generates code to calculate size for a segment (public or private)
+// Returns the table size for the segment
+func generateSegmentSizeCalculation(g *protogen.GeneratedFile, fields []*protogen.Field, sizeVar, msgVar string, depth int, includeVersion bool) int {
+	// Use unique variable name for nested size calculations
+	nestedSizeVar := sizeVar
+	if depth > 0 {
+		nestedSizeVar = fmt.Sprintf("nestedSize%d", depth)
+	}
+
+	// Add version byte if this is a top-level segment
+	if includeVersion {
+		g.P(fmt.Sprintf("    %s += 1 // version byte", nestedSizeVar))
+	}
+
+	// Calculate table size
+	tableSize := 0
+	for _, field := range fields {
+		if isFixedLengthField(field) {
+			tableSize += getFieldSize(field)
+		} else {
+			tableSize += 4 // 32-bit offset for variable-length fields
+		}
+	}
+
+	if tableSize > 0 {
+		g.P(fmt.Sprintf("    %s += %d // table entries", nestedSizeVar, tableSize))
+	}
+
+	// Calculate payload size for variable-length fields
+	for _, field := range fields {
+		fieldNum := field.Desc.Number()
+		goName := field.GoName
+
+		if isVariableLengthField(field) {
+			g.P(fmt.Sprintf("    // Field %d (%s): variable-length payload", fieldNum, goName))
+			g.P(fmt.Sprintf("    %s += 4 + len(%s.%s) // 4 bytes length prefix + data", nestedSizeVar, msgVar, goName))
+		} else if isRepeatedFixedLengthField(field) {
+			fieldSize := getFieldSize(field)
+			g.P(fmt.Sprintf("    // Field %d (%s): repeated fixed-length payload", fieldNum, goName))
+			g.P(fmt.Sprintf("    %s += 4 + %d*len(%s.%s) // 4 bytes count + data", nestedSizeVar, fieldSize, msgVar, goName))
+		} else if isRepeatedVariableLengthField(field) {
+			g.P(fmt.Sprintf("    // Field %d (%s): repeated variable-length payload", fieldNum, goName))
+			g.P(fmt.Sprintf("    %s += 4 // count", nestedSizeVar))
+			g.P(fmt.Sprintf("    for _, item := range %s.%s {", msgVar, goName))
+			g.P(fmt.Sprintf("        %s += 4 + len(item) // 4 bytes length prefix + data", nestedSizeVar))
+			g.P("    }")
+		} else if isNestedMessageField(field) {
+			g.P(fmt.Sprintf("    // Field %d (%s): nested message payload", fieldNum, goName))
+			g.P(fmt.Sprintf("    if %s.%s != nil {", msgVar, goName))
+			// Nested messages are marshaled recursively with their own public/private split
+			childNestedSizeVar := fmt.Sprintf("nestedSize%d", depth+1)
+			generateSizeCalculation(g, field.Message, childNestedSizeVar, fmt.Sprintf("%s.%s", msgVar, goName), depth+1)
+			g.P(fmt.Sprintf("        %s += 4 + %s // 4 bytes size + message data", nestedSizeVar, childNestedSizeVar))
+			g.P("    }")
+		} else if isRepeatedNestedMessageField(field) {
+			g.P(fmt.Sprintf("    // Field %d (%s): repeated nested message payload", fieldNum, goName))
+			g.P(fmt.Sprintf("    %s += 4 // count", nestedSizeVar))
+			g.P(fmt.Sprintf("    for _, item := range %s.%s {", msgVar, goName))
+			childNestedSizeVar := fmt.Sprintf("nestedSize%d", depth+1)
+			generateSizeCalculation(g, field.Message, childNestedSizeVar, "item", depth+1)
+			g.P(fmt.Sprintf("        %s += 4 + %s // 4 bytes size + message data", nestedSizeVar, childNestedSizeVar))
+			g.P("    }")
+		}
+	}
+
+	return tableSize
+}
+
 // generateSizeCalculation generates code to calculate the exact buffer size
-// Returns the table size for use in calculating payload start
-// sizeVar: variable name to accumulate size (default "size")
-// msgVar: variable name for message instance (default "m")
-// depth: nesting depth for unique variable names (default 0)
+// For top-level: calculates public + private segments
+// For nested: calculates recursively (nested messages also have public/private)
+// Returns the public table size
 func generateSizeCalculation(g *protogen.GeneratedFile, msg *protogen.Message, sizeVar, msgVar string, depth int) int {
 	if sizeVar == "" {
 		sizeVar = "size"
@@ -631,487 +1454,24 @@ func generateSizeCalculation(g *protogen.GeneratedFile, msg *protogen.Message, s
 		nestedSizeVar = fmt.Sprintf("nestedSize%d", depth)
 	}
 
+	// Classify fields into public and private
+	publicFields, privateFields := classifyFields(msg)
+
 	g.P(fmt.Sprintf("    %s := 0", nestedSizeVar))
-	g.P(fmt.Sprintf("    %s += 1 // version byte (magic number 0x01)", nestedSizeVar))
+	g.P("    // Public segment:")
+	g.P(fmt.Sprintf("    %s += 1 // version byte", nestedSizeVar))
+	g.P(fmt.Sprintf("    %s += 12 // reserved: offset_to_private, service_name, method_name", nestedSizeVar))
 
-	// Calculate table size: iterate over all fields (not fieldOrder)
-	// Fixed fields store values, variable fields store 4-byte offset
-	tableSize := 0
-	for _, field := range msg.Fields {
-		if isFixedLengthField(field) {
-			tableSize += getFieldSize(field)
-		} else {
-			tableSize += 4 // 32-bit offset for variable-length fields
-		}
-	}
-	g.P(fmt.Sprintf("    %s += %d // table entries", nestedSizeVar, tableSize))
+	// Calculate public segment
+	publicTableSize := generateSegmentSizeCalculation(g, publicFields, nestedSizeVar, msgVar, depth, false)
+
+	// Calculate private segment
+	g.P("    // Private segment:")
+	_ = generateSegmentSizeCalculation(g, privateFields, nestedSizeVar, msgVar, depth, true)
+
 	g.P()
 
-	// Calculate payload size for variable-length fields
-	// For each variable-length field: 4 bytes (length prefix) + actual data
-	// For each repeated fixed-length field: 4 bytes (count) + count * fieldSize
-	fieldOrder := fieldOrdering(msg)
-	for _, fieldNum := range fieldOrder {
-		field := findFieldByNumber(msg, fieldNum)
-		if field == nil {
-			continue
-		}
-		if isVariableLengthField(field) {
-			goName := field.GoName
-			g.P(fmt.Sprintf("    // Field %d (%s): variable-length payload", fieldNum, goName))
-			g.P(fmt.Sprintf("    %s += 4 + len(%s.%s) // 4 bytes length prefix + data", nestedSizeVar, msgVar, goName))
-		} else if isRepeatedFixedLengthField(field) {
-			goName := field.GoName
-			fieldSize := getFieldSize(field)
-			g.P(fmt.Sprintf("    // Field %d (%s): repeated fixed-length payload", fieldNum, goName))
-			g.P(fmt.Sprintf("    %s += 4 + %d*len(%s.%s) // 4 bytes count + data", nestedSizeVar, fieldSize, msgVar, goName))
-		} else if isRepeatedVariableLengthField(field) {
-			goName := field.GoName
-			g.P(fmt.Sprintf("    // Field %d (%s): repeated variable-length payload", fieldNum, goName))
-			g.P(fmt.Sprintf("    %s += 4 // count", nestedSizeVar))
-			g.P(fmt.Sprintf("    for _, item := range %s.%s {", msgVar, goName))
-			g.P(fmt.Sprintf("        %s += 4 + len(item) // 4 bytes length prefix + data", nestedSizeVar))
-			g.P("    }")
-		} else if isNestedMessageField(field) {
-			goName := field.GoName
-			g.P(fmt.Sprintf("    // Field %d (%s): nested message payload", fieldNum, goName))
-			g.P(fmt.Sprintf("    if %s.%s != nil {", msgVar, goName))
-			// Recursively calculate size for nested message with incremented depth
-			childNestedSizeVar := fmt.Sprintf("nestedSize%d", depth+1)
-			generateSizeCalculation(g, field.Message, childNestedSizeVar, fmt.Sprintf("%s.%s", msgVar, goName), depth+1)
-			// Add 4 bytes (size prefix) + the nested message size
-			g.P(fmt.Sprintf("        %s += 4 + %s // 4 bytes size + message data", nestedSizeVar, childNestedSizeVar))
-			g.P("    }")
-		} else if isRepeatedNestedMessageField(field) {
-			goName := field.GoName
-			g.P(fmt.Sprintf("    // Field %d (%s): repeated nested message payload", fieldNum, goName))
-			g.P(fmt.Sprintf("    %s += 4 // count", nestedSizeVar))
-			g.P(fmt.Sprintf("    for _, item := range %s.%s {", msgVar, goName))
-			// Recursively calculate size for each nested message with incremented depth
-			childNestedSizeVar := fmt.Sprintf("nestedSize%d", depth+1)
-			generateSizeCalculation(g, field.Message, childNestedSizeVar, "item", depth+1)
-			// Add 4 bytes (size prefix) + the nested message size for each item
-			g.P(fmt.Sprintf("        %s += 4 + %s // 4 bytes size + message data", nestedSizeVar, childNestedSizeVar))
-			g.P("    }")
-		}
-	}
-	g.P()
-
-	return tableSize
-}
-
-// generateFixedFieldMarshal generates code to marshal a fixed-length field
-func generateFixedFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
-	goName := field.GoName
-	fieldSize := getFieldSize(field)
-
-	g.P(fmt.Sprintf("    // Field %d (%s): fixed-length (%d bytes)", fieldNum, goName, fieldSize))
-
-	// Write the value directly into the table at the calculated offset
-	switch field.Desc.Kind() {
-	case protoreflect.BoolKind:
-		g.P(fmt.Sprintf("    if m.%s {", goName))
-		g.P(fmt.Sprintf("        buf[tableStart+%d] = 1", tableOffset))
-		g.P("    } else {")
-		g.P(fmt.Sprintf("        buf[tableStart+%d] = 0", tableOffset))
-		g.P("    }")
-	case protoreflect.Int32Kind, protoreflect.EnumKind:
-		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[tableStart+%d:], uint32(m.%s))", tableOffset, goName))
-	case protoreflect.Uint32Kind:
-		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[tableStart+%d:], m.%s)", tableOffset, goName))
-	case protoreflect.Int64Kind:
-		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint64(buf[tableStart+%d:], uint64(m.%s))", tableOffset, goName))
-	case protoreflect.Uint64Kind:
-		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint64(buf[tableStart+%d:], m.%s)", tableOffset, goName))
-	case protoreflect.FloatKind:
-		mathQualified := g.QualifiedGoIdent(math.Ident("Float32bits"))
-		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[tableStart+%d:], %s(m.%s))", tableOffset, mathQualified, goName))
-	case protoreflect.DoubleKind:
-		mathQualified := g.QualifiedGoIdent(math.Ident("Float64bits"))
-		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint64(buf[tableStart+%d:], %s(m.%s))", tableOffset, mathQualified, goName))
-	}
-	g.P()
-}
-
-// generateFixedFieldUnmarshal generates code to unmarshal a fixed-length field
-func generateFixedFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
-	goName := field.GoName
-	fieldSize := getFieldSize(field)
-
-	g.P(fmt.Sprintf("    // Field %d (%s): fixed-length (%d bytes)", fieldNum, goName, fieldSize))
-	g.P(fmt.Sprintf("    if len(data) < tableStart+%d {", tableOffset+fieldSize))
-	g.P("        return fmt.Errorf(\"invalid data: too short for field\")")
-	g.P("    }")
-
-	switch field.Desc.Kind() {
-	case protoreflect.BoolKind:
-		g.P(fmt.Sprintf("    m.%s = data[tableStart+%d] != 0", goName, tableOffset))
-	case protoreflect.Int32Kind, protoreflect.EnumKind:
-		g.P(fmt.Sprintf("    m.%s = int32(binary.LittleEndian.Uint32(data[tableStart+%d:]))", goName, tableOffset))
-	case protoreflect.Uint32Kind:
-		g.P(fmt.Sprintf("    m.%s = binary.LittleEndian.Uint32(data[tableStart+%d:])", goName, tableOffset))
-	case protoreflect.Int64Kind:
-		g.P(fmt.Sprintf("    m.%s = int64(binary.LittleEndian.Uint64(data[tableStart+%d:]))", goName, tableOffset))
-	case protoreflect.Uint64Kind:
-		g.P(fmt.Sprintf("    m.%s = binary.LittleEndian.Uint64(data[tableStart+%d:])", goName, tableOffset))
-	case protoreflect.FloatKind:
-		mathQualified := g.QualifiedGoIdent(math.Ident("Float32frombits"))
-		g.P(fmt.Sprintf("    m.%s = %s(binary.LittleEndian.Uint32(data[tableStart+%d:]))", goName, mathQualified, tableOffset))
-	case protoreflect.DoubleKind:
-		mathQualified := g.QualifiedGoIdent(math.Ident("Float64frombits"))
-		g.P(fmt.Sprintf("    m.%s = %s(binary.LittleEndian.Uint64(data[tableStart+%d:]))", goName, mathQualified, tableOffset))
-	}
-	g.P()
-}
-
-// generateVariableFieldMarshal generates code to marshal a variable-length field (string or bytes)
-func generateVariableFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
-	goName := field.GoName
-
-	g.P(fmt.Sprintf("    // Field %d (%s): variable-length", fieldNum, goName))
-
-	// Write offset in table entry (using payloadOffset variable)
-	g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[tableStart+%d:], uint32(payloadStart+payloadOffset))", tableOffset))
-
-	// Write length prefix and data in payload
-	g.P(fmt.Sprintf("    dataLen = len(m.%s)", goName))
-	g.P("    binary.LittleEndian.PutUint32(buf[payloadStart+payloadOffset:], uint32(dataLen))")
-	g.P(fmt.Sprintf("    copy(buf[payloadStart+payloadOffset+4:], m.%s)", goName))
-	g.P()
-}
-
-// generateVariableFieldUnmarshal generates code to unmarshal a variable-length field (string or bytes)
-func generateVariableFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
-	goName := field.GoName
-
-	g.P(fmt.Sprintf("    // Field %d (%s): variable-length", fieldNum, goName))
-
-	// Read offset from table entry
-	g.P(fmt.Sprintf("    if len(data) < tableStart+%d+4 {", tableOffset))
-	g.P("        return fmt.Errorf(\"invalid data: too short for offset\")")
-	g.P("    }")
-	g.P(fmt.Sprintf("    payloadOffset = int(binary.LittleEndian.Uint32(data[tableStart+%d:]))", tableOffset))
-
-	// Read length from payload
-	g.P("    if len(data) < payloadOffset+4 {")
-	g.P("        return fmt.Errorf(\"invalid data: too short for length\")")
-	g.P("    }")
-	g.P("    dataLen = int(binary.LittleEndian.Uint32(data[payloadOffset:]))")
-
-	// Read actual data
-	g.P("    if len(data) < payloadOffset+4+dataLen {")
-	g.P("        return fmt.Errorf(\"invalid data: too short for data\")")
-	g.P("    }")
-
-	if field.Desc.Kind() == protoreflect.StringKind {
-		g.P(fmt.Sprintf("    m.%s = string(data[payloadOffset+4 : payloadOffset+4+dataLen])", goName))
-	} else { // BytesKind
-		g.P(fmt.Sprintf("    m.%s = make([]byte, dataLen)", goName))
-		g.P(fmt.Sprintf("    copy(m.%s, data[payloadOffset+4:payloadOffset+4+dataLen])", goName))
-	}
-	g.P()
-}
-
-// generateRepeatedFixedFieldMarshal generates code to marshal a repeated fixed-length field
-func generateRepeatedFixedFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
-	goName := field.GoName
-	fieldSize := getFieldSize(field)
-
-	g.P(fmt.Sprintf("    // Field %d (%s): repeated fixed-length", fieldNum, goName))
-
-	// Write offset in table entry (using payloadOffset variable)
-	g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[tableStart+%d:], uint32(payloadStart+payloadOffset))", tableOffset))
-
-	// Write count and data in payload
-	g.P(fmt.Sprintf("    count = len(m.%s)", goName))
-	g.P("    binary.LittleEndian.PutUint32(buf[payloadStart+payloadOffset:], uint32(count))")
-
-	// Write each element
-	g.P(fmt.Sprintf("    for i, v := range m.%s {", goName))
-	switch field.Desc.Kind() {
-	case protoreflect.BoolKind:
-		g.P("        if v {")
-		g.P(fmt.Sprintf("            buf[payloadStart+payloadOffset+4+%d*i] = 1", fieldSize))
-		g.P("        } else {")
-		g.P(fmt.Sprintf("            buf[payloadStart+payloadOffset+4+%d*i] = 0", fieldSize))
-		g.P("        }")
-	case protoreflect.Int32Kind, protoreflect.EnumKind:
-		g.P(fmt.Sprintf("        binary.LittleEndian.PutUint32(buf[payloadStart+payloadOffset+4+%d*i:], uint32(v))", fieldSize))
-	case protoreflect.Uint32Kind:
-		g.P(fmt.Sprintf("        binary.LittleEndian.PutUint32(buf[payloadStart+payloadOffset+4+%d*i:], v)", fieldSize))
-	case protoreflect.Int64Kind:
-		g.P(fmt.Sprintf("        binary.LittleEndian.PutUint64(buf[payloadStart+payloadOffset+4+%d*i:], uint64(v))", fieldSize))
-	case protoreflect.Uint64Kind:
-		g.P(fmt.Sprintf("        binary.LittleEndian.PutUint64(buf[payloadStart+payloadOffset+4+%d*i:], v)", fieldSize))
-	case protoreflect.FloatKind:
-		mathQualified := g.QualifiedGoIdent(math.Ident("Float32bits"))
-		g.P(fmt.Sprintf("        binary.LittleEndian.PutUint32(buf[payloadStart+payloadOffset+4+%d*i:], %s(v))", fieldSize, mathQualified))
-	case protoreflect.DoubleKind:
-		mathQualified := g.QualifiedGoIdent(math.Ident("Float64bits"))
-		g.P(fmt.Sprintf("        binary.LittleEndian.PutUint64(buf[payloadStart+payloadOffset+4+%d*i:], %s(v))", fieldSize, mathQualified))
-	}
-	g.P("    }")
-	g.P()
-}
-
-// generateRepeatedFixedFieldUnmarshal generates code to unmarshal a repeated fixed-length field
-func generateRepeatedFixedFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
-	goName := field.GoName
-	fieldSize := getFieldSize(field)
-
-	g.P(fmt.Sprintf("    // Field %d (%s): repeated fixed-length", fieldNum, goName))
-
-	// Read offset from table entry
-	g.P(fmt.Sprintf("    if len(data) < tableStart+%d+4 {", tableOffset))
-	g.P("        return fmt.Errorf(\"invalid data: too short for offset\")")
-	g.P("    }")
-	g.P(fmt.Sprintf("    payloadOffset = int(binary.LittleEndian.Uint32(data[tableStart+%d:]))", tableOffset))
-
-	// Read count from payload
-	g.P("    if len(data) < payloadOffset+4 {")
-	g.P("        return fmt.Errorf(\"invalid data: too short for count\")")
-	g.P("    }")
-	g.P("    count = int(binary.LittleEndian.Uint32(data[payloadOffset:]))")
-
-	// Validate data length
-	g.P(fmt.Sprintf("    if len(data) < payloadOffset+4+%d*count {", fieldSize))
-	g.P("        return fmt.Errorf(\"invalid data: too short for repeated data\")")
-	g.P("    }")
-
-	// Allocate slice and read each element
-	g.P(fmt.Sprintf("    m.%s = make([]%s, count)", goName, getGoTypeName(field)))
-	g.P("    for i := 0; i < count; i++ {")
-	switch field.Desc.Kind() {
-	case protoreflect.BoolKind:
-		g.P(fmt.Sprintf("        m.%s[i] = data[payloadOffset+4+%d*i] != 0", goName, fieldSize))
-	case protoreflect.Int32Kind, protoreflect.EnumKind:
-		g.P(fmt.Sprintf("        m.%s[i] = int32(binary.LittleEndian.Uint32(data[payloadOffset+4+%d*i:]))", goName, fieldSize))
-	case protoreflect.Uint32Kind:
-		g.P(fmt.Sprintf("        m.%s[i] = binary.LittleEndian.Uint32(data[payloadOffset+4+%d*i:])", goName, fieldSize))
-	case protoreflect.Int64Kind:
-		g.P(fmt.Sprintf("        m.%s[i] = int64(binary.LittleEndian.Uint64(data[payloadOffset+4+%d*i:]))", goName, fieldSize))
-	case protoreflect.Uint64Kind:
-		g.P(fmt.Sprintf("        m.%s[i] = binary.LittleEndian.Uint64(data[payloadOffset+4+%d*i:])", goName, fieldSize))
-	case protoreflect.FloatKind:
-		mathQualified := g.QualifiedGoIdent(math.Ident("Float32frombits"))
-		g.P(fmt.Sprintf("        m.%s[i] = %s(binary.LittleEndian.Uint32(data[payloadOffset+4+%d*i:]))", goName, mathQualified, fieldSize))
-	case protoreflect.DoubleKind:
-		mathQualified := g.QualifiedGoIdent(math.Ident("Float64frombits"))
-		g.P(fmt.Sprintf("        m.%s[i] = %s(binary.LittleEndian.Uint64(data[payloadOffset+4+%d*i:]))", goName, mathQualified, fieldSize))
-	}
-	g.P("    }")
-	g.P()
-}
-
-// generateRepeatedVariableFieldMarshal generates code to marshal a repeated variable-length field (repeated string or bytes)
-func generateRepeatedVariableFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
-	goName := field.GoName
-
-	g.P(fmt.Sprintf("    // Field %d (%s): repeated variable-length", fieldNum, goName))
-
-	// Write offset in table entry (using payloadOffset variable)
-	g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[tableStart+%d:], uint32(payloadStart+payloadOffset))", tableOffset))
-
-	// Write count in payload
-	g.P(fmt.Sprintf("    count = len(m.%s)", goName))
-	g.P("    binary.LittleEndian.PutUint32(buf[payloadStart+payloadOffset:], uint32(count))")
-
-	// Write each element: 4 bytes length prefix + data
-	g.P("    currentOffset = payloadStart + payloadOffset + 4")
-	g.P(fmt.Sprintf("    for _, item := range m.%s {", goName))
-	g.P("        itemLen := len(item)")
-	g.P("        binary.LittleEndian.PutUint32(buf[currentOffset:], uint32(itemLen))")
-	g.P("        copy(buf[currentOffset+4:], item)")
-	g.P("        currentOffset += 4 + itemLen")
-	g.P("    }")
-	g.P()
-}
-
-// generateRepeatedVariableFieldUnmarshal generates code to unmarshal a repeated variable-length field (repeated string or bytes)
-func generateRepeatedVariableFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
-	goName := field.GoName
-
-	g.P(fmt.Sprintf("    // Field %d (%s): repeated variable-length", fieldNum, goName))
-
-	// Read offset from table entry
-	g.P(fmt.Sprintf("    if len(data) < tableStart+%d+4 {", tableOffset))
-	g.P("        return fmt.Errorf(\"invalid data: too short for offset\")")
-	g.P("    }")
-	g.P(fmt.Sprintf("    payloadOffset = int(binary.LittleEndian.Uint32(data[tableStart+%d:]))", tableOffset))
-
-	// Read count from payload
-	g.P("    if len(data) < payloadOffset+4 {")
-	g.P("        return fmt.Errorf(\"invalid data: too short for count\")")
-	g.P("    }")
-	g.P("    count = int(binary.LittleEndian.Uint32(data[payloadOffset:]))")
-
-	// Allocate slice
-	if field.Desc.Kind() == protoreflect.StringKind {
-		g.P(fmt.Sprintf("    m.%s = make([]string, count)", goName))
-	} else { // BytesKind
-		g.P(fmt.Sprintf("    m.%s = make([][]byte, count)", goName))
-	}
-
-	// Read each element
-	g.P("    currentOffset = payloadOffset + 4")
-	g.P("    for i := 0; i < count; i++ {")
-	g.P("        if len(data) < currentOffset+4 {")
-	g.P("            return fmt.Errorf(\"invalid data: too short for item length\")")
-	g.P("        }")
-	g.P("        itemLen := int(binary.LittleEndian.Uint32(data[currentOffset:]))")
-	g.P("        if len(data) < currentOffset+4+itemLen {")
-	g.P("            return fmt.Errorf(\"invalid data: too short for item data\")")
-	g.P("        }")
-	if field.Desc.Kind() == protoreflect.StringKind {
-		g.P(fmt.Sprintf("        m.%s[i] = string(data[currentOffset+4 : currentOffset+4+itemLen])", goName))
-	} else { // BytesKind
-		g.P(fmt.Sprintf("        m.%s[i] = make([]byte, itemLen)", goName))
-		g.P(fmt.Sprintf("        copy(m.%s[i], data[currentOffset+4:currentOffset+4+itemLen])", goName))
-	}
-	g.P("        currentOffset += 4 + itemLen")
-	g.P("    }")
-	g.P()
-}
-
-// generateNestedFieldMarshal generates code to marshal a nested message field
-func generateNestedFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
-	goName := field.GoName
-
-	g.P(fmt.Sprintf("    // Field %d (%s): nested message", fieldNum, goName))
-
-	// Write offset in table entry (using payloadOffset variable)
-	g.P(fmt.Sprintf("    if m.%s != nil {", goName))
-	g.P(fmt.Sprintf("        binary.LittleEndian.PutUint32(buf[tableStart+%d:], uint32(payloadStart+payloadOffset))", tableOffset))
-	g.P(fmt.Sprintf("        nestedData, err := m.%s.MarshalSymphony()", goName))
-	g.P("        if err != nil {")
-	g.P("            return nil, fmt.Errorf(\"failed to marshal nested message: %w\", err)")
-	g.P("        }")
-	g.P("        nestedSize := len(nestedData)")
-	g.P("        binary.LittleEndian.PutUint32(buf[payloadStart+payloadOffset:], uint32(nestedSize))")
-	g.P("        copy(buf[payloadStart+payloadOffset+4:], nestedData)")
-	g.P("        payloadOffset += 4 + nestedSize // 4 bytes size + message data")
-	g.P("    } else {")
-	g.P(fmt.Sprintf("        binary.LittleEndian.PutUint32(buf[tableStart+%d:], 0)", tableOffset))
-	g.P("    }")
-	g.P()
-}
-
-// generateNestedFieldUnmarshal generates code to unmarshal a nested message field
-func generateNestedFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
-	goName := field.GoName
-
-	g.P(fmt.Sprintf("    // Field %d (%s): nested message", fieldNum, goName))
-
-	// Read offset from table entry
-	g.P(fmt.Sprintf("    if len(data) < tableStart+%d+4 {", tableOffset))
-	g.P("        return fmt.Errorf(\"invalid data: too short for offset\")")
-	g.P("    }")
-	g.P(fmt.Sprintf("    payloadOffset = int(binary.LittleEndian.Uint32(data[tableStart+%d:]))", tableOffset))
-
-	// Check if message is present (offset 0 means not set)
-	g.P("    if payloadOffset == 0 {")
-	g.P(fmt.Sprintf("        m.%s = nil", goName))
-	g.P("    } else {")
-	g.P("        // Read size from payload")
-	g.P("        if len(data) < payloadOffset+4 {")
-	g.P("            return fmt.Errorf(\"invalid data: too short for nested message size\")")
-	g.P("        }")
-	g.P("        nestedSize := int(binary.LittleEndian.Uint32(data[payloadOffset:]))")
-	g.P("        if len(data) < payloadOffset+4+nestedSize {")
-	g.P("            return fmt.Errorf(\"invalid data: too short for nested message data\")")
-	g.P("        }")
-	g.P(fmt.Sprintf("        if m.%s == nil {", goName))
-	msgType := g.QualifiedGoIdent(field.Message.GoIdent)
-	g.P(fmt.Sprintf("            m.%s = &%s{}", goName, msgType))
-	g.P("        }")
-	g.P(fmt.Sprintf("        if err := m.%s.UnmarshalSymphony(data[payloadOffset+4 : payloadOffset+4+nestedSize]); err != nil {", goName))
-	g.P("            return fmt.Errorf(\"failed to unmarshal nested message: %w\", err)")
-	g.P("        }")
-	g.P("    }")
-	g.P()
-}
-
-// generateRepeatedNestedFieldMarshal generates code to marshal a repeated nested message field
-func generateRepeatedNestedFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
-	goName := field.GoName
-
-	g.P(fmt.Sprintf("    // Field %d (%s): repeated nested message", fieldNum, goName))
-
-	// Write offset in table entry (using payloadOffset variable)
-	g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[tableStart+%d:], uint32(payloadStart+payloadOffset))", tableOffset))
-
-	// Write count in payload
-	g.P(fmt.Sprintf("    count = len(m.%s)", goName))
-	g.P("    binary.LittleEndian.PutUint32(buf[payloadStart+payloadOffset:], uint32(count))")
-
-	// Write each nested message: 4 bytes size + marshaled content
-	g.P("    payloadOffset += 4 // count")
-	g.P("    currentOffset = payloadStart + payloadOffset")
-	g.P(fmt.Sprintf("    for _, item := range m.%s {", goName))
-	g.P("        nestedData, err := item.MarshalSymphony()")
-	g.P("        if err != nil {")
-	g.P("            return nil, fmt.Errorf(\"failed to marshal nested message: %w\", err)")
-	g.P("        }")
-	g.P("        nestedSize := len(nestedData)")
-	g.P("        binary.LittleEndian.PutUint32(buf[currentOffset:], uint32(nestedSize))")
-	g.P("        copy(buf[currentOffset+4:], nestedData)")
-	g.P("        currentOffset += 4 + nestedSize")
-	g.P("        payloadOffset += 4 + nestedSize // 4 bytes size + message data")
-	g.P("    }")
-	g.P()
-}
-
-// generateRepeatedNestedFieldUnmarshal generates code to unmarshal a repeated nested message field
-func generateRepeatedNestedFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
-	goName := field.GoName
-	msgType := g.QualifiedGoIdent(field.Message.GoIdent)
-
-	g.P(fmt.Sprintf("    // Field %d (%s): repeated nested message", fieldNum, goName))
-
-	// Read offset from table entry
-	g.P(fmt.Sprintf("    if len(data) < tableStart+%d+4 {", tableOffset))
-	g.P("        return fmt.Errorf(\"invalid data: too short for offset\")")
-	g.P("    }")
-	g.P(fmt.Sprintf("    payloadOffset = int(binary.LittleEndian.Uint32(data[tableStart+%d:]))", tableOffset))
-
-	// Read count from payload
-	g.P("    if len(data) < payloadOffset+4 {")
-	g.P("        return fmt.Errorf(\"invalid data: too short for count\")")
-	g.P("    }")
-	g.P("    count = int(binary.LittleEndian.Uint32(data[payloadOffset:]))")
-
-	// Allocate slice
-	g.P(fmt.Sprintf("    m.%s = make([]*%s, count)", goName, msgType))
-
-	// Read each nested message
-	g.P("    currentOffset = payloadOffset + 4")
-	g.P("    for i := 0; i < count; i++ {")
-	g.P("        if len(data) < currentOffset+4 {")
-	g.P("            return fmt.Errorf(\"invalid data: too short for nested message size\")")
-	g.P("        }")
-	g.P("        nestedSize := int(binary.LittleEndian.Uint32(data[currentOffset:]))")
-	g.P("        if len(data) < currentOffset+4+nestedSize {")
-	g.P("            return fmt.Errorf(\"invalid data: too short for nested message data\")")
-	g.P("        }")
-	g.P(fmt.Sprintf("        m.%s[i] = &%s{}", goName, msgType))
-	g.P(fmt.Sprintf("        if err := m.%s[i].UnmarshalSymphony(data[currentOffset+4 : currentOffset+4+nestedSize]); err != nil {", goName))
-	g.P("            return fmt.Errorf(\"failed to unmarshal nested message: %w\", err)")
-	g.P("        }")
-	g.P("        currentOffset += 4 + nestedSize")
-	g.P("    }")
-	g.P()
+	return publicTableSize
 }
 
 // getGoTypeName returns the Go type name for a field
@@ -1137,24 +1497,35 @@ func getGoTypeName(field *protogen.Field) string {
 }
 
 // generateRawVariableFieldGetter generates code to read a variable-length field from Raw type
-func generateRawVariableFieldGetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
+func generateRawVariableFieldGetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int, isPublic bool) {
+	fieldNum := field.Desc.Number()
 	goName := field.GoName
 
-	g.P(fmt.Sprintf("    // Field %d (%s): variable-length at table offset %d", fieldNum, goName, tableOffset))
+	// For private fields, adjust offset to be relative to private segment
+	offsetExpr := fmt.Sprintf("%d", tableOffset)
+	if !isPublic {
+		offsetExpr = fmt.Sprintf("offsetToPrivate+%d", tableOffset)
+	}
+
+	g.P(fmt.Sprintf("    // Field %d (%s): variable-length", fieldNum, goName))
 
 	// Check buffer size
-	g.P(fmt.Sprintf("    if len(m) < %d+4 {", tableOffset))
+	g.P(fmt.Sprintf("    if len(m) < %s+4 {", offsetExpr))
 	g.P("        return ", getZeroValue(field))
 	g.P("    }")
 
 	// Read offset from table entry
-	g.P(fmt.Sprintf("    payloadOffset := int(binary.LittleEndian.Uint32(m[%d:]))", tableOffset))
+	g.P(fmt.Sprintf("    payloadOffset := int(binary.LittleEndian.Uint32(m[%s:]))", offsetExpr))
 
 	// Check if offset is valid (0 means not set)
 	g.P("    if payloadOffset == 0 {")
 	g.P("        return ", getZeroValue(field))
 	g.P("    }")
+
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    payloadOffset += offsetToPrivate // convert relative offset to absolute")
+	}
 
 	// Read length from payload
 	g.P("    if len(m) < payloadOffset+4 {")
@@ -1177,19 +1548,33 @@ func generateRawVariableFieldGetter(g *protogen.GeneratedFile, field *protogen.F
 }
 
 // generateRawVariableFieldSetter generates code to write a variable-length field to Raw type
-func generateRawVariableFieldSetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int, msg *protogen.Message) {
-	fieldNum := byte(field.Desc.Number())
+func generateRawVariableFieldSetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int, msg *protogen.Message, isPublic bool) {
+	fieldNum := field.Desc.Number()
 	goName := field.GoName
 
-	g.P(fmt.Sprintf("    // Field %d (%s): variable-length at table offset %d", fieldNum, goName, tableOffset))
+	// For private fields, adjust offset to be relative to private segment
+	offsetExpr := fmt.Sprintf("%d", tableOffset)
+	if !isPublic {
+		offsetExpr = fmt.Sprintf("offsetToPrivate+%d", tableOffset)
+	}
+
+	g.P(fmt.Sprintf("    // Field %d (%s): variable-length", fieldNum, goName))
 
 	// Check buffer size for table entry
-	g.P(fmt.Sprintf("    if len(*m) < %d+4 {", tableOffset))
+	g.P(fmt.Sprintf("    if len(*m) < %s+4 {", offsetExpr))
 	g.P("        return fmt.Errorf(\"buffer too short for table entry\")")
 	g.P("    }")
 
 	// Read current offset and length
-	g.P(fmt.Sprintf("    oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[%d:]))", tableOffset))
+	g.P(fmt.Sprintf("    oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[%s:]))", offsetExpr))
+
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    if oldPayloadOffset > 0 {")
+		g.P("        oldPayloadOffset += offsetToPrivate // convert relative offset to absolute")
+		g.P("    }")
+	}
+
 	g.P("    var oldDataLen int")
 	g.P("    if oldPayloadOffset > 0 && len(*m) >= oldPayloadOffset+4 {")
 	g.P("        oldDataLen = int(binary.LittleEndian.Uint32((*m)[oldPayloadOffset:]))")
@@ -1206,46 +1591,42 @@ func generateRawVariableFieldSetter(g *protogen.GeneratedFile, field *protogen.F
 	g.P("        return nil")
 	g.P("    }")
 
-	// Need to remarshal - unmarshal, update, marshal
-	g.P("    // Need to remarshal: unmarshal, update, marshal")
-	msgType := msg.GoIdent.GoName
-	g.P(fmt.Sprintf("    var temp %s", msgType))
-	g.P("    if err := temp.UnmarshalSymphony([]byte(*m)); err != nil {")
-	g.P("        return fmt.Errorf(\"failed to unmarshal: %w\", err)")
-	g.P("    }")
+	// Need to remarshal
+	generateRemarshalLogic(g, msg, goName, isPublic)
 
-	// Update the field
-	g.P(fmt.Sprintf("    temp.%s = v", goName))
-
-	// Marshal again
-	g.P("    newData, err := temp.MarshalSymphony()")
-	g.P("    if err != nil {")
-	g.P("        return fmt.Errorf(\"failed to marshal: %w\", err)")
-	g.P("    }")
-	g.P("    *m = ", msg.GoIdent.GoName, "Raw(newData)")
-	g.P("    return nil")
 }
 
 // generateRawRepeatedFixedFieldGetter generates code to read a repeated fixed-length field from Raw type
-func generateRawRepeatedFixedFieldGetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
+func generateRawRepeatedFixedFieldGetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int, isPublic bool) {
+	fieldNum := field.Desc.Number()
 	goName := field.GoName
 	fieldSize := getFieldSize(field)
 
-	g.P(fmt.Sprintf("    // Field %d (%s): repeated fixed-length at table offset %d", fieldNum, goName, tableOffset))
+	// For private fields, adjust offset to be relative to private segment
+	offsetExpr := fmt.Sprintf("%d", tableOffset)
+	if !isPublic {
+		offsetExpr = fmt.Sprintf("offsetToPrivate+%d", tableOffset)
+	}
+
+	g.P(fmt.Sprintf("    // Field %d (%s): repeated fixed-length", fieldNum, goName))
 
 	// Check buffer size for table entry
-	g.P(fmt.Sprintf("    if len(m) < %d+4 {", tableOffset))
+	g.P(fmt.Sprintf("    if len(m) < %s+4 {", offsetExpr))
 	g.P("        return ", getZeroValue(field))
 	g.P("    }")
 
 	// Read offset from table entry
-	g.P(fmt.Sprintf("    payloadOffset := int(binary.LittleEndian.Uint32(m[%d:]))", tableOffset))
+	g.P(fmt.Sprintf("    payloadOffset := int(binary.LittleEndian.Uint32(m[%s:]))", offsetExpr))
 
 	// Check if offset is valid (0 means not set)
 	g.P("    if payloadOffset == 0 {")
 	g.P("        return ", getZeroValue(field))
 	g.P("    }")
+
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    payloadOffset += offsetToPrivate // convert relative offset to absolute")
+	}
 
 	// Read count from payload
 	g.P("    if len(m) < payloadOffset+4 {")
@@ -1284,20 +1665,34 @@ func generateRawRepeatedFixedFieldGetter(g *protogen.GeneratedFile, field *proto
 }
 
 // generateRawRepeatedFixedFieldSetter generates code to write a repeated fixed-length field to Raw type
-func generateRawRepeatedFixedFieldSetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int, msg *protogen.Message) {
-	fieldNum := byte(field.Desc.Number())
+func generateRawRepeatedFixedFieldSetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int, msg *protogen.Message, isPublic bool) {
+	fieldNum := field.Desc.Number()
 	goName := field.GoName
 	fieldSize := getFieldSize(field)
 
-	g.P(fmt.Sprintf("    // Field %d (%s): repeated fixed-length at table offset %d", fieldNum, goName, tableOffset))
+	// For private fields, adjust offset to be relative to private segment
+	offsetExpr := fmt.Sprintf("%d", tableOffset)
+	if !isPublic {
+		offsetExpr = fmt.Sprintf("offsetToPrivate+%d", tableOffset)
+	}
+
+	g.P(fmt.Sprintf("    // Field %d (%s): repeated fixed-length", fieldNum, goName))
 
 	// Check buffer size for table entry
-	g.P(fmt.Sprintf("    if len(*m) < %d+4 {", tableOffset))
+	g.P(fmt.Sprintf("    if len(*m) < %s+4 {", offsetExpr))
 	g.P("        return fmt.Errorf(\"buffer too short for table entry\")")
 	g.P("    }")
 
 	// Read current offset and count
-	g.P(fmt.Sprintf("    oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[%d:]))", tableOffset))
+	g.P(fmt.Sprintf("    oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[%s:]))", offsetExpr))
+
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    if oldPayloadOffset > 0 {")
+		g.P("        oldPayloadOffset += offsetToPrivate // convert relative offset to absolute")
+		g.P("    }")
+	}
+
 	g.P("    var oldCount int")
 	g.P("    var oldDataSize int")
 	g.P("    if oldPayloadOffset > 0 && len(*m) >= oldPayloadOffset+4 {")
@@ -1340,45 +1735,40 @@ func generateRawRepeatedFixedFieldSetter(g *protogen.GeneratedFile, field *proto
 	g.P("        return nil")
 	g.P("    }")
 
-	// Need to remarshal - unmarshal, update, marshal
-	g.P("    // Need to remarshal: unmarshal, update, marshal")
-	msgType := msg.GoIdent.GoName
-	g.P(fmt.Sprintf("    var temp %s", msgType))
-	g.P("    if err := temp.UnmarshalSymphony([]byte(*m)); err != nil {")
-	g.P("        return fmt.Errorf(\"failed to unmarshal: %w\", err)")
-	g.P("    }")
-
-	// Update the field
-	g.P(fmt.Sprintf("    temp.%s = v", goName))
-
-	// Marshal again
-	g.P("    newData, err := temp.MarshalSymphony()")
-	g.P("    if err != nil {")
-	g.P("        return fmt.Errorf(\"failed to marshal: %w\", err)")
-	g.P("    }")
-	g.P("    *m = ", msg.GoIdent.GoName, "Raw(newData)")
-	g.P("    return nil")
+	// Need to remarshal
+	generateRemarshalLogic(g, msg, goName, isPublic)
 }
 
 // generateRawRepeatedVariableFieldGetter generates code to read a repeated variable-length field from Raw type
-func generateRawRepeatedVariableFieldGetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
+func generateRawRepeatedVariableFieldGetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int, isPublic bool) {
+	fieldNum := field.Desc.Number()
 	goName := field.GoName
 
-	g.P(fmt.Sprintf("    // Field %d (%s): repeated variable-length at table offset %d", fieldNum, goName, tableOffset))
+	// For private fields, adjust offset to be relative to private segment
+	offsetExpr := fmt.Sprintf("%d", tableOffset)
+	if !isPublic {
+		offsetExpr = fmt.Sprintf("offsetToPrivate+%d", tableOffset)
+	}
+
+	g.P(fmt.Sprintf("    // Field %d (%s): repeated variable-length", fieldNum, goName))
 
 	// Check buffer size for table entry
-	g.P(fmt.Sprintf("    if len(m) < %d+4 {", tableOffset))
+	g.P(fmt.Sprintf("    if len(m) < %s+4 {", offsetExpr))
 	g.P("        return ", getZeroValue(field))
 	g.P("    }")
 
 	// Read offset from table entry
-	g.P(fmt.Sprintf("    payloadOffset := int(binary.LittleEndian.Uint32(m[%d:]))", tableOffset))
+	g.P(fmt.Sprintf("    payloadOffset := int(binary.LittleEndian.Uint32(m[%s:]))", offsetExpr))
 
 	// Check if offset is valid (0 means not set)
 	g.P("    if payloadOffset == 0 {")
 	g.P("        return ", getZeroValue(field))
 	g.P("    }")
+
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    payloadOffset += offsetToPrivate // convert relative offset to absolute")
+	}
 
 	// Read count from payload
 	g.P("    if len(m) < payloadOffset+4 {")
@@ -1415,19 +1805,33 @@ func generateRawRepeatedVariableFieldGetter(g *protogen.GeneratedFile, field *pr
 }
 
 // generateRawRepeatedVariableFieldSetter generates code to write a repeated variable-length field to Raw type
-func generateRawRepeatedVariableFieldSetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int, msg *protogen.Message) {
-	fieldNum := byte(field.Desc.Number())
+func generateRawRepeatedVariableFieldSetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int, msg *protogen.Message, isPublic bool) {
+	fieldNum := field.Desc.Number()
 	goName := field.GoName
 
-	g.P(fmt.Sprintf("    // Field %d (%s): repeated variable-length at table offset %d", fieldNum, goName, tableOffset))
+	// For private fields, adjust offset to be relative to private segment
+	offsetExpr := fmt.Sprintf("%d", tableOffset)
+	if !isPublic {
+		offsetExpr = fmt.Sprintf("offsetToPrivate+%d", tableOffset)
+	}
+
+	g.P(fmt.Sprintf("    // Field %d (%s): repeated variable-length", fieldNum, goName))
 
 	// Check buffer size for table entry
-	g.P(fmt.Sprintf("    if len(*m) < %d+4 {", tableOffset))
+	g.P(fmt.Sprintf("    if len(*m) < %s+4 {", offsetExpr))
 	g.P("        return fmt.Errorf(\"buffer too short for table entry\")")
 	g.P("    }")
 
 	// Read current offset and count
-	g.P(fmt.Sprintf("    oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[%d:]))", tableOffset))
+	g.P(fmt.Sprintf("    oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[%s:]))", offsetExpr))
+
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    if oldPayloadOffset > 0 {")
+		g.P("        oldPayloadOffset += offsetToPrivate // convert relative offset to absolute")
+		g.P("    }")
+	}
+
 	g.P("    var oldCount int")
 	g.P("    var oldDataSize int")
 	g.P("    if oldPayloadOffset > 0 && len(*m) >= oldPayloadOffset+4 {")
@@ -1466,46 +1870,41 @@ func generateRawRepeatedVariableFieldSetter(g *protogen.GeneratedFile, field *pr
 	g.P("        return nil")
 	g.P("    }")
 
-	// Need to remarshal - unmarshal, update, marshal
-	g.P("    // Need to remarshal: unmarshal, update, marshal")
-	msgType := msg.GoIdent.GoName
-	g.P(fmt.Sprintf("    var temp %s", msgType))
-	g.P("    if err := temp.UnmarshalSymphony([]byte(*m)); err != nil {")
-	g.P("        return fmt.Errorf(\"failed to unmarshal: %w\", err)")
-	g.P("    }")
-
-	// Update the field
-	g.P(fmt.Sprintf("    temp.%s = v", goName))
-
-	// Marshal again
-	g.P("    newData, err := temp.MarshalSymphony()")
-	g.P("    if err != nil {")
-	g.P("        return fmt.Errorf(\"failed to marshal: %w\", err)")
-	g.P("    }")
-	g.P("    *m = ", msg.GoIdent.GoName, "Raw(newData)")
-	g.P("    return nil")
+	// Need to remarshal
+	generateRemarshalLogic(g, msg, goName, isPublic)
 }
 
 // generateRawNestedFieldGetter generates code to read a nested message field from Raw type
-func generateRawNestedFieldGetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
+func generateRawNestedFieldGetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int, isPublic bool) {
+	fieldNum := field.Desc.Number()
 	goName := field.GoName
 	rawType := g.QualifiedGoIdent(field.Message.GoIdent) + "Raw"
 
-	g.P(fmt.Sprintf("    // Field %d (%s): nested message at table offset %d", fieldNum, goName, tableOffset))
+	// For private fields, adjust offset to be relative to private segment
+	offsetExpr := fmt.Sprintf("%d", tableOffset)
+	if !isPublic {
+		offsetExpr = fmt.Sprintf("offsetToPrivate+%d", tableOffset)
+	}
+
+	g.P(fmt.Sprintf("    // Field %d (%s): nested message", fieldNum, goName))
 
 	// Check buffer size for table entry
-	g.P(fmt.Sprintf("    if len(m) < %d+4 {", tableOffset))
+	g.P(fmt.Sprintf("    if len(m) < %s+4 {", offsetExpr))
 	g.P("        return nil")
 	g.P("    }")
 
 	// Read offset from table entry
-	g.P(fmt.Sprintf("    payloadOffset := int(binary.LittleEndian.Uint32(m[%d:]))", tableOffset))
+	g.P(fmt.Sprintf("    payloadOffset := int(binary.LittleEndian.Uint32(m[%s:]))", offsetExpr))
 
 	// Check if offset is valid (0 means not set)
 	g.P("    if payloadOffset == 0 {")
 	g.P("        return nil")
 	g.P("    }")
+
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    payloadOffset += offsetToPrivate // convert relative offset to absolute")
+	}
 
 	// Read size from payload
 	g.P("    if len(m) < payloadOffset+4 {")
@@ -1523,20 +1922,34 @@ func generateRawNestedFieldGetter(g *protogen.GeneratedFile, field *protogen.Fie
 }
 
 // generateRawNestedFieldSetter generates code to write a nested message field to Raw type
-func generateRawNestedFieldSetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int, msg *protogen.Message) {
-	fieldNum := byte(field.Desc.Number())
+func generateRawNestedFieldSetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int, msg *protogen.Message, isPublic bool) {
+	fieldNum := field.Desc.Number()
 	goName := field.GoName
 	msgType := g.QualifiedGoIdent(field.Message.GoIdent)
 
-	g.P(fmt.Sprintf("    // Field %d (%s): nested message at table offset %d", fieldNum, goName, tableOffset))
+	// For private fields, adjust offset to be relative to private segment
+	offsetExpr := fmt.Sprintf("%d", tableOffset)
+	if !isPublic {
+		offsetExpr = fmt.Sprintf("offsetToPrivate+%d", tableOffset)
+	}
+
+	g.P(fmt.Sprintf("    // Field %d (%s): nested message", fieldNum, goName))
 
 	// Check buffer size for table entry
-	g.P(fmt.Sprintf("    if len(*m) < %d+4 {", tableOffset))
+	g.P(fmt.Sprintf("    if len(*m) < %s+4 {", offsetExpr))
 	g.P("        return fmt.Errorf(\"buffer too short for table entry\")")
 	g.P("    }")
 
 	// Read current offset and size
-	g.P(fmt.Sprintf("    oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[%d:]))", tableOffset))
+	g.P(fmt.Sprintf("    oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[%s:]))", offsetExpr))
+
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    if oldPayloadOffset > 0 {")
+		g.P("        oldPayloadOffset += offsetToPrivate // convert relative offset to absolute")
+		g.P("    }")
+	}
+
 	g.P("    var oldNestedSize int")
 	g.P("    if oldPayloadOffset > 0 && len(*m) >= oldPayloadOffset+4 {")
 	g.P("        oldNestedSize = int(binary.LittleEndian.Uint32((*m)[oldPayloadOffset:]))")
@@ -1553,51 +1966,106 @@ func generateRawNestedFieldSetter(g *protogen.GeneratedFile, field *protogen.Fie
 	g.P("        return nil")
 	g.P("    }")
 
-	// Need to remarshal - unmarshal, update, marshal
-	g.P("    // Need to remarshal: unmarshal, update, marshal")
+	// Need to remarshal
 	parentMsgType := msg.GoIdent.GoName
-	g.P(fmt.Sprintf("    var temp %s", parentMsgType))
-	g.P("    if err := temp.UnmarshalSymphony([]byte(*m)); err != nil {")
-	g.P("        return fmt.Errorf(\"failed to unmarshal: %w\", err)")
-	g.P("    }")
+	if isPublic {
+		// For public fields: unmarshal complete (fake), update, marshal complete, truncate
+		g.P("    // Need to remarshal: unmarshal, update, marshal, truncate to public-only")
+		g.P(fmt.Sprintf("    var temp %s", parentMsgType))
+		g.P("    // Create a fake complete buffer by appending a minimal private segment")
+		g.P("    // Calculate private table size")
 
-	// Update the field - need to convert Raw to regular message type
-	g.P(fmt.Sprintf("    if temp.%s == nil {", goName))
-	g.P(fmt.Sprintf("        temp.%s = &%s{}", goName, msgType))
-	g.P("    }")
-	g.P(fmt.Sprintf("    if err := temp.%s.UnmarshalSymphony([]byte(v)); err != nil {", goName))
-	g.P("        return fmt.Errorf(\"failed to unmarshal nested message: %w\", err)")
-	g.P("    }")
+		// Calculate how many bytes the private table needs
+		_, privateFields := classifyFields(msg)
+		privateTableSize := 0
+		for _, field := range privateFields {
+			if isFixedLengthField(field) {
+				privateTableSize += getFieldSize(field)
+			} else {
+				privateTableSize += 4 // offset for variable/repeated/nested fields
+			}
+		}
 
-	// Marshal again
-	g.P("    newData, err := temp.MarshalSymphony()")
-	g.P("    if err != nil {")
-	g.P("        return fmt.Errorf(\"failed to marshal: %w\", err)")
-	g.P("    }")
-	g.P("    *m = ", parentMsgType, "Raw(newData)")
-	g.P("    return nil")
+		g.P(fmt.Sprintf("    privateTableSize := %d // bytes needed for empty private table", privateTableSize))
+		g.P("    fakeComplete := make([]byte, len(*m)+1+privateTableSize) // version byte + private table")
+		g.P("    copy(fakeComplete, *m)")
+		g.P("    // Update offsetToPrivate to point to the appended private segment")
+		g.P("    binary.LittleEndian.PutUint32(fakeComplete[1:5], uint32(len(*m)))")
+		g.P("    fakeComplete[len(*m)] = 0x01 // private segment version")
+		g.P("    if err := temp.UnmarshalSymphony(fakeComplete); err != nil {")
+		g.P("        return fmt.Errorf(\"failed to unmarshal: %w\", err)")
+		g.P("    }")
+		// Update the field - need to convert Raw to regular message type
+		g.P(fmt.Sprintf("    if temp.%s == nil {", goName))
+		g.P(fmt.Sprintf("        temp.%s = &%s{}", goName, msgType))
+		g.P("    }")
+		g.P(fmt.Sprintf("    if err := temp.%s.UnmarshalSymphony([]byte(v)); err != nil {", goName))
+		g.P("        return fmt.Errorf(\"failed to unmarshal nested message: %w\", err)")
+		g.P("    }")
+		// Marshal complete buffer
+		g.P("    fullData, err := temp.MarshalSymphony()")
+		g.P("    if err != nil {")
+		g.P("        return fmt.Errorf(\"failed to marshal: %w\", err)")
+		g.P("    }")
+		// Truncate to public-only
+		g.P("    offsetToPrivate := int(binary.LittleEndian.Uint32(fullData[1:5]))")
+		g.P("    *m = ", parentMsgType, "Raw(fullData[:offsetToPrivate])")
+		g.P("    return nil")
+	} else {
+		// For private fields: unmarshal complete buffer, update, marshal complete buffer
+		g.P("    // Need to remarshal: unmarshal, update, marshal")
+		g.P(fmt.Sprintf("    var temp %s", parentMsgType))
+		g.P("    if err := temp.UnmarshalSymphony([]byte(*m)); err != nil {")
+		g.P("        return fmt.Errorf(\"failed to unmarshal: %w\", err)")
+		g.P("    }")
+		// Update the field - need to convert Raw to regular message type
+		g.P(fmt.Sprintf("    if temp.%s == nil {", goName))
+		g.P(fmt.Sprintf("        temp.%s = &%s{}", goName, msgType))
+		g.P("    }")
+		g.P(fmt.Sprintf("    if err := temp.%s.UnmarshalSymphony([]byte(v)); err != nil {", goName))
+		g.P("        return fmt.Errorf(\"failed to unmarshal nested message: %w\", err)")
+		g.P("    }")
+		// Marshal again
+		g.P("    newData, err := temp.MarshalSymphony()")
+		g.P("    if err != nil {")
+		g.P("        return fmt.Errorf(\"failed to marshal: %w\", err)")
+		g.P("    }")
+		g.P("    *m = ", parentMsgType, "Raw(newData)")
+		g.P("    return nil")
+	}
 }
 
 // generateRawRepeatedNestedFieldGetter generates code to read a repeated nested message field from Raw type
-func generateRawRepeatedNestedFieldGetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int) {
-	fieldNum := byte(field.Desc.Number())
+func generateRawRepeatedNestedFieldGetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int, isPublic bool) {
+	fieldNum := field.Desc.Number()
 	goName := field.GoName
 	rawType := g.QualifiedGoIdent(field.Message.GoIdent) + "Raw"
 
-	g.P(fmt.Sprintf("    // Field %d (%s): repeated nested message at table offset %d", fieldNum, goName, tableOffset))
+	// For private fields, adjust offset to be relative to private segment
+	offsetExpr := fmt.Sprintf("%d", tableOffset)
+	if !isPublic {
+		offsetExpr = fmt.Sprintf("offsetToPrivate+%d", tableOffset)
+	}
+
+	g.P(fmt.Sprintf("    // Field %d (%s): repeated nested message", fieldNum, goName))
 
 	// Check buffer size for table entry
-	g.P(fmt.Sprintf("    if len(m) < %d+4 {", tableOffset))
+	g.P(fmt.Sprintf("    if len(m) < %s+4 {", offsetExpr))
 	g.P("        return nil")
 	g.P("    }")
 
 	// Read offset from table entry
-	g.P(fmt.Sprintf("    payloadOffset := int(binary.LittleEndian.Uint32(m[%d:]))", tableOffset))
+	g.P(fmt.Sprintf("    payloadOffset := int(binary.LittleEndian.Uint32(m[%s:]))", offsetExpr))
 
 	// Check if offset is valid (0 means not set)
 	g.P("    if payloadOffset == 0 {")
 	g.P("        return nil")
 	g.P("    }")
+
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    payloadOffset += offsetToPrivate // convert relative offset to absolute")
+	}
 
 	// Read count from payload
 	g.P("    if len(m) < payloadOffset+4 {")
@@ -1625,19 +2093,33 @@ func generateRawRepeatedNestedFieldGetter(g *protogen.GeneratedFile, field *prot
 }
 
 // generateRawRepeatedNestedFieldSetter generates code to write a repeated nested message field to Raw type
-func generateRawRepeatedNestedFieldSetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int, msg *protogen.Message) {
-	fieldNum := byte(field.Desc.Number())
+func generateRawRepeatedNestedFieldSetter(g *protogen.GeneratedFile, field *protogen.Field, tableOffset int, msg *protogen.Message, isPublic bool) {
+	fieldNum := field.Desc.Number()
 	goName := field.GoName
 
-	g.P(fmt.Sprintf("    // Field %d (%s): repeated nested message at table offset %d", fieldNum, goName, tableOffset))
+	// For private fields, adjust offset to be relative to private segment
+	offsetExpr := fmt.Sprintf("%d", tableOffset)
+	if !isPublic {
+		offsetExpr = fmt.Sprintf("offsetToPrivate+%d", tableOffset)
+	}
+
+	g.P(fmt.Sprintf("    // Field %d (%s): repeated nested message", fieldNum, goName))
 
 	// Check buffer size for table entry
-	g.P(fmt.Sprintf("    if len(*m) < %d+4 {", tableOffset))
+	g.P(fmt.Sprintf("    if len(*m) < %s+4 {", offsetExpr))
 	g.P("        return fmt.Errorf(\"buffer too short for table entry\")")
 	g.P("    }")
 
 	// Read current offset and calculate old total size
-	g.P(fmt.Sprintf("    oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[%d:]))", tableOffset))
+	g.P(fmt.Sprintf("    oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[%s:]))", offsetExpr))
+
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    if oldPayloadOffset > 0 {")
+		g.P("        oldPayloadOffset += offsetToPrivate // convert relative offset to absolute")
+		g.P("    }")
+	}
+
 	g.P("    var oldCount int")
 	g.P("    var oldDataSize int")
 	g.P("    if oldPayloadOffset > 0 && len(*m) >= oldPayloadOffset+4 {")
@@ -1676,29 +2158,75 @@ func generateRawRepeatedNestedFieldSetter(g *protogen.GeneratedFile, field *prot
 	g.P("        return nil")
 	g.P("    }")
 
-	// Need to remarshal - unmarshal, update, marshal
-	g.P("    // Need to remarshal: unmarshal, update, marshal")
-	msgType := msg.GoIdent.GoName
-	g.P(fmt.Sprintf("    var temp %s", msgType))
-	g.P("    if err := temp.UnmarshalSymphony([]byte(*m)); err != nil {")
-	g.P("        return fmt.Errorf(\"failed to unmarshal: %w\", err)")
-	g.P("    }")
-
-	// Update the field - convert Raw types to regular message types
+	// Need to remarshal
+	parentMsgType := msg.GoIdent.GoName
 	nestedMsgType := g.QualifiedGoIdent(field.Message.GoIdent)
-	g.P(fmt.Sprintf("    temp.%s = make([]*%s, len(v))", goName, nestedMsgType))
-	g.P("    for i, rawItem := range v {")
-	g.P(fmt.Sprintf("        temp.%s[i] = &%s{}", goName, nestedMsgType))
-	g.P(fmt.Sprintf("        if err := temp.%s[i].UnmarshalSymphony([]byte(rawItem)); err != nil {", goName))
-	g.P("            return fmt.Errorf(\"failed to unmarshal nested message: %w\", err)")
-	g.P("        }")
-	g.P("    }")
 
-	// Marshal again
-	g.P("    newData, err := temp.MarshalSymphony()")
-	g.P("    if err != nil {")
-	g.P("        return fmt.Errorf(\"failed to marshal: %w\", err)")
-	g.P("    }")
-	g.P("    *m = ", msgType, "Raw(newData)")
-	g.P("    return nil")
+	if isPublic {
+		// For public fields: unmarshal complete (fake), update, marshal complete, truncate
+		g.P("    // Need to remarshal: unmarshal, update, marshal, truncate to public-only")
+		g.P(fmt.Sprintf("    var temp %s", parentMsgType))
+		g.P("    // Create a fake complete buffer by appending a minimal private segment")
+		g.P("    // Calculate private table size")
+
+		// Calculate how many bytes the private table needs
+		_, privateFields := classifyFields(msg)
+		privateTableSize := 0
+		for _, field := range privateFields {
+			if isFixedLengthField(field) {
+				privateTableSize += getFieldSize(field)
+			} else {
+				privateTableSize += 4 // offset for variable/repeated/nested fields
+			}
+		}
+
+		g.P(fmt.Sprintf("    privateTableSize := %d // bytes needed for empty private table", privateTableSize))
+		g.P("    fakeComplete := make([]byte, len(*m)+1+privateTableSize) // version byte + private table")
+		g.P("    copy(fakeComplete, *m)")
+		g.P("    // Update offsetToPrivate to point to the appended private segment")
+		g.P("    binary.LittleEndian.PutUint32(fakeComplete[1:5], uint32(len(*m)))")
+		g.P("    fakeComplete[len(*m)] = 0x01 // private segment version")
+		g.P("    if err := temp.UnmarshalSymphony(fakeComplete); err != nil {")
+		g.P("        return fmt.Errorf(\"failed to unmarshal: %w\", err)")
+		g.P("    }")
+		// Update the field - convert Raw types to regular message types
+		g.P(fmt.Sprintf("    temp.%s = make([]*%s, len(v))", goName, nestedMsgType))
+		g.P("    for i, rawItem := range v {")
+		g.P(fmt.Sprintf("        temp.%s[i] = &%s{}", goName, nestedMsgType))
+		g.P(fmt.Sprintf("        if err := temp.%s[i].UnmarshalSymphony([]byte(rawItem)); err != nil {", goName))
+		g.P("            return fmt.Errorf(\"failed to unmarshal nested message: %w\", err)")
+		g.P("        }")
+		g.P("    }")
+		// Marshal complete buffer
+		g.P("    fullData, err := temp.MarshalSymphony()")
+		g.P("    if err != nil {")
+		g.P("        return fmt.Errorf(\"failed to marshal: %w\", err)")
+		g.P("    }")
+		// Truncate to public-only
+		g.P("    offsetToPrivate := int(binary.LittleEndian.Uint32(fullData[1:5]))")
+		g.P("    *m = ", parentMsgType, "Raw(fullData[:offsetToPrivate])")
+		g.P("    return nil")
+	} else {
+		// For private fields: unmarshal complete buffer, update, marshal complete buffer
+		g.P("    // Need to remarshal: unmarshal, update, marshal")
+		g.P(fmt.Sprintf("    var temp %s", parentMsgType))
+		g.P("    if err := temp.UnmarshalSymphony([]byte(*m)); err != nil {")
+		g.P("        return fmt.Errorf(\"failed to unmarshal: %w\", err)")
+		g.P("    }")
+		// Update the field - convert Raw types to regular message types
+		g.P(fmt.Sprintf("    temp.%s = make([]*%s, len(v))", goName, nestedMsgType))
+		g.P("    for i, rawItem := range v {")
+		g.P(fmt.Sprintf("        temp.%s[i] = &%s{}", goName, nestedMsgType))
+		g.P(fmt.Sprintf("        if err := temp.%s[i].UnmarshalSymphony([]byte(rawItem)); err != nil {", goName))
+		g.P("            return fmt.Errorf(\"failed to unmarshal nested message: %w\", err)")
+		g.P("        }")
+		g.P("    }")
+		// Marshal again
+		g.P("    newData, err := temp.MarshalSymphony()")
+		g.P("    if err != nil {")
+		g.P("        return fmt.Errorf(\"failed to marshal: %w\", err)")
+		g.P("    }")
+		g.P("    *m = ", parentMsgType, "Raw(newData)")
+		g.P("    return nil")
+	}
 }
