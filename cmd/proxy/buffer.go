@@ -52,10 +52,11 @@ func (pb *PacketBuffer) Close() {
 	close(pb.done)
 }
 
-// ProcessPacket processes a packet fragment. If buffering is enabled, it buffers fragments
-// and returns a complete packet when all fragments are received. If buffering is disabled
-// or the packet is already complete, it returns immediately. Returns nil, PacketVerdictUnknown, nil if still
-// waiting for more fragments. Returns PacketVerdictUnknown if no verdict exists for this RPC ID.
+// ProcessPacket processes a packet fragment. It buffers fragments and returns a BufferedPacket
+// when we have enough data to cover the public segment, or when a verdict already exists for this RPC ID.
+// Returns (nil, PacketVerdictUnknown, nil) if still waiting for more fragments.
+// Returns (BufferedPacket, verdict, nil) when a packet is ready for processing, where verdict indicates
+// if a preexisting verdict exists (PacketVerdictPass/Drop) or PacketVerdictUnknown if this is the first time.
 func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.BufferedPacket, util.PacketVerdict, error) {
 	// Parse packet using the packet codec
 	dataPacket, err := pb.deserializePacket(data)
@@ -74,7 +75,8 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.Buff
 	pb.verdictsMu.RUnlock()
 
 	if verdictExists {
-		// Verdict exists, forward the packet immediately without buffering
+		// Verdict exists, forward the packet immediately without buffering or element chain processing
+		// Preserve the original fragment's sequence number and TotalPackets for correct forwarding
 		isFull := dataPacket.TotalPackets == 1
 		seqNumber := uint16(0)
 		if !isFull {
@@ -96,7 +98,8 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.Buff
 		}, verdict, nil
 	}
 
-	// If this is the first packet and offset_private < MTU, process immediately
+	// If this is the first packet and the entire message fits in MTU (offset_private < MTU),
+	// we can process it immediately without buffering
 	if dataPacket.SeqNumber == 0 && isOffsetPrivateLessThanMTU(dataPacket.Payload) {
 		return &util.BufferedPacket{
 			Payload:      dataPacket.Payload,
@@ -117,7 +120,9 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.Buff
 	// Otherwise, add fragment to buffer and check if we have enough data
 	publicSegment := pb.addFragmentToBuffer(src, dataPacket)
 	if publicSegment != nil {
-		// We have enough data to cover the public segment
+		// We have enough contiguous data to cover the public segment (bytes 0 to offsetPrivate)
+		// SeqNumber is set to -1 to indicate this is a new fragmented message (the public segment)
+		// that will be re-fragmented if needed when forwarding
 		return &util.BufferedPacket{
 			Payload:      publicSegment,
 			Source:       src,
@@ -128,9 +133,9 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.Buff
 			DstPort:      dataPacket.DstPort,
 			SrcIP:        dataPacket.SrcIP,
 			SrcPort:      dataPacket.SrcPort,
-			IsFull:       false, // This is only the public segment, not the full packet
-			SeqNumber:    -1,
-			TotalPackets: dataPacket.TotalPackets,
+			IsFull:       false,                   // This is only the public segment, not the full packet
+			SeqNumber:    -1,                      // -1 indicates a new message that will be fragmented if needed
+			TotalPackets: dataPacket.TotalPackets, // Original message's total (may be recalculated when fragmenting)
 		}, util.PacketVerdictUnknown, nil
 	}
 
@@ -344,26 +349,30 @@ type FragmentedPacket struct {
 	PacketType util.PacketType
 }
 
-// FragmentPacketForForward fragments a complete packet if needed
-// Returns a slice of fragmented packets to send
+// FragmentPacketForForward fragments a packet payload for transmission if needed.
+// For single packets: preserves original sequence number and TotalPackets when forwarding existing fragments.
+// For multi-packet: creates a new fragmented message with sequence numbers starting from 0.
+// Returns a slice of fragmented packets ready to send.
 func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPacket) ([]FragmentedPacket, error) {
-	// Use the payload directly from bufferedPacket
+	// Use the payload directly from bufferedPacket (may have been modified by element chain)
 	completePayload := bufferedPacket.Payload
-	chunkSize := packet.MaxUDPPayloadSize - 29 // 29 bytes for header
+	chunkSize := packet.MaxUDPPayloadSize - 29 // 29 bytes for header (1+8+2+2+4+2+4+2+4)
 
 	// Check if payload fits in a single packet
 	if len(completePayload) <= chunkSize {
-		// Single packet - preserve original sequence number and TotalPackets if forwarding a fragment
+		// Single packet case
 		seqNum := uint16(0)
 		totalPackets := uint16(1)
 
 		if bufferedPacket.SeqNumber >= 0 {
-			// Forwarding an existing fragment - preserve its sequence number and TotalPackets
+			// Forwarding an existing fragment - preserve its original sequence number and TotalPackets
+			// to maintain the original fragmented message structure
 			seqNum = uint16(bufferedPacket.SeqNumber)
 			if bufferedPacket.TotalPackets > 0 {
 				totalPackets = bufferedPacket.TotalPackets
 			}
 		}
+		// If SeqNumber < 0 (i.e., -1), this is a new message/public segment, use seq 0 and TotalPackets 1
 
 		// Create a single packet from payload
 		codec := &packet.DataPacketCodec{}
@@ -394,10 +403,10 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPa
 		}, nil
 	}
 
-	// The complete payload exceeds MTU, need to fragment it for transmission
-	// This creates a NEW fragmented message, so sequence numbers start from 0
-	// TODO: This assumes that the modifcation does not change the total number of packets.
-	// This is not always the case, so we need to handle this case by on-demand fragmenting.
+	// The complete payload exceeds MTU, need to fragment it for transmission.
+	// This creates a NEW fragmented message (even if the original was fragmented),
+	// so sequence numbers start from 0 and TotalPackets is recalculated based on the payload size.
+	// Note: If the payload was modified by element chain, we correctly recalculate fragmentation here.
 	totalPackets := uint16((len(completePayload) + chunkSize - 1) / chunkSize)
 	codec := &packet.DataPacketCodec{}
 	fragments := make([]FragmentedPacket, 0, totalPackets)

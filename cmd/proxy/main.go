@@ -167,8 +167,11 @@ func runProxyServer(port int, state *ProxyState) error {
 func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte) {
 	ctx := context.Background()
 
-	// Process packet (may return nil if still buffering fragments)
-	// Returns a buffered packet if we have enough data to cover the public segment or we already have a verdict, nil otherwise
+	// Process packet (may return nil if still buffering fragments).
+	// Returns a buffered packet when:
+	//   - We have enough data to cover the public segment, OR
+	//   - A verdict already exists for this RPC ID (for fast forwarding)
+	// Returns nil if still waiting for more fragments.
 	bufferedPacket, existingVerdict, err := state.packetBuffer.ProcessPacket(data, src)
 	if err != nil {
 		logging.Error("Error processing packet through buffer", zap.Error(err))
@@ -181,13 +184,14 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		return
 	}
 
-	// If verdict exists and it's a drop, don't forward (We should already sent the error packet)
+	// If verdict exists and it's a drop, don't forward the packet
 	if existingVerdict == util.PacketVerdictDrop {
 		logging.Debug("Packet dropped due to existing drop verdict", zap.Uint64("rpcID", bufferedPacket.RPCID))
 		return
 	}
 
-	// If verdict exists (not Unknown), skip element chain and forward directly
+	// If verdict exists (not Unknown), skip element chain and forward the original packet directly
+	// This enables fast forwarding of subsequent fragments without re-processing
 	if existingVerdict != util.PacketVerdictUnknown {
 		logging.Debug("Forwarding packet with preexisting verdict, skipping element chain", zap.Uint64("rpcID", bufferedPacket.RPCID))
 	} else {
@@ -226,9 +230,10 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		zap.String("packetType", bufferedPacket.PacketType.String()))
 }
 
-// runElementsChain processes the Message Data through the element chain
-// Modifications to the packet are made in place
-// Returns an error if processing fails
+// runElementsChain processes the packet through the element chain.
+// Modifications to the packet payload are made in place via the processedPacket return value.
+// Stores the verdict for future fast forwarding of fragments with the same RPC ID.
+// Returns an error if processing fails or if the verdict is PacketVerdictDrop.
 func runElementsChain(ctx context.Context, state *ProxyState, packet *util.BufferedPacket) error {
 	var err error
 	var processedPacket *util.BufferedPacket
