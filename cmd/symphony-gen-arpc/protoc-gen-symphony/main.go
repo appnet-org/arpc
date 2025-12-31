@@ -281,8 +281,8 @@ func generateStructMarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
 	// Write reserved header
 	g.P("    // Write reserved header")
 	g.P("    binary.LittleEndian.PutUint32(buf[1:5], uint32(publicSegmentSize)) // offset_to_private")
-	g.P("    binary.LittleEndian.PutUint32(buf[5:9], 0) // service_name")
-	g.P("    binary.LittleEndian.PutUint32(buf[9:13], 0) // method_name")
+	g.P("    binary.LittleEndian.PutUint32(buf[5:9], 0) // service_id")
+	g.P("    binary.LittleEndian.PutUint32(buf[9:13], 0) // method_id")
 	g.P()
 
 	// Write public fields

@@ -22,16 +22,82 @@ func generateFile(plugin *protogen.Plugin, file *protogen.File) {
 	g.P(`)`)
 	g.P()
 
+	// Assign sequential IDs to services
+	serviceIDs := make(map[*protogen.Service]uint32)
+	for i, service := range file.Services {
+		serviceIDs[service] = uint32(i + 1) // Start from 1
+	}
+
+	// Generate service ID constants
+	if len(file.Services) > 0 {
+		g.P("// Service IDs")
+		g.P("const (")
+		for _, service := range file.Services {
+			g.P("  ServiceID_", service.GoName, " = ", serviceIDs[service])
+		}
+		g.P(")")
+		g.P()
+
+		// Generate service name <-> ID lookup maps
+		g.P("// Service name <-> ID mappings")
+		g.P("var serviceNameToID = map[string]uint32{")
+		for _, service := range file.Services {
+			g.P("  \"", service.GoName, "\": ServiceID_", service.GoName, ",")
+		}
+		g.P("}")
+		g.P()
+
+		g.P("var serviceIDToName = map[uint32]string{")
+		for _, service := range file.Services {
+			g.P("  ServiceID_", service.GoName, ": \"", service.GoName, "\",")
+		}
+		g.P("}")
+		g.P()
+	}
+
 	// Generate code for each service in the file
 	for _, service := range file.Services {
-		genService(g, service)
+		genService(g, service, serviceIDs[service])
 	}
 }
 
 // genService generates the client and server code for a single service.
-func genService(g *protogen.GeneratedFile, service *protogen.Service) {
+func genService(g *protogen.GeneratedFile, service *protogen.Service, serviceID uint32) {
 	svcName := service.GoName
 	clientName := svcName + "Client"
+
+	// Assign sequential IDs to methods
+	methodIDs := make(map[*protogen.Method]uint32)
+	for i, method := range service.Methods {
+		methodIDs[method] = uint32(i + 1) // Start from 1
+	}
+
+	// Generate method ID constants
+	if len(service.Methods) > 0 {
+		g.P("// Method IDs for ", svcName)
+		g.P("const (")
+		for _, method := range service.Methods {
+			g.P("  ", svcName, "_MethodID_", method.GoName, " = ", methodIDs[method])
+		}
+		g.P(")")
+		g.P()
+
+		// Generate method name <-> ID lookup maps
+		g.P("// Method name <-> ID mappings for ", svcName)
+		g.P("var ", svcName, "_methodNameToID = map[string]uint32{")
+		for _, method := range service.Methods {
+			g.P("  \"", method.GoName, "\": ", svcName, "_MethodID_", method.GoName, ",")
+		}
+		g.P("}")
+		g.P()
+
+		g.P("var ", svcName, "_methodIDToName = map[uint32]string{")
+		for _, method := range service.Methods {
+			g.P("  ", svcName, "_MethodID_", method.GoName, ": \"", method.GoName, "\",")
+		}
+		g.P("}")
+		g.P()
+	}
 
 	// === Client interface ===
 	g.P("// ", clientName, " is the client API for ", svcName, " service.")
@@ -51,6 +117,10 @@ func genService(g *protogen.GeneratedFile, service *protogen.Service) {
 
 	// Constructor for the client implementation
 	g.P("func New", clientName, "(client *rpc.Client) ", clientName, " {")
+	g.P("  // Create and register service registry")
+	g.P("  registry := rpc.NewServiceRegistry()")
+	g.P("  registry.RegisterService(\"", service.GoName, "\", ServiceID_", service.GoName, ", ", svcName, "_methodNameToID)")
+	g.P("  client.SetServiceRegistry(registry)")
 	g.P("  return &", implName, "{client: client}")
 	g.P("}")
 	g.P()
@@ -84,12 +154,14 @@ func genService(g *protogen.GeneratedFile, service *protogen.Service) {
 	g.P("func Register", svcName, "Server(s *rpc.Server, srv ", svcName, "Server) {")
 	g.P("  s.RegisterService(&rpc.ServiceDesc{")
 	g.P("    ServiceName: \"", service.GoName, "\",")
+	g.P("    ServiceID: ServiceID_", service.GoName, ",")
 	g.P("    ServiceImpl: srv,")
-	g.P("    Methods: map[string]*rpc.MethodDesc{")
+	g.P("    MethodsByID: map[uint32]*rpc.MethodDesc{")
 	for _, m := range service.Methods {
 		handlerName := fmt.Sprintf("_%s_%s_Handler", svcName, m.GoName)
-		g.P("      \"", m.GoName, "\": {")
+		g.P("      ", svcName, "_MethodID_", m.GoName, ": {")
 		g.P("        MethodName: \"", m.GoName, "\",")
+		g.P("        MethodID: ", svcName, "_MethodID_", m.GoName, ",")
 		g.P("        Handler: ", handlerName, ",")
 		g.P("      },")
 	}

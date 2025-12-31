@@ -29,6 +29,7 @@ type Client struct {
 	transport       *transport.UDPTransport
 	serializer      serializer.Serializer
 	metadataCodec   metadata.MetadataCodec
+	serviceRegistry *ServiceRegistry
 	defaultAddr     string
 	rpcElementChain *element.RPCElementChain
 
@@ -52,6 +53,7 @@ func NewClient(serializer serializer.Serializer, addr string, rpcElements []elem
 		transport:       t,
 		serializer:      serializer,
 		metadataCodec:   metadata.MetadataCodec{},
+		serviceRegistry: NewServiceRegistry(),
 		defaultAddr:     addr,
 		rpcElementChain: element.NewRPCElementChain(rpcElements...),
 		pendingCalls:    make(map[uint64]chan *responseData),
@@ -73,6 +75,7 @@ func NewClientWithLocalAddr(serializer serializer.Serializer, addr, localAddr st
 		transport:       t,
 		serializer:      serializer,
 		metadataCodec:   metadata.MetadataCodec{},
+		serviceRegistry: NewServiceRegistry(),
 		defaultAddr:     addr,
 		rpcElementChain: element.NewRPCElementChain(rpcElements...),
 		pendingCalls:    make(map[uint64]chan *responseData),
@@ -86,6 +89,11 @@ func NewClientWithLocalAddr(serializer serializer.Serializer, addr, localAddr st
 // Transport returns the underlying UDP transport for cleanup purposes
 func (c *Client) Transport() *transport.UDPTransport {
 	return c.transport
+}
+
+// SetServiceRegistry sets or updates the service registry for the client
+func (c *Client) SetServiceRegistry(registry *ServiceRegistry) {
+	c.serviceRegistry = registry
 }
 
 // receiveLoop runs in a background goroutine and dispatches responses to pending calls
@@ -141,10 +149,10 @@ func (c *Client) unregisterPendingCall(rpcID uint64) {
 }
 
 // frameRequest constructs a binary message with
-// [serviceLen(2B)][service][methodLen(2B)][method][metadataLen(2B)][metadata][payload]
-func (c *Client) frameRequest(service, method string, metadataBytes, payload []byte, pool *common.BufferPool) ([]byte, error) {
-	// Pre-calculate buffer size (headers: 2 + 2 + 2 = 6 bytes)
-	totalSize := 6 + len(service) + len(method) + len(metadataBytes) + len(payload)
+// [metadataLen(2B)][metadata][payload]
+func (c *Client) frameRequest(metadataBytes, payload []byte, pool *common.BufferPool) ([]byte, error) {
+	// Pre-calculate buffer size (header: 2 bytes)
+	totalSize := 2 + len(metadataBytes) + len(payload)
 
 	var buf []byte
 	if pool != nil {
@@ -153,56 +161,20 @@ func (c *Client) frameRequest(service, method string, metadataBytes, payload []b
 		buf = make([]byte, totalSize)
 	}
 
-	// service
-	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(service)))
-	copy(buf[2:], service)
-
-	// method
-	methodStart := 2 + len(service)
-	binary.LittleEndian.PutUint16(buf[methodStart:methodStart+2], uint16(len(method)))
-	copy(buf[methodStart+2:], method)
-
 	// metadata
-	metadataStart := methodStart + 2 + len(method)
-	binary.LittleEndian.PutUint16(buf[metadataStart:metadataStart+2], uint16(len(metadataBytes)))
-	copy(buf[metadataStart+2:], metadataBytes)
+	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(metadataBytes)))
+	copy(buf[2:], metadataBytes)
 
 	// payload
-	payloadStart := metadataStart + 2 + len(metadataBytes)
+	payloadStart := 2 + len(metadataBytes)
 	copy(buf[payloadStart:], payload)
 
 	return buf, nil
 }
 
-func (c *Client) parseFramedResponse(data []byte) (service string, method string, payload []byte, err error) {
-	offset := 0
-
-	// Parse service name
-	if len(data) < 2 {
-		return "", "", nil, fmt.Errorf("invalid response (too short for serviceLen)")
-	}
-	serviceLen := int(binary.LittleEndian.Uint16(data[offset:]))
-	offset += 2
-	if offset+serviceLen > len(data) {
-		return "", "", nil, fmt.Errorf("invalid response (truncated service)")
-	}
-	service = string(data[offset : offset+serviceLen])
-	offset += serviceLen
-
-	// Parse method name
-	if offset+2 > len(data) {
-		return "", "", nil, fmt.Errorf("invalid response (too short for methodLen)")
-	}
-	methodLen := int(binary.LittleEndian.Uint16(data[offset:]))
-	offset += 2
-	if offset+methodLen > len(data) {
-		return "", "", nil, fmt.Errorf("invalid response (truncated method)")
-	}
-	method = string(data[offset : offset+methodLen])
-	offset += methodLen
-
-	payload = data[offset:]
-	return service, method, payload, nil
+func (c *Client) parseFramedResponse(data []byte) (payload []byte, err error) {
+	// Response is just the raw payload now, no framing
+	return data, nil
 }
 
 func (c *Client) handleErrorPacket(ctx context.Context, data []byte, errType packet.PacketType) error {
@@ -234,8 +206,8 @@ func (c *Client) handleErrorPacket(ctx context.Context, data []byte, errType pac
 }
 
 func (c *Client) handleResponsePacket(ctx context.Context, data []byte, rpcID uint64, resp any) error {
-	// Parse framed response: extract service, method, payload
-	_, _, respPayloadBytes, err := c.parseFramedResponse(data)
+	// Parse framed response: extract payload
+	respPayloadBytes, err := c.parseFramedResponse(data)
 	if err != nil {
 		// Return buffer to pool on parse error
 		c.transport.GetBufferPool().Put(data)
@@ -311,9 +283,32 @@ func (c *Client) Call(ctx context.Context, service, method string, req any, resp
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Add the destination IP address and port to the request payload
+	// Lookup service and method IDs from registry
+	serviceID, ok := c.serviceRegistry.GetServiceID(rpcReq.ServiceName)
+	if !ok {
+		// Return metadata buffer to pool on error
+		if len(md) > 0 && metadataBytes != nil {
+			c.transport.GetBufferPool().Put(metadataBytes)
+		}
+		return fmt.Errorf("service not found in registry: %s", rpcReq.ServiceName)
+	}
+	methodID, ok := c.serviceRegistry.GetMethodID(rpcReq.ServiceName, rpcReq.Method)
+	if !ok {
+		// Return metadata buffer to pool on error
+		if len(md) > 0 && metadataBytes != nil {
+			c.transport.GetBufferPool().Put(metadataBytes)
+		}
+		return fmt.Errorf("method not found in registry: %s.%s", rpcReq.ServiceName, rpcReq.Method)
+	}
+
+	// Write service and method IDs to Symphony reserved header (bytes 5-9 and 9-13)
+	if len(reqPayloadBytes) >= 13 {
+		binary.LittleEndian.PutUint32(reqPayloadBytes[5:9], serviceID)
+		binary.LittleEndian.PutUint32(reqPayloadBytes[9:13], methodID)
+	}
+
 	// Frame the request into binary format using buffer pool
-	framedReq, err := c.frameRequest(rpcReq.ServiceName, rpcReq.Method, metadataBytes, reqPayloadBytes, c.transport.GetBufferPool())
+	framedReq, err := c.frameRequest(metadataBytes, reqPayloadBytes, c.transport.GetBufferPool())
 
 	// Return metadata buffer to pool after frameRequest copies it
 	if len(md) > 0 && metadataBytes != nil {
