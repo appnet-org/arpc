@@ -320,7 +320,9 @@ func generateStructMarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
 	g.P("    _ = privatePayloadOffset")
 	g.P()
 
-	generateSegmentMarshal(g, privateFields, "privateTableStart", "privatePayloadStart", "privatePayloadOffset")
+	// Pass "privateStart" as the relative offset base for private segment
+	g.P("    // Private segment offsets are stored relative to privateStart")
+	generateSegmentMarshal(g, privateFields, "privateTableStart", "privatePayloadStart", "privatePayloadOffset", "privateStart")
 
 	g.P("    return buf, nil")
 	g.P("}")
@@ -328,9 +330,16 @@ func generateStructMarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
 }
 
 // generateSegmentMarshal generates code to marshal fields in a segment
-func generateSegmentMarshal(g *protogen.GeneratedFile, fields []*protogen.Field, tableStartVar, payloadStartVar, payloadOffsetVar string) {
+// offsetBaseVar: optional parameter - if provided, offsets are stored relative to this base
+func generateSegmentMarshal(g *protogen.GeneratedFile, fields []*protogen.Field, tableStartVar, payloadStartVar, payloadOffsetVar string, offsetBaseVar ...string) {
 	if len(fields) == 0 {
 		return
+	}
+
+	// Check if we should use relative offsets
+	relativeBase := ""
+	if len(offsetBaseVar) > 0 {
+		relativeBase = offsetBaseVar[0]
 	}
 
 	tableOffset := 0
@@ -340,19 +349,19 @@ func generateSegmentMarshal(g *protogen.GeneratedFile, fields []*protogen.Field,
 			generateFixedFieldMarshal(g, field, tableStartVar, tableOffset)
 			tableOffset += fieldSize
 		} else if isVariableLengthField(field) {
-			generateVariableFieldMarshal(g, field, tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar)
+			generateVariableFieldMarshal(g, field, tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase)
 			tableOffset += 4
 		} else if isRepeatedFixedLengthField(field) {
-			generateRepeatedFixedFieldMarshal(g, field, tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar)
+			generateRepeatedFixedFieldMarshal(g, field, tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase)
 			tableOffset += 4
 		} else if isRepeatedVariableLengthField(field) {
-			generateRepeatedVariableFieldMarshal(g, field, tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar)
+			generateRepeatedVariableFieldMarshal(g, field, tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase)
 			tableOffset += 4
 		} else if isNestedMessageField(field) {
-			generateNestedFieldMarshal(g, field, tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar)
+			generateNestedFieldMarshal(g, field, tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase)
 			tableOffset += 4
 		} else if isRepeatedNestedMessageField(field) {
-			generateRepeatedNestedFieldMarshal(g, field, tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar)
+			generateRepeatedNestedFieldMarshal(g, field, tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase)
 			tableOffset += 4
 		}
 	}
@@ -446,12 +455,21 @@ func generateFixedFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field,
 	g.P()
 }
 
-func generateVariableFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, payloadStartVar, payloadOffsetVar string) {
+func generateVariableFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, payloadStartVar, payloadOffsetVar string, relativeBase ...string) {
 	fieldNum := field.Desc.Number()
 	goName := field.GoName
 
 	g.P(fmt.Sprintf("    // Field %d (%s): variable-length", fieldNum, goName))
-	g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32(%s+%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar))
+
+	// Calculate the offset to store: either absolute or relative
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		// Store offset relative to the base (for private segments)
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32((%s+%s)-%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase[0]))
+	} else {
+		// Store absolute offset (for public segments)
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32(%s+%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar))
+	}
+
 	g.P(fmt.Sprintf("    dataLen = len(m.%s)", goName))
 	g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%s:], uint32(dataLen))", payloadStartVar, payloadOffsetVar))
 	g.P(fmt.Sprintf("    copy(buf[%s+%s+4:], m.%s)", payloadStartVar, payloadOffsetVar, goName))
@@ -459,13 +477,19 @@ func generateVariableFieldMarshal(g *protogen.GeneratedFile, field *protogen.Fie
 	g.P()
 }
 
-func generateRepeatedFixedFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, payloadStartVar, payloadOffsetVar string) {
+func generateRepeatedFixedFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, payloadStartVar, payloadOffsetVar string, relativeBase ...string) {
 	fieldNum := field.Desc.Number()
 	goName := field.GoName
 	fieldSize := getFieldSize(field)
 
 	g.P(fmt.Sprintf("    // Field %d (%s): repeated fixed-length", fieldNum, goName))
-	g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32(%s+%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar))
+
+	// Calculate the offset to store: either absolute or relative
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32((%s+%s)-%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase[0]))
+	} else {
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32(%s+%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar))
+	}
 	g.P(fmt.Sprintf("    count = len(m.%s)", goName))
 	g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%s:], uint32(count))", payloadStartVar, payloadOffsetVar))
 	g.P(fmt.Sprintf("    for i, v := range m.%s {", goName))
@@ -497,12 +521,18 @@ func generateRepeatedFixedFieldMarshal(g *protogen.GeneratedFile, field *protoge
 	g.P()
 }
 
-func generateRepeatedVariableFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, payloadStartVar, payloadOffsetVar string) {
+func generateRepeatedVariableFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, payloadStartVar, payloadOffsetVar string, relativeBase ...string) {
 	fieldNum := field.Desc.Number()
 	goName := field.GoName
 
 	g.P(fmt.Sprintf("    // Field %d (%s): repeated variable-length", fieldNum, goName))
-	g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32(%s+%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar))
+
+	// Calculate the offset to store: either absolute or relative
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32((%s+%s)-%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase[0]))
+	} else {
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32(%s+%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar))
+	}
 	g.P(fmt.Sprintf("    count = len(m.%s)", goName))
 	g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%s:], uint32(count))", payloadStartVar, payloadOffsetVar))
 	g.P(fmt.Sprintf("    currentOffset = %s + %s + 4", payloadStartVar, payloadOffsetVar))
@@ -519,13 +549,19 @@ func generateRepeatedVariableFieldMarshal(g *protogen.GeneratedFile, field *prot
 	g.P()
 }
 
-func generateNestedFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, payloadStartVar, payloadOffsetVar string) {
+func generateNestedFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, payloadStartVar, payloadOffsetVar string, relativeBase ...string) {
 	fieldNum := field.Desc.Number()
 	goName := field.GoName
 
 	g.P(fmt.Sprintf("    // Field %d (%s): nested message", fieldNum, goName))
 	g.P(fmt.Sprintf("    if m.%s != nil {", goName))
-	g.P(fmt.Sprintf("        binary.LittleEndian.PutUint32(buf[%s+%d:], uint32(%s+%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar))
+
+	// Calculate the offset to store: either absolute or relative
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		g.P(fmt.Sprintf("        binary.LittleEndian.PutUint32(buf[%s+%d:], uint32((%s+%s)-%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase[0]))
+	} else {
+		g.P(fmt.Sprintf("        binary.LittleEndian.PutUint32(buf[%s+%d:], uint32(%s+%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar))
+	}
 	g.P(fmt.Sprintf("        nestedData, err := m.%s.MarshalSymphony()", goName))
 	g.P("        if err != nil {")
 	g.P("            return nil, fmt.Errorf(\"failed to marshal nested message: %w\", err)")
@@ -540,12 +576,18 @@ func generateNestedFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field
 	g.P()
 }
 
-func generateRepeatedNestedFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, payloadStartVar, payloadOffsetVar string) {
+func generateRepeatedNestedFieldMarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, payloadStartVar, payloadOffsetVar string, relativeBase ...string) {
 	fieldNum := field.Desc.Number()
 	goName := field.GoName
 
 	g.P(fmt.Sprintf("    // Field %d (%s): repeated nested message", fieldNum, goName))
-	g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32(%s+%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar))
+
+	// Calculate the offset to store: either absolute or relative
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32((%s+%s)-%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar, relativeBase[0]))
+	} else {
+		g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%d:], uint32(%s+%s))", tableStartVar, tableOffset, payloadStartVar, payloadOffsetVar))
+	}
 	g.P(fmt.Sprintf("    count = len(m.%s)", goName))
 	g.P(fmt.Sprintf("    binary.LittleEndian.PutUint32(buf[%s+%s:], uint32(count))", payloadStartVar, payloadOffsetVar))
 	g.P(fmt.Sprintf("    %s += 4", payloadOffsetVar))
@@ -624,13 +666,14 @@ func generateStructUnmarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
 	g.P("    // === PUBLIC FIELDS ===")
 	g.P("    publicTableStart := 13")
 	g.P("    _ = publicTableStart")
-	generateSegmentUnmarshal(g, publicFields, "publicTableStart", "data")
+	generateSegmentUnmarshal(g, publicFields, "publicTableStart", "data", "")
 
 	// Unmarshal private fields
 	g.P("    // === PRIVATE FIELDS ===")
 	g.P("    privateTableStart := offsetToPrivate + 1")
 	g.P("    _ = privateTableStart")
-	generateSegmentUnmarshal(g, privateFields, "privateTableStart", "data")
+	g.P("    // Private segment offsets are relative to offsetToPrivate")
+	generateSegmentUnmarshal(g, privateFields, "privateTableStart", "data", "offsetToPrivate")
 
 	g.P("    return nil")
 	g.P("}")
@@ -638,9 +681,16 @@ func generateStructUnmarshal(g *protogen.GeneratedFile, msg *protogen.Message) {
 }
 
 // generateSegmentUnmarshal generates code to unmarshal fields from a segment
-func generateSegmentUnmarshal(g *protogen.GeneratedFile, fields []*protogen.Field, tableStartVar, dataVar string) {
+// offsetBaseVar: optional parameter - if provided, stored offsets are relative to this base
+func generateSegmentUnmarshal(g *protogen.GeneratedFile, fields []*protogen.Field, tableStartVar, dataVar string, offsetBaseVar ...string) {
 	if len(fields) == 0 {
 		return
+	}
+
+	// Check if we should use relative offsets
+	relativeBase := ""
+	if len(offsetBaseVar) > 0 {
+		relativeBase = offsetBaseVar[0]
 	}
 
 	tableOffset := 0
@@ -650,19 +700,19 @@ func generateSegmentUnmarshal(g *protogen.GeneratedFile, fields []*protogen.Fiel
 			generateFixedFieldUnmarshal(g, field, tableStartVar, tableOffset, dataVar)
 			tableOffset += fieldSize
 		} else if isVariableLengthField(field) {
-			generateVariableFieldUnmarshal(g, field, tableStartVar, tableOffset, dataVar)
+			generateVariableFieldUnmarshal(g, field, tableStartVar, tableOffset, dataVar, relativeBase)
 			tableOffset += 4
 		} else if isRepeatedFixedLengthField(field) {
-			generateRepeatedFixedFieldUnmarshal(g, field, tableStartVar, tableOffset, dataVar)
+			generateRepeatedFixedFieldUnmarshal(g, field, tableStartVar, tableOffset, dataVar, relativeBase)
 			tableOffset += 4
 		} else if isRepeatedVariableLengthField(field) {
-			generateRepeatedVariableFieldUnmarshal(g, field, tableStartVar, tableOffset, dataVar)
+			generateRepeatedVariableFieldUnmarshal(g, field, tableStartVar, tableOffset, dataVar, relativeBase)
 			tableOffset += 4
 		} else if isNestedMessageField(field) {
-			generateNestedFieldUnmarshal(g, field, tableStartVar, tableOffset, dataVar)
+			generateNestedFieldUnmarshal(g, field, tableStartVar, tableOffset, dataVar, relativeBase)
 			tableOffset += 4
 		} else if isRepeatedNestedMessageField(field) {
-			generateRepeatedNestedFieldUnmarshal(g, field, tableStartVar, tableOffset, dataVar)
+			generateRepeatedNestedFieldUnmarshal(g, field, tableStartVar, tableOffset, dataVar, relativeBase)
 			tableOffset += 4
 		}
 	}
@@ -699,13 +749,21 @@ func generateFixedFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Fiel
 	g.P()
 }
 
-func generateVariableFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, dataVar string) {
+func generateVariableFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, dataVar string, relativeBase ...string) {
 	fieldNum := field.Desc.Number()
 	goName := field.GoName
 
 	g.P(fmt.Sprintf("    // Field %d (%s): variable-length", fieldNum, goName))
 	g.P(fmt.Sprintf("    if len(%s) >= %s+%d+4 {", dataVar, tableStartVar, tableOffset))
 	g.P(fmt.Sprintf("        payloadOffset = int(binary.LittleEndian.Uint32(%s[%s+%d:]))", dataVar, tableStartVar, tableOffset))
+
+	// If reading from a segment with relative offsets, add the base
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		g.P("        if payloadOffset > 0 {")
+		g.P(fmt.Sprintf("            payloadOffset += %s // convert relative offset to absolute", relativeBase[0]))
+		g.P("        }")
+	}
+
 	g.P("        if payloadOffset > 0 && len(data) >= payloadOffset+4 {")
 	g.P("            dataLen = int(binary.LittleEndian.Uint32(data[payloadOffset:]))")
 	g.P("            if len(data) >= payloadOffset+4+dataLen {")
@@ -721,7 +779,7 @@ func generateVariableFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.F
 	g.P()
 }
 
-func generateRepeatedFixedFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, dataVar string) {
+func generateRepeatedFixedFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, dataVar string, relativeBase ...string) {
 	fieldNum := field.Desc.Number()
 	goName := field.GoName
 	fieldSize := getFieldSize(field)
@@ -729,6 +787,14 @@ func generateRepeatedFixedFieldUnmarshal(g *protogen.GeneratedFile, field *proto
 	g.P(fmt.Sprintf("    // Field %d (%s): repeated fixed-length", fieldNum, goName))
 	g.P(fmt.Sprintf("    if len(%s) >= %s+%d+4 {", dataVar, tableStartVar, tableOffset))
 	g.P(fmt.Sprintf("        payloadOffset = int(binary.LittleEndian.Uint32(%s[%s+%d:]))", dataVar, tableStartVar, tableOffset))
+
+	// If reading from a segment with relative offsets, add the base
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		g.P("        if payloadOffset > 0 {")
+		g.P(fmt.Sprintf("            payloadOffset += %s // convert relative offset to absolute", relativeBase[0]))
+		g.P("        }")
+	}
+
 	g.P("        if payloadOffset > 0 && len(data) >= payloadOffset+4 {")
 	g.P("            count = int(binary.LittleEndian.Uint32(data[payloadOffset:]))")
 	g.P(fmt.Sprintf("            if len(data) >= payloadOffset+4+count*%d {", fieldSize))
@@ -761,13 +827,21 @@ func generateRepeatedFixedFieldUnmarshal(g *protogen.GeneratedFile, field *proto
 	g.P()
 }
 
-func generateRepeatedVariableFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, dataVar string) {
+func generateRepeatedVariableFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, dataVar string, relativeBase ...string) {
 	fieldNum := field.Desc.Number()
 	goName := field.GoName
 
 	g.P(fmt.Sprintf("    // Field %d (%s): repeated variable-length", fieldNum, goName))
 	g.P(fmt.Sprintf("    if len(%s) >= %s+%d+4 {", dataVar, tableStartVar, tableOffset))
 	g.P(fmt.Sprintf("        payloadOffset = int(binary.LittleEndian.Uint32(%s[%s+%d:]))", dataVar, tableStartVar, tableOffset))
+
+	// If reading from a segment with relative offsets, add the base
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		g.P("        if payloadOffset > 0 {")
+		g.P(fmt.Sprintf("            payloadOffset += %s // convert relative offset to absolute", relativeBase[0]))
+		g.P("        }")
+	}
+
 	g.P("        if payloadOffset > 0 && len(data) >= payloadOffset+4 {")
 	g.P("            count = int(binary.LittleEndian.Uint32(data[payloadOffset:]))")
 	g.P(fmt.Sprintf("            m.%s = make([]%s, 0, count)", goName, getGoTypeBase(g, field)))
@@ -792,7 +866,7 @@ func generateRepeatedVariableFieldUnmarshal(g *protogen.GeneratedFile, field *pr
 	g.P()
 }
 
-func generateNestedFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, dataVar string) {
+func generateNestedFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, dataVar string, relativeBase ...string) {
 	fieldNum := field.Desc.Number()
 	goName := field.GoName
 	msgType := g.QualifiedGoIdent(field.Message.GoIdent)
@@ -800,6 +874,14 @@ func generateNestedFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Fie
 	g.P(fmt.Sprintf("    // Field %d (%s): nested message", fieldNum, goName))
 	g.P(fmt.Sprintf("    if len(%s) >= %s+%d+4 {", dataVar, tableStartVar, tableOffset))
 	g.P(fmt.Sprintf("        payloadOffset = int(binary.LittleEndian.Uint32(%s[%s+%d:]))", dataVar, tableStartVar, tableOffset))
+
+	// If reading from a segment with relative offsets, add the base
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		g.P("        if payloadOffset > 0 {")
+		g.P(fmt.Sprintf("            payloadOffset += %s // convert relative offset to absolute", relativeBase[0]))
+		g.P("        }")
+	}
+
 	g.P("        if payloadOffset > 0 && len(data) >= payloadOffset+4 {")
 	g.P("            dataLen = int(binary.LittleEndian.Uint32(data[payloadOffset:]))")
 	g.P("            if len(data) >= payloadOffset+4+dataLen {")
@@ -813,7 +895,7 @@ func generateNestedFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Fie
 	g.P()
 }
 
-func generateRepeatedNestedFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, dataVar string) {
+func generateRepeatedNestedFieldUnmarshal(g *protogen.GeneratedFile, field *protogen.Field, tableStartVar string, tableOffset int, dataVar string, relativeBase ...string) {
 	fieldNum := field.Desc.Number()
 	goName := field.GoName
 	msgType := g.QualifiedGoIdent(field.Message.GoIdent)
@@ -821,6 +903,14 @@ func generateRepeatedNestedFieldUnmarshal(g *protogen.GeneratedFile, field *prot
 	g.P(fmt.Sprintf("    // Field %d (%s): repeated nested message", fieldNum, goName))
 	g.P(fmt.Sprintf("    if len(%s) >= %s+%d+4 {", dataVar, tableStartVar, tableOffset))
 	g.P(fmt.Sprintf("        payloadOffset = int(binary.LittleEndian.Uint32(%s[%s+%d:]))", dataVar, tableStartVar, tableOffset))
+
+	// If reading from a segment with relative offsets, add the base
+	if len(relativeBase) > 0 && relativeBase[0] != "" {
+		g.P("        if payloadOffset > 0 {")
+		g.P(fmt.Sprintf("            payloadOffset += %s // convert relative offset to absolute", relativeBase[0]))
+		g.P("        }")
+	}
+
 	g.P("        if payloadOffset > 0 && len(data) >= payloadOffset+4 {")
 	g.P("            count = int(binary.LittleEndian.Uint32(data[payloadOffset:]))")
 	g.P(fmt.Sprintf("            m.%s = make([]*%s, 0, count)", goName, msgType))
@@ -994,6 +1084,109 @@ func generateRawSetters(g *protogen.GeneratedFile, msg *protogen.Message, rawNam
 // ==========================================
 // Helpers
 // ==========================================
+
+// FragmentPackets splits a marshalled Symphony buffer into MTU-sized packets.
+// Public segment data is head-aligned (filled from byte 0), private segment data
+// is tail-aligned (filled from end), and a meeting packet combines both to
+// minimize wasted space.
+//
+// Returns a list of packets where:
+//   - Public segment packets are head-aligned (filled from byte 0)
+//   - Private segment packets are tail-aligned (filled from end)
+//   - A "meeting packet" combines remaining public + private data to save space
+//
+// Algorithm:
+//  1. Parse offset_to_private from data[1:5] to identify public/private boundary
+//  2. Extract public and private segments
+//  3. Create head-aligned public packets until all public data is packed
+//  4. Optimize by creating a meeting packet if last public packet has space
+//  5. Create tail-aligned private packets for remaining private data
+func FragmentPackets(data []byte, mtu int) ([][]byte, error) {
+	// Validation
+	if mtu <= 0 {
+		return nil, fmt.Errorf("MTU must be positive, got %d", mtu)
+	}
+	if mtu < 13 {
+		return nil, fmt.Errorf("MTU must be at least 13 bytes (minimum header size), got %d", mtu)
+	}
+	if len(data) < 13 {
+		return nil, fmt.Errorf("data too short: must be at least 13 bytes, got %d", len(data))
+	}
+
+	// Edge case: entire data fits in one MTU
+	if len(data) <= mtu {
+		return [][]byte{data}, nil
+	}
+
+	// Parse offset_to_private from bytes 1-5 (little-endian uint32)
+	offsetToPrivate := int(data[1]) | int(data[2])<<8 | int(data[3])<<16 | int(data[4])<<24
+
+	if offsetToPrivate > len(data) {
+		return nil, fmt.Errorf("invalid offset_to_private: %d exceeds data length %d", offsetToPrivate, len(data))
+	}
+
+	// Extract segments
+	publicData := data[0:offsetToPrivate]
+	privateData := data[offsetToPrivate:]
+
+	var packets [][]byte
+
+	// Phase 1: Head-aligned public packets
+	publicOffset := 0
+	for publicOffset < len(publicData) {
+		chunk := mtu
+		if remaining := len(publicData) - publicOffset; remaining < chunk {
+			chunk = remaining
+		}
+		packet := make([]byte, chunk)
+		copy(packet, publicData[publicOffset:publicOffset+chunk])
+		packets = append(packets, packet)
+		publicOffset += chunk
+	}
+
+	// Edge case: no private data, return public packets only
+	if len(privateData) == 0 {
+		return packets, nil
+	}
+
+	// Phase 2: Meeting packet optimization
+	// If last public packet has space remaining, extend it with private data
+	lastPacketIdx := len(packets) - 1
+	lastPacket := packets[lastPacketIdx]
+	if len(lastPacket) < mtu {
+		available := mtu - len(lastPacket)
+		privateChunk := available
+		if privateChunk > len(privateData) {
+			privateChunk = len(privateData)
+		}
+		// Create meeting packet by combining remaining public + start of private
+		meetingPacket := make([]byte, len(lastPacket)+privateChunk)
+		copy(meetingPacket, lastPacket)
+		copy(meetingPacket[len(lastPacket):], privateData[0:privateChunk])
+		packets[lastPacketIdx] = meetingPacket
+		// Remove consumed private data
+		privateData = privateData[privateChunk:]
+	}
+
+	// Phase 3: Tail-aligned private packets
+	// Process from end to beginning to achieve tail-alignment
+	for len(privateData) > 0 {
+		chunk := mtu
+		if len(privateData) < chunk {
+			chunk = len(privateData)
+		}
+		packet := make([]byte, mtu)
+		// Tail-align: put data at the end, leaving empty space at beginning
+		offset := mtu - chunk
+		// Take from the end of privateData
+		copy(packet[offset:], privateData[len(privateData)-chunk:])
+		packets = append(packets, packet)
+		// Remove consumed private data
+		privateData = privateData[:len(privateData)-chunk]
+	}
+
+	return packets, nil
+}
 
 // getGoType returns the Go type for a field.
 // isRaw determines if we should return the "Raw" version of nested messages (e.g. LeafRaw vs *Leaf)
@@ -1432,6 +1625,11 @@ func generateRawVariableFieldGetter(g *protogen.GeneratedFile, field *protogen.F
 	g.P("        return ", getZeroValue(field))
 	g.P("    }")
 
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    payloadOffset += offsetToPrivate // convert relative offset to absolute")
+	}
+
 	// Read length from payload
 	g.P("    if len(m) < payloadOffset+4 {")
 	g.P("        return ", getZeroValue(field))
@@ -1472,6 +1670,14 @@ func generateRawVariableFieldSetter(g *protogen.GeneratedFile, field *protogen.F
 
 	// Read current offset and length
 	g.P(fmt.Sprintf("    oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[%s:]))", offsetExpr))
+
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    if oldPayloadOffset > 0 {")
+		g.P("        oldPayloadOffset += offsetToPrivate // convert relative offset to absolute")
+		g.P("    }")
+	}
+
 	g.P("    var oldDataLen int")
 	g.P("    if oldPayloadOffset > 0 && len(*m) >= oldPayloadOffset+4 {")
 	g.P("        oldDataLen = int(binary.LittleEndian.Uint32((*m)[oldPayloadOffset:]))")
@@ -1519,6 +1725,11 @@ func generateRawRepeatedFixedFieldGetter(g *protogen.GeneratedFile, field *proto
 	g.P("    if payloadOffset == 0 {")
 	g.P("        return ", getZeroValue(field))
 	g.P("    }")
+
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    payloadOffset += offsetToPrivate // convert relative offset to absolute")
+	}
 
 	// Read count from payload
 	g.P("    if len(m) < payloadOffset+4 {")
@@ -1577,6 +1788,14 @@ func generateRawRepeatedFixedFieldSetter(g *protogen.GeneratedFile, field *proto
 
 	// Read current offset and count
 	g.P(fmt.Sprintf("    oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[%s:]))", offsetExpr))
+
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    if oldPayloadOffset > 0 {")
+		g.P("        oldPayloadOffset += offsetToPrivate // convert relative offset to absolute")
+		g.P("    }")
+	}
+
 	g.P("    var oldCount int")
 	g.P("    var oldDataSize int")
 	g.P("    if oldPayloadOffset > 0 && len(*m) >= oldPayloadOffset+4 {")
@@ -1649,6 +1868,11 @@ func generateRawRepeatedVariableFieldGetter(g *protogen.GeneratedFile, field *pr
 	g.P("        return ", getZeroValue(field))
 	g.P("    }")
 
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    payloadOffset += offsetToPrivate // convert relative offset to absolute")
+	}
+
 	// Read count from payload
 	g.P("    if len(m) < payloadOffset+4 {")
 	g.P("        return ", getZeroValue(field))
@@ -1703,6 +1927,14 @@ func generateRawRepeatedVariableFieldSetter(g *protogen.GeneratedFile, field *pr
 
 	// Read current offset and count
 	g.P(fmt.Sprintf("    oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[%s:]))", offsetExpr))
+
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    if oldPayloadOffset > 0 {")
+		g.P("        oldPayloadOffset += offsetToPrivate // convert relative offset to absolute")
+		g.P("    }")
+	}
+
 	g.P("    var oldCount int")
 	g.P("    var oldDataSize int")
 	g.P("    if oldPayloadOffset > 0 && len(*m) >= oldPayloadOffset+4 {")
@@ -1772,6 +2004,11 @@ func generateRawNestedFieldGetter(g *protogen.GeneratedFile, field *protogen.Fie
 	g.P("        return nil")
 	g.P("    }")
 
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    payloadOffset += offsetToPrivate // convert relative offset to absolute")
+	}
+
 	// Read size from payload
 	g.P("    if len(m) < payloadOffset+4 {")
 	g.P("        return nil")
@@ -1808,6 +2045,14 @@ func generateRawNestedFieldSetter(g *protogen.GeneratedFile, field *protogen.Fie
 
 	// Read current offset and size
 	g.P(fmt.Sprintf("    oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[%s:]))", offsetExpr))
+
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    if oldPayloadOffset > 0 {")
+		g.P("        oldPayloadOffset += offsetToPrivate // convert relative offset to absolute")
+		g.P("    }")
+	}
+
 	g.P("    var oldNestedSize int")
 	g.P("    if oldPayloadOffset > 0 && len(*m) >= oldPayloadOffset+4 {")
 	g.P("        oldNestedSize = int(binary.LittleEndian.Uint32((*m)[oldPayloadOffset:]))")
@@ -1920,6 +2165,11 @@ func generateRawRepeatedNestedFieldGetter(g *protogen.GeneratedFile, field *prot
 	g.P("        return nil")
 	g.P("    }")
 
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    payloadOffset += offsetToPrivate // convert relative offset to absolute")
+	}
+
 	// Read count from payload
 	g.P("    if len(m) < payloadOffset+4 {")
 	g.P("        return nil")
@@ -1965,6 +2215,14 @@ func generateRawRepeatedNestedFieldSetter(g *protogen.GeneratedFile, field *prot
 
 	// Read current offset and calculate old total size
 	g.P(fmt.Sprintf("    oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[%s:]))", offsetExpr))
+
+	// For private fields, convert relative offset to absolute
+	if !isPublic {
+		g.P("    if oldPayloadOffset > 0 {")
+		g.P("        oldPayloadOffset += offsetToPrivate // convert relative offset to absolute")
+		g.P("    }")
+	}
+
 	g.P("    var oldCount int")
 	g.P("    var oldDataSize int")
 	g.P("    if oldPayloadOffset > 0 && len(*m) >= oldPayloadOffset+4 {")
