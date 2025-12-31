@@ -1,0 +1,14 @@
+namespace kv_flat;
+
+table GetRequest {
+  key:string;
+}
+
+table SetRequest {
+  key:string;
+  value:string;
+}
+
+// FlatBuffers requires one root per file usually, or you use union. 
+// For benchmarking, we just generate helpers for both.
+// (No root_type needed strictly if we use the specific object builders)

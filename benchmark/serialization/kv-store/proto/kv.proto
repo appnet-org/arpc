@@ -1,0 +1,12 @@
+syntax = "proto3";
+package kv;
+option go_package = "./kv_proto";
+
+message GetRequest {
+    string key = 1;
+}
+
+message SetRequest {
+    string key = 1;
+    string value = 2;
+}
