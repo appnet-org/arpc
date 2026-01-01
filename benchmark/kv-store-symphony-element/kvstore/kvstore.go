@@ -49,7 +49,7 @@ func (s *kvServer) Get(ctx context.Context, req *kv.GetRequest) (*kv.GetResponse
 	}
 
 	resp := &kv.GetResponse{
-		Score:    int32(1),
+		Score:    req.GetScore(),
 		Username: username,
 		Value:    value,
 	}
@@ -78,7 +78,7 @@ func (s *kvServer) Set(ctx context.Context, req *kv.SetRequest) (*kv.SetResponse
 	s.moveToEnd(key)
 
 	resp := &kv.SetResponse{
-		Score:    int32(1),
+		Score:    req.GetScore(),
 		Username: username,
 		Value:    value,
 	}

@@ -51,10 +51,12 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	keySizeStr := r.URL.Query().Get("key_size")
 	valueSizeStr := r.URL.Query().Get("value_size")
 	usernameSizeStr := r.URL.Query().Get("username_size")
+	scoreStr := r.URL.Query().Get("score")
 
 	keySize, _ := strconv.Atoi(keySizeStr)
 	valueSize, _ := strconv.Atoi(valueSizeStr)
 	usernameSize, _ := strconv.Atoi(usernameSizeStr)
+	score, _ := strconv.Atoi(scoreStr)
 
 	if keyID == "" {
 		http.Error(w, "key parameter is required", http.StatusBadRequest)
@@ -71,13 +73,15 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		zap.String("key_id", keyID),
 		zap.Int("key_size", keySize),
 		zap.Int("value_size", valueSize),
+		zap.Int("username_size", usernameSize),
+		zap.Int("score", score),
 	)
 
 	switch op {
 	case "get":
 		req := &kv.GetRequest{
 			Key:      keyStr,
-			Score:    int32(1),
+			Score:    int32(score),
 			Username: usernameStr,
 		}
 		resp, err := kvClient.Get(context.Background(), req)
@@ -92,7 +96,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		req := &kv.SetRequest{
 			Key:      keyStr,
 			Value:    valueStr,
-			Score:    int32(1),
+			Score:    int32(score),
 			Username: usernameStr,
 		}
 		resp, err := kvClient.Set(context.Background(), req)

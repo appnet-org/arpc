@@ -7,6 +7,7 @@ replace github.com/appnet-org/arpc => ../..
 require (
 	github.com/appnet-org/arpc v0.0.0-00010101000000-000000000000
 	github.com/appnet-org/arpc/benchmark/kv-store-symphony v0.0.0-00010101000000-000000000000
+	github.com/appnet-org/arpc/benchmark/kv-store-symphony-element v0.0.0-20260101073445-6c01641db464
 	go.uber.org/zap v1.27.0
 )
 
