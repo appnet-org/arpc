@@ -48,7 +48,9 @@ func (s *kvServer) Get(ctx context.Context, req *kv.GetRequest) (*kv.GetResponse
 	}
 
 	resp := &kv.GetResponse{
-		Value: value,
+		Score:    int32(1),
+		Username: "testuser",
+		Value:    value,
 	}
 
 	logging.Debug("Server returning value for key", zap.String("key", key), zap.String("value", value))
@@ -74,7 +76,9 @@ func (s *kvServer) Set(ctx context.Context, req *kv.SetRequest) (*kv.SetResponse
 	s.moveToEnd(key)
 
 	resp := &kv.SetResponse{
-		Value: value,
+		Score:    int32(1),
+		Username: "testuser",
+		Value:    value,
 	}
 
 	logging.Debug("Server set key to value", zap.String("key", key), zap.String("value", value))

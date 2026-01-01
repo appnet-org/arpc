@@ -72,7 +72,11 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 	switch op {
 	case "get":
-		req := &kv.GetRequest{Key: keyStr}
+		req := &kv.GetRequest{
+			Key:      keyStr,
+			Score:    int32(1),
+			Username: "testuser",
+		}
 		resp, err := kvClient.Get(context.Background(), req)
 		if err != nil {
 			logging.Error("Get RPC call failed", zap.Error(err))
@@ -82,7 +86,12 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "Value for key_id '%s' (key='%s'): %s\n", keyID, keyStr, resp.Value)
 
 	case "set":
-		req := &kv.SetRequest{Key: keyStr, Value: valueStr}
+		req := &kv.SetRequest{
+			Key:      keyStr,
+			Value:    valueStr,
+			Score:    int32(1),
+			Username: "testuser",
+		}
 		resp, err := kvClient.Set(context.Background(), req)
 		if err != nil {
 			logging.Error("Set RPC call failed", zap.Error(err))
