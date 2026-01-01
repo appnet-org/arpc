@@ -50,9 +50,11 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	keyID := r.URL.Query().Get("key")
 	keySizeStr := r.URL.Query().Get("key_size")
 	valueSizeStr := r.URL.Query().Get("value_size")
+	usernameSizeStr := r.URL.Query().Get("username_size")
 
 	keySize, _ := strconv.Atoi(keySizeStr)
 	valueSize, _ := strconv.Atoi(valueSizeStr)
+	usernameSize, _ := strconv.Atoi(usernameSizeStr)
 
 	if keyID == "" {
 		http.Error(w, "key parameter is required", http.StatusBadRequest)
@@ -62,6 +64,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	// Generate deterministic key/value strings
 	keyStr := generateDeterministicString(keyID+"-key", keySize)
 	valueStr := generateDeterministicString(keyID+"-value", valueSize)
+	usernameStr := generateDeterministicString(keyID+"-username", usernameSize)
 
 	logging.Debug("Received HTTP request",
 		zap.String("op", op),
@@ -75,7 +78,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		req := &kv.GetRequest{
 			Key:      keyStr,
 			Score:    int32(1),
-			Username: "testuser",
+			Username: usernameStr,
 		}
 		resp, err := kvClient.Get(context.Background(), req)
 		if err != nil {
@@ -90,7 +93,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 			Key:      keyStr,
 			Value:    valueStr,
 			Score:    int32(1),
-			Username: "testuser",
+			Username: usernameStr,
 		}
 		resp, err := kvClient.Set(context.Background(), req)
 		if err != nil {

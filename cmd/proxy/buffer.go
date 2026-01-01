@@ -75,6 +75,7 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.Buff
 	pb.verdictsMu.RUnlock()
 
 	if verdictExists {
+		logging.Debug("Verdict exists for RPC ID", zap.Uint64("rpcID", dataPacket.RPCID), zap.String("verdict", verdict.String()))
 		// Verdict exists, forward the packet immediately without buffering or element chain processing
 		// Preserve the original fragment's sequence number and TotalPackets for correct forwarding
 		isFull := dataPacket.TotalPackets == 1
@@ -98,9 +99,10 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.Buff
 		}, verdict, nil
 	}
 
-	// If this is the first packet and the entire message fits in MTU (offset_private < MTU),
+	// If this is the first packet and the entire pubic segment fits in MTU (offset_private < MTU),
 	// we can process it immediately without buffering
 	if dataPacket.SeqNumber == 0 && isOffsetPrivateLessThanMTU(dataPacket.Payload) {
+		logging.Debug("First packet and entire public segment fits in MTU", zap.Uint64("rpcID", dataPacket.RPCID))
 		return &util.BufferedPacket{
 			Payload:      dataPacket.Payload,
 			Source:       src,
@@ -117,6 +119,7 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.Buff
 		}, util.PacketVerdictUnknown, nil
 	}
 
+	logging.Debug("Adding fragment to buffer", zap.Uint64("rpcID", dataPacket.RPCID), zap.Int("seqNumber", int(dataPacket.SeqNumber)))
 	// Otherwise, add fragment to buffer and check if we have enough data
 	publicSegment := pb.addFragmentToBuffer(src, dataPacket)
 	if publicSegment != nil {
@@ -222,6 +225,7 @@ func (pb *PacketBuffer) addFragmentToBuffer(src *net.UDPAddr, dataPacket *packet
 		}
 		seqNum++
 	}
+	logging.Debug("Reassembled public segment", zap.Uint64("rpcID", dataPacket.RPCID), zap.Int("size", len(publicSegment)))
 	return publicSegment
 }
 
