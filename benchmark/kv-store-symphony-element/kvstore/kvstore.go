@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"sync"
 
-	kv "github.com/appnet-org/arpc/benchmark/kv-store-symphony/symphony"
+	kv "github.com/appnet-org/arpc/benchmark/kv-store-symphony-element/symphony"
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/rpc"
 	"github.com/appnet-org/arpc/pkg/serializer"

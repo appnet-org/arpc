@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/appnet-org/arpc/pkg/logging"
-	"github.com/appnet-org/proxy/element"
 	"github.com/appnet-org/proxy/util"
 	"go.uber.org/zap"
 )
@@ -70,9 +69,7 @@ func main() {
 	logging.Info("Starting bidirectional UDP proxy on :15002 and :15006...")
 
 	// Create element chain with logging
-	elementChain := NewRPCElementChain(
-		element.NewFaultInjectionElement(0.9),
-	)
+	elementChain := NewRPCElementChain()
 
 	config := DefaultConfig()
 

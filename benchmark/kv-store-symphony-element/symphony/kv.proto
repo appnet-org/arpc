@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package kv;
+option go_package = "./kv";
+
+import "google/protobuf/descriptor.proto";
+
+// One tag: present+true => PUBLIC, else PRIVATE by default.
+extend google.protobuf.FieldOptions {
+  bool is_public = 50001;
+}
+
+service KVService {
+    rpc get(GetRequest) returns(GetResponse);
+    rpc set(SetRequest) returns(SetResponse);
+}
+
+message GetRequest {
+    int32 score = 1 [(kv.is_public) = true];
+    string username = 2 [(kv.is_public) = true];
+    string key = 3;
+}
+
+message GetResponse {
+    int32 score = 1 [(kv.is_public) = true];
+    string username = 2 [(kv.is_public) = true];
+    string value = 3;
+}
+
+message SetRequest {
+    int32 score = 1 [(kv.is_public) = true];
+    string username = 2 [(kv.is_public) = true];
+    string key = 3;
+    string value = 4;
+}
+
+message SetResponse {
+    int32 score = 1 [(kv.is_public) = true];
+    string username = 2 [(kv.is_public) = true];
+    string value = 3;
+}
