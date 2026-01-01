@@ -20,16 +20,15 @@ jobs:
         
     - name: Tidy
       run: go mod tidy && git diff --exit-code
+    
+    - name: Install protoc
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler
 
     - name: Install protoc plugins
       run: |
         go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-        go install ./cmd/symphony-gen-arpc/protoc-gen-symphony
-        go install ./cmd/symphony-gen-arpc/protoc-gen-arpc
-        echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
-    - name: Install protoc plugins
-      run: |
         go install ./cmd/symphony-gen-arpc/protoc-gen-symphony
         go install ./cmd/symphony-gen-arpc/protoc-gen-arpc
         echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
