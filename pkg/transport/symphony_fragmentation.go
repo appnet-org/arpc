@@ -2,104 +2,123 @@ package transport
 
 import "fmt"
 
-// FragmentPackets splits a marshalled Symphony buffer into MTU-sized packets.
-// Public segment data is head-aligned (filled from byte 0), private segment data
-// is tail-aligned (filled from end), and a meeting packet combines both to
-// minimize wasted space.
+// FragmentPackets fragments data into MTU-sized packets using a slack optimization strategy.
+// The input data is expected to contain an offset header (bytes 1-5) that separates the data
+// into public and private sections. The function performs three phases:
 //
-// Returns a list of packets where:
-//   - Public segment packets are head-aligned (filled from byte 0)
-//   - Private segment packets are tail-aligned (filled from end)
-//   - A "meeting packet" combines remaining public + private data to save space
+//  1. Public Packets: Creates full MTU-sized packets from the public data section.
+//  2. Meeting Packet: Combines the remainder of public data with a chunk of private data
+//     to minimize wasted space (slack optimization). This ensures subsequent private data
+//     packets are aligned to MTU boundaries.
+//  3. Private Packets: Creates full MTU-sized packets from the remaining private data.
 //
-// Algorithm:
-//  1. Parse offset_to_private from data[1:5] to identify public/private boundary
-//  2. Extract public and private segments
-//  3. Create head-aligned public packets until all public data is packed
-//  4. Optimize by creating a meeting packet if last public packet has space
-//  5. Create tail-aligned private packets for remaining private data
+// Parameters:
+//   - data: The input data to fragment, containing an offset header in bytes 1-5 that
+//     indicates where the private data section begins.
+//   - mtu: Maximum Transmission Unit size. Must be positive.
+//
+// Returns:
+//   - [][]byte: A slice of packet fragments, each no larger than MTU bytes.
+//   - error: Returns an error if MTU is invalid, data is too short, or the offset is invalid.
 func FragmentPackets(data []byte, mtu int) ([][]byte, error) {
-	// Validation
+	// 1. Validation & Setup
 	if mtu <= 0 {
 		return nil, fmt.Errorf("MTU must be positive, got %d", mtu)
 	}
-	if mtu < 13 {
-		return nil, fmt.Errorf("MTU must be at least 13 bytes (minimum header size), got %d", mtu)
-	}
-	if len(data) < 13 {
-		return nil, fmt.Errorf("data too short: must be at least 13 bytes, got %d", len(data))
-	}
-
-	// Edge case: entire data fits in one MTU
 	if len(data) <= mtu {
 		return [][]byte{data}, nil
 	}
 
-	// Parse offset_to_private from bytes 1-5 (little-endian uint32)
+	// Parse offset (bytes 1-5)
+	if len(data) < 5 {
+		return nil, fmt.Errorf("data too short for offset header")
+	}
 	offsetToPrivate := int(data[1]) | int(data[2])<<8 | int(data[3])<<16 | int(data[4])<<24
-
 	if offsetToPrivate > len(data) {
-		return nil, fmt.Errorf("invalid offset_to_private: %d exceeds data length %d", offsetToPrivate, len(data))
+		return nil, fmt.Errorf("invalid offset")
 	}
 
-	// Extract segments
 	publicData := data[0:offsetToPrivate]
 	privateData := data[offsetToPrivate:]
 
 	var packets [][]byte
 
-	// Phase 1: Head-aligned public packets
+	// 2. Phase 1: Public Packets (Standard)
+	// Fill all full MTU packets for public data
 	publicOffset := 0
-	for publicOffset < len(publicData) {
-		chunk := mtu
-		if remaining := len(publicData) - publicOffset; remaining < chunk {
-			chunk = remaining
-		}
-		packet := make([]byte, chunk)
-		copy(packet, publicData[publicOffset:publicOffset+chunk])
-		packets = append(packets, packet)
-		publicOffset += chunk
-	}
-
-	// Edge case: no private data, return public packets only
-	if len(privateData) == 0 {
-		return packets, nil
-	}
-
-	// Phase 2: Meeting packet optimization
-	// If last public packet has space remaining, extend it with private data
-	lastPacketIdx := len(packets) - 1
-	lastPacket := packets[lastPacketIdx]
-	if len(lastPacket) < mtu {
-		available := mtu - len(lastPacket)
-		privateChunk := available
-		if privateChunk > len(privateData) {
-			privateChunk = len(privateData)
-		}
-		// Create meeting packet by combining remaining public + start of private
-		meetingPacket := make([]byte, len(lastPacket)+privateChunk)
-		copy(meetingPacket, lastPacket)
-		copy(meetingPacket[len(lastPacket):], privateData[0:privateChunk])
-		packets[lastPacketIdx] = meetingPacket
-		// Remove consumed private data
-		privateData = privateData[privateChunk:]
-	}
-
-	// Phase 3: Tail-aligned private packets
-	// Process from end to beginning to achieve tail-alignment
-	for len(privateData) > 0 {
-		chunk := mtu
-		if len(privateData) < chunk {
-			chunk = len(privateData)
-		}
+	for len(publicData)-publicOffset > mtu {
 		packet := make([]byte, mtu)
-		// Tail-align: put data at the end, leaving empty space at beginning
-		offset := mtu - chunk
-		// Take from the end of privateData
-		copy(packet[offset:], privateData[len(privateData)-chunk:])
+		copy(packet, publicData[publicOffset:publicOffset+mtu])
 		packets = append(packets, packet)
-		// Remove consumed private data
-		privateData = privateData[:len(privateData)-chunk]
+		publicOffset += mtu
+	}
+
+	// The "remainder" of public data starts the meeting packet
+	meetingPacket := make([]byte, len(publicData)-publicOffset)
+	copy(meetingPacket, publicData[publicOffset:])
+
+	// 3. Phase 2: The Meeting Packet (Slack Optimization)
+	if len(privateData) > 0 {
+		// Calculate how much private data we need to peel off
+		// so that the REST of privateData is a multiple of MTU.
+		privateHeadLen := len(privateData) % mtu
+
+		// If privateData is already a multiple of MTU (rem == 0),
+		// we don't add anything here unless you want to force an empty check.
+		// Usually, 0 remainder means the rest is already aligned.
+
+		chunk := privateData[:privateHeadLen]
+		privateData = privateData[privateHeadLen:] // Advance slice
+
+		// Append this chunk to the meeting packet
+		// This might exceed MTU if (public_rem + private_rem) > MTU
+		currentMeetingLen := len(meetingPacket)
+		totalLen := currentMeetingLen + len(chunk)
+
+		if totalLen <= mtu {
+			// Case A: Fits in one packet. Slack is here.
+			newPacket := make([]byte, totalLen)
+			copy(newPacket, meetingPacket)
+			copy(newPacket[currentMeetingLen:], chunk)
+			packets = append(packets, newPacket)
+		} else {
+			// Case B: Overflow.
+			// We fill the meeting packet to MTU, and push the rest to a new small packet.
+			// This ensures the SUBSEQUENT private packets stay aligned.
+
+			// 1. Fill current meeting packet to MTU
+			fillNeeded := mtu - currentMeetingLen
+			packet1 := make([]byte, mtu)
+			copy(packet1, meetingPacket)
+			copy(packet1[currentMeetingLen:], chunk[:fillNeeded])
+			packets = append(packets, packet1)
+
+			// 2. Put the overflow in a new packet (this is where the slack ends up)
+			overflow := chunk[fillNeeded:]
+			packet2 := make([]byte, len(overflow))
+			copy(packet2, overflow)
+			packets = append(packets, packet2)
+		}
+	} else {
+		// If no private data, just append the public remainder
+		if len(meetingPacket) > 0 {
+			packets = append(packets, meetingPacket)
+		}
+	}
+
+	// 4. Phase 3: Remaining Private Data
+	// At this point, privateData is guaranteed to be a multiple of MTU (or empty).
+	for len(privateData) > 0 {
+		chunkSize := mtu
+		if len(privateData) < mtu {
+			chunkSize = len(privateData) // Should not happen if math works, but safe
+		}
+
+		packet := make([]byte, chunkSize)
+		copy(packet, privateData[:chunkSize])
+		packets = append(packets, packet)
+
+		privateData = privateData[chunkSize:]
 	}
 
 	return packets, nil
