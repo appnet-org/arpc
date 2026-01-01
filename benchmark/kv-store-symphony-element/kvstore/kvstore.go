@@ -37,7 +37,8 @@ func (s *kvServer) Get(ctx context.Context, req *kv.GetRequest) (*kv.GetResponse
 	defer s.mu.Unlock()
 
 	key := req.GetKey()
-	logging.Debug("Server got Get request", zap.String("key", key))
+	username := req.GetUsername()
+	logging.Debug("Server got Get request", zap.String("key", key), zap.String("username", username))
 
 	value, exists := s.data[key]
 	if !exists {
@@ -49,7 +50,7 @@ func (s *kvServer) Get(ctx context.Context, req *kv.GetRequest) (*kv.GetResponse
 
 	resp := &kv.GetResponse{
 		Score:    int32(1),
-		Username: req.GetUsername(),
+		Username: username,
 		Value:    value,
 	}
 
@@ -63,7 +64,8 @@ func (s *kvServer) Set(ctx context.Context, req *kv.SetRequest) (*kv.SetResponse
 
 	key := req.GetKey()
 	value := req.GetValue()
-	logging.Debug("Server got Set request", zap.String("key", key), zap.String("value", value))
+	username := req.GetUsername()
+	logging.Debug("Server got Set request", zap.String("key", key), zap.String("value", value), zap.String("username", username))
 
 	// Check if we need to evict an item
 	if len(s.data) >= s.maxSize {
@@ -77,7 +79,7 @@ func (s *kvServer) Set(ctx context.Context, req *kv.SetRequest) (*kv.SetResponse
 
 	resp := &kv.SetResponse{
 		Score:    int32(1),
-		Username: req.GetUsername(),
+		Username: username,
 		Value:    value,
 	}
 

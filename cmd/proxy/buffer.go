@@ -13,6 +13,12 @@ import (
 	"go.uber.org/zap"
 )
 
+// verdictKey is a composite key for storing verdicts that distinguishes requests from responses
+type verdictKey struct {
+	RPCID      uint64
+	PacketType util.PacketType
+}
+
 // PacketBuffer handles the buffering and reassembly of fragmented RPC packets
 // Similar to DataReassembler but adapted for proxy use
 type PacketBuffer struct {
@@ -23,7 +29,7 @@ type PacketBuffer struct {
 	timeout       time.Duration
 	cleanupTicker *time.Ticker
 	done          chan struct{}
-	verdicts      map[uint64]util.PacketVerdict
+	verdicts      map[verdictKey]util.PacketVerdict
 	verdictsMu    sync.RWMutex
 }
 
@@ -34,7 +40,7 @@ func NewPacketBuffer(timeout time.Duration) *PacketBuffer {
 		incoming: make(map[string]map[uint64]map[uint16][]byte),
 		timeouts: make(map[string]map[uint64]time.Time),
 		done:     make(chan struct{}),
-		verdicts: make(map[uint64]util.PacketVerdict),
+		verdicts: make(map[verdictKey]util.PacketVerdict),
 	}
 
 	// Start cleanup routine
@@ -69,13 +75,17 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.Buff
 	peer := &net.UDPAddr{IP: net.IP(dataPacket.DstIP[:]), Port: int(dataPacket.DstPort)}
 	packetType := util.PacketType(dataPacket.PacketTypeID)
 
-	// Check if a verdict exists for this RPC ID and retrieve it
+	// Check if a verdict exists for this RPC ID and packet type
+	key := verdictKey{
+		RPCID:      dataPacket.RPCID,
+		PacketType: packetType,
+	}
 	pb.verdictsMu.RLock()
-	verdict, verdictExists := pb.verdicts[dataPacket.RPCID]
+	verdict, verdictExists := pb.verdicts[key]
 	pb.verdictsMu.RUnlock()
 
 	if verdictExists {
-		logging.Debug("Verdict exists for RPC ID", zap.Uint64("rpcID", dataPacket.RPCID), zap.String("verdict", verdict.String()))
+		logging.Debug("Verdict exists for RPC ID", zap.Uint64("rpcID", dataPacket.RPCID), zap.String("packetType", packetType.String()), zap.String("verdict", verdict.String()))
 		// Verdict exists, forward the packet immediately without buffering or element chain processing
 		// Preserve the original fragment's sequence number and TotalPackets for correct forwarding
 		isFull := dataPacket.TotalPackets == 1
@@ -119,7 +129,7 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.Buff
 		}, util.PacketVerdictUnknown, nil
 	}
 
-	logging.Debug("Adding fragment to buffer", zap.Uint64("rpcID", dataPacket.RPCID), zap.Int("seqNumber", int(dataPacket.SeqNumber)))
+	logging.Debug("Adding fragment to buffer", zap.Uint64("rpcID", dataPacket.RPCID), zap.Int("seqNumber", int(dataPacket.SeqNumber)), zap.Int("size", len(dataPacket.Payload)))
 	// Otherwise, add fragment to buffer and check if we have enough data
 	publicSegment := pb.addFragmentToBuffer(src, dataPacket)
 	if publicSegment != nil {
@@ -215,14 +225,8 @@ func (pb *PacketBuffer) addFragmentToBuffer(src *net.UDPAddr, dataPacket *packet
 	for cumulativeSize < offsetPrivate {
 		fragmentPayload := fragments[seqNum]
 		// Only take the portion we need to reach offsetPrivate
-		remaining := offsetPrivate - cumulativeSize
-		if len(fragmentPayload) <= remaining {
-			publicSegment = append(publicSegment, fragmentPayload...)
-			cumulativeSize += len(fragmentPayload)
-		} else {
-			publicSegment = append(publicSegment, fragmentPayload[:remaining]...)
-			cumulativeSize = offsetPrivate
-		}
+		publicSegment = append(publicSegment, fragmentPayload...)
+		cumulativeSize += len(fragmentPayload)
 		seqNum++
 	}
 	logging.Debug("Reassembled public segment", zap.Uint64("rpcID", dataPacket.RPCID), zap.Int("size", len(publicSegment)))

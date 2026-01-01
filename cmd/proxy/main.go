@@ -249,9 +249,13 @@ func runElementsChain(ctx context.Context, state *ProxyState, packet *util.Buffe
 		return nil
 	}
 
-	// Store the verdict for this RPC ID
+	// Store the verdict for this RPC ID and packet type (to distinguish requests from responses)
+	key := verdictKey{
+		RPCID:      packet.RPCID,
+		PacketType: packet.PacketType,
+	}
 	state.packetBuffer.verdictsMu.Lock()
-	state.packetBuffer.verdicts[packet.RPCID] = verdict
+	state.packetBuffer.verdicts[key] = verdict
 	state.packetBuffer.verdictsMu.Unlock()
 
 	// Check verdict - if dropped, don't forward the packet

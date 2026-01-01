@@ -168,13 +168,13 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 
 			// Serialize and send
 			packetData, err := packet.SerializePacket(pkt, packetType, t.bufferPool)
-			logging.Debug("Serialized packet", zap.Uint64("rpcID", rpcID))
+			logging.Debug("Serialized packet", zap.Uint64("rpcID", rpcID), zap.Int("size", len(packetData)))
 			if err != nil {
 				return err
 			}
 
 			_, err = t.conn.WriteToUDP(packetData, udpAddr)
-			logging.Debug("Sent packet", zap.Uint64("rpcID", rpcID))
+			logging.Debug("Sent packet", zap.Uint64("rpcID", rpcID), zap.Int("size", len(packetData)))
 
 			// Return buffer to pool after sending (WriteToUDP copies the data, so it's safe)
 			t.bufferPool.Put(packetData)
@@ -208,13 +208,13 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 
 		// Serialize the packet into a byte slice for transmission using buffer pool
 		packetData, err := packet.SerializePacket(pkt, packetType, t.bufferPool)
-		logging.Debug("Serialized packet", zap.Uint64("rpcID", rpcID))
+		logging.Debug("Serialized packet", zap.Uint64("rpcID", rpcID), zap.Int("size", len(packetData)))
 		if err != nil {
 			return err
 		}
 
 		_, err = t.conn.WriteToUDP(packetData, udpAddr)
-		logging.Debug("Sent packet", zap.Uint64("rpcID", rpcID))
+		logging.Debug("Sent packet", zap.Uint64("rpcID", rpcID), zap.Int("size", len(packetData)))
 
 		// Return buffer to pool after sending (WriteToUDP copies the data, so it's safe)
 		t.bufferPool.Put(packetData)
