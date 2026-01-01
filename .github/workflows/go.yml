@@ -21,6 +21,25 @@ jobs:
     - name: Tidy
       run: go mod tidy && git diff --exit-code
 
+    - name: Install protoc
+      run: |
+        PROTOC_VERSION=29.3
+        wget -q https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip
+        unzip -q protoc-${PROTOC_VERSION}-linux-x86_64.zip -d protoc-${PROTOC_VERSION}
+        sudo cp protoc-${PROTOC_VERSION}/bin/protoc /usr/local/bin/
+        sudo cp -r protoc-${PROTOC_VERSION}/include/google /usr/local/include/
+
+    - name: Install protoc plugins
+      run: |
+        go install ./cmd/symphony-gen-arpc/protoc-gen-symphony
+        go install ./cmd/symphony-gen-arpc/protoc-gen-arpc
+        echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+    - name: Generate code
+      run: |
+        cd cmd/symphony-gen-arpc/test
+        protoc --symphony_out=paths=source_relative:. --go_out=paths=source_relative:. test.proto
+
     - name: Vet
       run: go vet ./...
 
