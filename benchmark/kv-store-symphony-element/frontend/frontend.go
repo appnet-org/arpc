@@ -86,7 +86,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		}
 		resp, err := kvClient.Get(context.Background(), req)
 		if err != nil {
-			logging.Error("Get RPC call failed", zap.Error(err))
+			logging.Warn("Get RPC call failed", zap.Error(err))
 			http.Error(w, fmt.Sprintf("Get RPC failed: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -101,7 +101,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		}
 		resp, err := kvClient.Set(context.Background(), req)
 		if err != nil {
-			logging.Error("Set RPC call failed", zap.Error(err))
+			logging.Warn("Set RPC call failed", zap.Error(err))
 			http.Error(w, fmt.Sprintf("Set RPC failed: %v", err), http.StatusInternalServerError)
 			return
 		}
