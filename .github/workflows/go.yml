@@ -21,13 +21,12 @@ jobs:
     - name: Tidy
       run: go mod tidy && git diff --exit-code
 
-    - name: Install protoc
+    - name: Install protoc plugins
       run: |
-        PROTOC_VERSION=29.3
-        wget -q https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip
-        unzip -q protoc-${PROTOC_VERSION}-linux-x86_64.zip -d protoc-${PROTOC_VERSION}
-        sudo cp protoc-${PROTOC_VERSION}/bin/protoc /usr/local/bin/
-        sudo cp -r protoc-${PROTOC_VERSION}/include/google /usr/local/include/
+        go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+        go install ./cmd/symphony-gen-arpc/protoc-gen-symphony
+        go install ./cmd/symphony-gen-arpc/protoc-gen-arpc
+        echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
     - name: Install protoc plugins
       run: |
