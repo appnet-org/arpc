@@ -39,9 +39,10 @@ var (
 	traceData    []NativeData
 
 	// Pre-serialized buffers for Read/Deserialize benchmarks
-	protoBufs [][]byte
-	flatBufs  [][]byte
-	capnpBufs [][]byte
+	protoBufs    [][]byte
+	flatBufs     [][]byte
+	capnpBufs    [][]byte
+	symphonyBufs [][]byte
 )
 
 // --- INITIALIZATION ---
@@ -75,6 +76,7 @@ func init() {
 	protoBufs = make([][]byte, len(traceEntries))
 	flatBufs = make([][]byte, len(traceEntries))
 	capnpBufs = make([][]byte, len(traceEntries))
+	symphonyBufs = make([][]byte, len(traceEntries))
 
 	// Pre-generate data and serialize based on trace entries
 	for i, entry := range traceEntries {
@@ -107,6 +109,10 @@ func init() {
 			req.SetKey([]byte(key))
 			req.SetValue([]byte(value))
 			capnpBufs[i], _ = msg.Marshal()
+
+			// Symphony SetRequest
+			synSet := &kv_proto.SetRequest{Key: key, Value: value}
+			symphonyBufs[i], _ = synSet.MarshalSymphony()
 		} else {
 			// GetRequest
 			pGet := &kv_proto.GetRequest{Key: key}
@@ -123,6 +129,10 @@ func init() {
 			req, _ := kv_capnp.NewRootGetRequest(seg)
 			req.SetKey([]byte(key))
 			capnpBufs[i], _ = msg.Marshal()
+
+			// Symphony GetRequest
+			synGet := &kv_proto.GetRequest{Key: key}
+			symphonyBufs[i], _ = synGet.MarshalSymphony()
 		}
 	}
 }
@@ -390,6 +400,123 @@ func BenchmarkCapnp_Read(b *testing.B) {
 			obj, _ := kv_capnp.ReadRootGetRequest(msg)
 			k, _ := obj.Key()
 			_ = k
+		}
+	}
+	b.StopTimer()
+	if b.N > 0 {
+		nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+		msgPerSec := 1e9 / nsPerOp
+		b.ReportMetric(msgPerSec, "msg/s")
+	}
+	b.StartTimer()
+}
+
+func BenchmarkSymphony_Write(b *testing.B) {
+	b.ResetTimer()
+	b.ReportAllocs()
+	traceSize := len(traceEntries)
+	for i := 0; i < b.N; i++ {
+		idx := i % traceSize
+		entry := traceEntries[idx]
+		item := traceData[idx]
+
+		if entry.Op == "SET" {
+			obj := &kv_proto.SetRequest{Key: item.Key, Value: item.Value}
+			_, _ = obj.MarshalSymphony()
+		} else {
+			obj := &kv_proto.GetRequest{Key: item.Key}
+			_, _ = obj.MarshalSymphony()
+		}
+	}
+	b.StopTimer()
+	if b.N > 0 {
+		nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+		msgPerSec := 1e9 / nsPerOp
+		b.ReportMetric(msgPerSec, "msg/s")
+	}
+	b.StartTimer()
+}
+
+func BenchmarkSymphony_Write_ZeroCopy(b *testing.B) {
+	b.ResetTimer()
+	b.ReportAllocs()
+	traceSize := len(traceEntries)
+	for i := 0; i < b.N; i++ {
+		idx := i % traceSize
+		entry := traceEntries[idx]
+		item := traceData[idx]
+
+		if entry.Op == "SET" {
+			// Create empty struct and marshal to get buffer structure
+			empty := &kv_proto.SetRequest{}
+			buf, _ := empty.MarshalSymphony()
+			raw := kv_proto.SetRequestRaw(buf)
+			_ = raw.SetKey(item.Key)
+			_ = raw.SetValue(item.Value)
+		} else {
+			// Create empty struct and marshal to get buffer structure
+			empty := &kv_proto.GetRequest{}
+			buf, _ := empty.MarshalSymphony()
+			raw := kv_proto.GetRequestRaw(buf)
+			_ = raw.SetKey(item.Key)
+		}
+	}
+	b.StopTimer()
+	if b.N > 0 {
+		nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+		msgPerSec := 1e9 / nsPerOp
+		b.ReportMetric(msgPerSec, "msg/s")
+	}
+	b.StartTimer()
+}
+
+func BenchmarkSymphony_Read(b *testing.B) {
+	b.ResetTimer()
+	b.ReportAllocs()
+	traceSize := len(traceEntries)
+	for i := 0; i < b.N; i++ {
+		idx := i % traceSize
+		entry := traceEntries[idx]
+		in := symphonyBufs[idx]
+
+		if entry.Op == "SET" {
+			var obj kv_proto.SetRequest
+			_ = obj.UnmarshalSymphony(in)
+			_ = obj.Key
+			_ = obj.Value
+		} else {
+			var obj kv_proto.GetRequest
+			_ = obj.UnmarshalSymphony(in)
+			_ = obj.Key
+		}
+	}
+	b.StopTimer()
+	if b.N > 0 {
+		nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+		msgPerSec := 1e9 / nsPerOp
+		b.ReportMetric(msgPerSec, "msg/s")
+	}
+	b.StartTimer()
+}
+
+func BenchmarkSymphony_Read_ZeroCopy(b *testing.B) {
+	b.ResetTimer()
+	b.ReportAllocs()
+	traceSize := len(traceEntries)
+	for i := 0; i < b.N; i++ {
+		idx := i % traceSize
+		entry := traceEntries[idx]
+		in := symphonyBufs[idx]
+
+		if entry.Op == "SET" {
+			// Convert buffer to Raw type (zero-copy)
+			raw := kv_proto.SetRequestRaw(in)
+			_ = raw.GetKey()
+			_ = raw.GetValue()
+		} else {
+			// Convert buffer to Raw type (zero-copy)
+			raw := kv_proto.GetRequestRaw(in)
+			_ = raw.GetKey()
 		}
 	}
 	b.StopTimer()

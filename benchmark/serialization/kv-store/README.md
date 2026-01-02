@@ -8,14 +8,21 @@ Benchmark comparing Protobuf, FlatBuffers, and Cap'n Proto serialization perform
 - `protoc` (for Protobuf)
 - `flatc` (for FlatBuffers)
 - `capnp` and `capnpc-go` plugin (for Cap'n Proto)
+- `protoc-gen-symphony` (for Symphony)
 
 ## Setup
 
 Generate code for all serialization formats:
 
 ```bash
+# Install protoc-gen-symphony (if not already installed)
+go install github.com/appnet-org/arpc/cmd/symphony-gen-arpc/protoc-gen-symphony
+
 # Protobuf
 protoc --go_out=paths=source_relative:. proto/kv.proto
+
+# Symphony (generates proto/kv.syn.go)
+protoc --symphony_out=paths=source_relative:. proto/kv.proto
 
 # FlatBuffers
 cd flatbuffers && flatc --go kv.fbs && cd ..
@@ -43,6 +50,8 @@ go test -bench=BenchmarkCapnp_Read -benchmem
 ## Benchmarks
 
 - `BenchmarkProtobuf_Write` / `BenchmarkProtobuf_Read`
+- `BenchmarkSymphony_Write` / `BenchmarkSymphony_Read` (non-zero-copy)
+- `BenchmarkSymphony_Write_ZeroCopy` / `BenchmarkSymphony_Read_ZeroCopy` (zero-copy using Raw types)
 - `BenchmarkFlatBuffers_Write` / `BenchmarkFlatBuffers_Read`
 - `BenchmarkCapnp_Write` / `BenchmarkCapnp_Read`
 
