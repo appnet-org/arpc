@@ -285,10 +285,9 @@ func BenchmarkProtobuf_Read(b *testing.B) {
 func BenchmarkFlatBuffers_Write(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
-	builder := flatbuffers.NewBuilder(2048)
 	traceSize := len(traceEntries)
 	for i := 0; i < b.N; i++ {
-		builder.Reset()
+		builder := flatbuffers.NewBuilder(1024)
 		idx := i % traceSize
 		entry := traceEntries[idx]
 		item := traceData[idx]
@@ -329,11 +328,11 @@ func BenchmarkFlatBuffers_Read(b *testing.B) {
 
 		if entry.Op == "SET" {
 			obj := kv_flat.GetRootAsSetRequest(in, 0)
-			_ = obj.Key()
-			_ = obj.Value()
+			_ = string(obj.Key())
+			_ = string(obj.Value())
 		} else {
 			obj := kv_flat.GetRootAsGetRequest(in, 0)
-			_ = obj.Key()
+			_ = string(obj.Key())
 		}
 	}
 	b.StopTimer()
@@ -350,16 +349,12 @@ func BenchmarkCapnp_Write(b *testing.B) {
 	b.ReportAllocs()
 	traceSize := len(traceEntries)
 
-	// Create a reusable arena
-	arenaBuf := make([]byte, 4096)
-
 	for i := 0; i < b.N; i++ {
 		idx := i % traceSize
 		entry := traceEntries[idx]
 		item := traceData[idx]
 
-		// Reuse the arena
-		msg, seg, _ := capnp.NewMessage(capnp.SingleSegment(arenaBuf[:0]))
+		msg, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
 
 		if entry.Op == "SET" {
 			req, _ := kv_capnp.NewRootSetRequest(seg)
@@ -394,12 +389,13 @@ func BenchmarkCapnp_Read(b *testing.B) {
 			obj, _ := kv_capnp.ReadRootSetRequest(msg)
 			k, _ := obj.Key()
 			v, _ := obj.Value()
-			_, _ = k, v
+			_ = string(k)
+			_ = string(v)
 		} else {
 			msg, _ := capnp.Unmarshal(in)
 			obj, _ := kv_capnp.ReadRootGetRequest(msg)
 			k, _ := obj.Key()
-			_ = k
+			_ = string(k)
 		}
 	}
 	b.StopTimer()
