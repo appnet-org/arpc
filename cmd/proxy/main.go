@@ -215,6 +215,11 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	}
 
 	// Send all fragments
+	// TODO: If WriteToUDP fails for one fragment, we currently return early and remaining fragments
+	// are not sent. This causes incomplete message delivery. We should either:
+	// 1. Continue sending remaining fragments even if one fails (best effort delivery), or
+	// 2. Implement retry logic for failed fragments, or
+	// 3. Track which fragments succeeded and retry only failed ones
 	for _, fragment := range fragmentedPackets {
 		if _, err := conn.WriteToUDP(fragment.Data, fragment.Peer); err != nil {
 			logging.Error("WriteToUDP error", zap.Error(err))

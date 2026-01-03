@@ -13,6 +13,10 @@ import (
 	"go.uber.org/zap"
 )
 
+// DataPacketHeaderSize is the size of the DataPacket header in bytes
+// Total: 1+8+2+2+4+2+4+2+4 = 29 bytes
+const DataPacketHeaderSize = 29
+
 // verdictKey is a composite key for storing verdicts that distinguishes requests from responses
 type verdictKey struct {
 	RPCID      uint64
@@ -84,15 +88,15 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.Buff
 		RPCID:      dataPacket.RPCID,
 		PacketType: packetType,
 	}
-	pb.verdictsMu.RLock()
+	pb.verdictsMu.Lock()
 	verdict, verdictExists := pb.verdicts[key]
-	pb.verdictsMu.RUnlock()
-
 	if verdictExists {
 		// Update last access time for verdict cleanup
-		pb.verdictsMu.Lock()
 		pb.verdictTimes[key] = time.Now()
-		pb.verdictsMu.Unlock()
+	}
+	pb.verdictsMu.Unlock()
+
+	if verdictExists {
 		logging.Debug("Verdict exists for RPC ID", zap.Uint64("rpcID", dataPacket.RPCID), zap.String("packetType", packetType.String()), zap.String("verdict", verdict.String()))
 		// Verdict exists, forward the packet immediately without buffering or element chain processing
 		// Preserve the original fragment's sequence number and TotalPackets for correct forwarding
@@ -249,6 +253,7 @@ func (pb *PacketBuffer) addFragmentToBuffer(src *net.UDPAddr, dataPacket *packet
 	for cumulativeSize < offsetPrivate {
 		fragmentPayload := fragments[seqNum]
 		// Only take the portion we need to reach offsetPrivate
+		// Note: we are not taking the portion we need to reach offsetPrivate exactly, we are taking the entire fragment
 		publicSegment = append(publicSegment, fragmentPayload...)
 		cumulativeSize += len(fragmentPayload)
 		seqNum++
@@ -281,8 +286,8 @@ func (pb *PacketBuffer) deserializePacket(data []byte) (*packet.DataPacket, erro
 func (pb *PacketBuffer) reassemblePayload(originalPacket *packet.DataPacket, fragments map[uint16][]byte) ([]byte, error) {
 	// Calculate total payload size
 	var totalPayloadSize int
-	for i := range int(originalPacket.TotalPackets) {
-		if fragment, exists := fragments[uint16(i)]; exists {
+	for i := uint16(0); i < originalPacket.TotalPackets; i++ {
+		if fragment, exists := fragments[i]; exists {
 			totalPayloadSize += len(fragment)
 		} else {
 			return nil, fmt.Errorf("missing fragment %d for RPC %d", i, originalPacket.RPCID)
@@ -291,8 +296,8 @@ func (pb *PacketBuffer) reassemblePayload(originalPacket *packet.DataPacket, fra
 
 	// Concatenate fragments in order to create complete payload
 	completePayload := make([]byte, 0, totalPayloadSize)
-	for i := range int(originalPacket.TotalPackets) {
-		fragment := fragments[uint16(i)]
+	for i := uint16(0); i < originalPacket.TotalPackets; i++ {
+		fragment := fragments[i]
 		completePayload = append(completePayload, fragment...)
 	}
 
@@ -310,11 +315,17 @@ func (pb *PacketBuffer) cleanupFragments(connKey string, rpcID uint64) {
 	if pb.timeouts[connKey] != nil {
 		delete(pb.timeouts[connKey], rpcID)
 	}
+	if pb.publicSegmentExtracted[connKey] != nil {
+		delete(pb.publicSegmentExtracted[connKey], rpcID)
+	}
 
 	// Clean up empty connection maps
 	if len(pb.incoming[connKey]) == 0 {
 		delete(pb.incoming, connKey)
 		delete(pb.timeouts, connKey)
+		if pb.publicSegmentExtracted[connKey] != nil {
+			delete(pb.publicSegmentExtracted, connKey)
+		}
 	}
 }
 
@@ -489,7 +500,7 @@ type FragmentedPacket struct {
 func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPacket) ([]FragmentedPacket, error) {
 	// Use the payload directly from bufferedPacket (may have been modified by element chain)
 	completePayload := bufferedPacket.Payload
-	chunkSize := packet.MaxUDPPayloadSize - 29 // 29 bytes for header (1+8+2+2+4+2+4+2+4)
+	chunkSize := packet.MaxUDPPayloadSize - DataPacketHeaderSize
 
 	// Check if payload fits in a single packet
 	if len(completePayload) <= chunkSize {
