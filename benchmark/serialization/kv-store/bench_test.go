@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	// Generated imports
 	kv_capnp "github.com/appnet-org/arpc/benchmark/serialization/kv-store/capnp"
@@ -227,15 +228,39 @@ func generateString(seed string, size int) string {
 	return result.String()
 }
 
+// writeTimings writes timing data (in nanoseconds) to a file, one value per line
+func writeTimings(filename string, timings []int64) error {
+	// Create subdirectory for profile data
+	dir := "profile_data"
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	// Write to file in subdirectory
+	path := filepath.Join(dir, filename)
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	for _, t := range timings {
+		fmt.Fprintf(f, "%d\n", t)
+	}
+	return nil
+}
+
 func BenchmarkProtobuf_Write(b *testing.B) {
+	timings := make([]int64, 0, b.N)
+	traceSize := len(traceEntries)
 	b.ResetTimer()
 	b.ReportAllocs()
-	traceSize := len(traceEntries)
 	for i := 0; i < b.N; i++ {
 		idx := i % traceSize
 		entry := traceEntries[idx]
 		item := traceData[idx]
 
+		start := time.Now()
 		if entry.Op == "SET" {
 			obj := &kv_proto.SetRequest{Key: item.Key, Value: item.Value}
 			_, _ = proto.Marshal(obj)
@@ -243,6 +268,8 @@ func BenchmarkProtobuf_Write(b *testing.B) {
 			obj := &kv_proto.GetRequest{Key: item.Key}
 			_, _ = proto.Marshal(obj)
 		}
+		elapsed := time.Since(start)
+		timings = append(timings, elapsed.Nanoseconds())
 	}
 	b.StopTimer()
 	if b.N > 0 {
@@ -250,18 +277,23 @@ func BenchmarkProtobuf_Write(b *testing.B) {
 		msgPerSec := 1e9 / nsPerOp
 		b.ReportMetric(msgPerSec, "msg/s")
 	}
+	if err := writeTimings("protobuf_write_times.txt", timings); err != nil {
+		b.Logf("Failed to write timing data: %v", err)
+	}
 	b.StartTimer()
 }
 
 func BenchmarkProtobuf_Read(b *testing.B) {
+	timings := make([]int64, 0, b.N)
+	traceSize := len(traceEntries)
 	b.ResetTimer()
 	b.ReportAllocs()
-	traceSize := len(traceEntries)
 	for i := 0; i < b.N; i++ {
 		idx := i % traceSize
 		entry := traceEntries[idx]
 		in := protoBufs[idx]
 
+		start := time.Now()
 		if entry.Op == "SET" {
 			var obj kv_proto.SetRequest
 			proto.Unmarshal(in, &obj)
@@ -272,6 +304,8 @@ func BenchmarkProtobuf_Read(b *testing.B) {
 			proto.Unmarshal(in, &obj)
 			_ = obj.GetKey()
 		}
+		elapsed := time.Since(start)
+		timings = append(timings, elapsed.Nanoseconds())
 	}
 	b.StopTimer()
 	if b.N > 0 {
@@ -279,19 +313,24 @@ func BenchmarkProtobuf_Read(b *testing.B) {
 		msgPerSec := 1e9 / nsPerOp
 		b.ReportMetric(msgPerSec, "msg/s")
 	}
+	if err := writeTimings("protobuf_read_times.txt", timings); err != nil {
+		b.Logf("Failed to write timing data: %v", err)
+	}
 	b.StartTimer()
 }
 
 func BenchmarkFlatBuffers_Write(b *testing.B) {
+	timings := make([]int64, 0, b.N)
+	traceSize := len(traceEntries)
 	b.ResetTimer()
 	b.ReportAllocs()
-	traceSize := len(traceEntries)
 	for i := 0; i < b.N; i++ {
 		builder := flatbuffers.NewBuilder(1024)
 		idx := i % traceSize
 		entry := traceEntries[idx]
 		item := traceData[idx]
 
+		start := time.Now()
 		if entry.Op == "SET" {
 			k := builder.CreateString(item.Key)
 			v := builder.CreateString(item.Value)
@@ -307,6 +346,8 @@ func BenchmarkFlatBuffers_Write(b *testing.B) {
 			builder.Finish(kv_flat.GetRequestEnd(builder))
 			_ = builder.FinishedBytes()
 		}
+		elapsed := time.Since(start)
+		timings = append(timings, elapsed.Nanoseconds())
 	}
 	b.StopTimer()
 	if b.N > 0 {
@@ -314,18 +355,23 @@ func BenchmarkFlatBuffers_Write(b *testing.B) {
 		msgPerSec := 1e9 / nsPerOp
 		b.ReportMetric(msgPerSec, "msg/s")
 	}
+	if err := writeTimings("flatbuffers_write_times.txt", timings); err != nil {
+		b.Logf("Failed to write timing data: %v", err)
+	}
 	b.StartTimer()
 }
 
 func BenchmarkFlatBuffers_Read(b *testing.B) {
+	timings := make([]int64, 0, b.N)
+	traceSize := len(traceEntries)
 	b.ResetTimer()
 	b.ReportAllocs()
-	traceSize := len(traceEntries)
 	for i := 0; i < b.N; i++ {
 		idx := i % traceSize
 		entry := traceEntries[idx]
 		in := flatBufs[idx]
 
+		start := time.Now()
 		if entry.Op == "SET" {
 			obj := kv_flat.GetRootAsSetRequest(in, 0)
 			_ = string(obj.Key())
@@ -334,6 +380,8 @@ func BenchmarkFlatBuffers_Read(b *testing.B) {
 			obj := kv_flat.GetRootAsGetRequest(in, 0)
 			_ = string(obj.Key())
 		}
+		elapsed := time.Since(start)
+		timings = append(timings, elapsed.Nanoseconds())
 	}
 	b.StopTimer()
 	if b.N > 0 {
@@ -341,19 +389,24 @@ func BenchmarkFlatBuffers_Read(b *testing.B) {
 		msgPerSec := 1e9 / nsPerOp
 		b.ReportMetric(msgPerSec, "msg/s")
 	}
+	if err := writeTimings("flatbuffers_read_times.txt", timings); err != nil {
+		b.Logf("Failed to write timing data: %v", err)
+	}
 	b.StartTimer()
 }
 
 func BenchmarkCapnp_Write(b *testing.B) {
+	timings := make([]int64, 0, b.N)
+	traceSize := len(traceEntries)
 	b.ResetTimer()
 	b.ReportAllocs()
-	traceSize := len(traceEntries)
 
 	for i := 0; i < b.N; i++ {
 		idx := i % traceSize
 		entry := traceEntries[idx]
 		item := traceData[idx]
 
+		start := time.Now()
 		msg, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
 
 		if entry.Op == "SET" {
@@ -365,6 +418,8 @@ func BenchmarkCapnp_Write(b *testing.B) {
 			req.SetKey([]byte(item.Key))
 		}
 		_, _ = msg.Marshal()
+		elapsed := time.Since(start)
+		timings = append(timings, elapsed.Nanoseconds())
 	}
 	b.StopTimer()
 	if b.N > 0 {
@@ -372,18 +427,23 @@ func BenchmarkCapnp_Write(b *testing.B) {
 		msgPerSec := 1e9 / nsPerOp
 		b.ReportMetric(msgPerSec, "msg/s")
 	}
+	if err := writeTimings("capnp_write_times.txt", timings); err != nil {
+		b.Logf("Failed to write timing data: %v", err)
+	}
 	b.StartTimer()
 }
 
 func BenchmarkCapnp_Read(b *testing.B) {
+	timings := make([]int64, 0, b.N)
+	traceSize := len(traceEntries)
 	b.ResetTimer()
 	b.ReportAllocs()
-	traceSize := len(traceEntries)
 	for i := 0; i < b.N; i++ {
 		idx := i % traceSize
 		entry := traceEntries[idx]
 		in := capnpBufs[idx]
 
+		start := time.Now()
 		if entry.Op == "SET" {
 			msg, _ := capnp.Unmarshal(in)
 			obj, _ := kv_capnp.ReadRootSetRequest(msg)
@@ -397,6 +457,8 @@ func BenchmarkCapnp_Read(b *testing.B) {
 			k, _ := obj.Key()
 			_ = string(k)
 		}
+		elapsed := time.Since(start)
+		timings = append(timings, elapsed.Nanoseconds())
 	}
 	b.StopTimer()
 	if b.N > 0 {
@@ -404,18 +466,23 @@ func BenchmarkCapnp_Read(b *testing.B) {
 		msgPerSec := 1e9 / nsPerOp
 		b.ReportMetric(msgPerSec, "msg/s")
 	}
+	if err := writeTimings("capnp_read_times.txt", timings); err != nil {
+		b.Logf("Failed to write timing data: %v", err)
+	}
 	b.StartTimer()
 }
 
 func BenchmarkSymphony_Write(b *testing.B) {
+	timings := make([]int64, 0, b.N)
+	traceSize := len(traceEntries)
 	b.ResetTimer()
 	b.ReportAllocs()
-	traceSize := len(traceEntries)
 	for i := 0; i < b.N; i++ {
 		idx := i % traceSize
 		entry := traceEntries[idx]
 		item := traceData[idx]
 
+		start := time.Now()
 		if entry.Op == "SET" {
 			obj := &kv_proto.SetRequest{Key: item.Key, Value: item.Value}
 			_, _ = obj.MarshalSymphony()
@@ -423,6 +490,8 @@ func BenchmarkSymphony_Write(b *testing.B) {
 			obj := &kv_proto.GetRequest{Key: item.Key}
 			_, _ = obj.MarshalSymphony()
 		}
+		elapsed := time.Since(start)
+		timings = append(timings, elapsed.Nanoseconds())
 	}
 	b.StopTimer()
 	if b.N > 0 {
@@ -430,51 +499,63 @@ func BenchmarkSymphony_Write(b *testing.B) {
 		msgPerSec := 1e9 / nsPerOp
 		b.ReportMetric(msgPerSec, "msg/s")
 	}
-	b.StartTimer()
-}
-
-func BenchmarkSymphony_Write_ZeroCopy(b *testing.B) {
-	b.ResetTimer()
-	b.ReportAllocs()
-	traceSize := len(traceEntries)
-	for i := 0; i < b.N; i++ {
-		idx := i % traceSize
-		entry := traceEntries[idx]
-		item := traceData[idx]
-
-		if entry.Op == "SET" {
-			// Create empty struct and marshal to get buffer structure
-			empty := &kv_proto.SetRequest{}
-			buf, _ := empty.MarshalSymphony()
-			raw := kv_proto.SetRequestRaw(buf)
-			_ = raw.SetKey(item.Key)
-			_ = raw.SetValue(item.Value)
-		} else {
-			// Create empty struct and marshal to get buffer structure
-			empty := &kv_proto.GetRequest{}
-			buf, _ := empty.MarshalSymphony()
-			raw := kv_proto.GetRequestRaw(buf)
-			_ = raw.SetKey(item.Key)
-		}
-	}
-	b.StopTimer()
-	if b.N > 0 {
-		nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
-		msgPerSec := 1e9 / nsPerOp
-		b.ReportMetric(msgPerSec, "msg/s")
+	if err := writeTimings("symphony_write_times.txt", timings); err != nil {
+		b.Logf("Failed to write timing data: %v", err)
 	}
 	b.StartTimer()
 }
+
+// func BenchmarkSymphony_Write_ZeroCopy(b *testing.B) {
+// 	timings := make([]int64, 0, b.N)
+// 	traceSize := len(traceEntries)
+// 	b.ResetTimer()
+// 	b.ReportAllocs()
+// 	for i := 0; i < b.N; i++ {
+// 		idx := i % traceSize
+// 		entry := traceEntries[idx]
+// 		item := traceData[idx]
+
+// 		start := time.Now()
+// 		if entry.Op == "SET" {
+// 			// Create empty struct and marshal to get buffer structure
+// 			empty := &kv_proto.SetRequest{}
+// 			buf, _ := empty.MarshalSymphony()
+// 			raw := kv_proto.SetRequestRaw(buf)
+// 			_ = raw.SetKey(item.Key)
+// 			_ = raw.SetValue(item.Value)
+// 		} else {
+// 			// Create empty struct and marshal to get buffer structure
+// 			empty := &kv_proto.GetRequest{}
+// 			buf, _ := empty.MarshalSymphony()
+// 			raw := kv_proto.GetRequestRaw(buf)
+// 			_ = raw.SetKey(item.Key)
+// 		}
+// 		elapsed := time.Since(start)
+// 		timings = append(timings, elapsed.Nanoseconds())
+// 	}
+// 	b.StopTimer()
+// 	if b.N > 0 {
+// 		nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+// 		msgPerSec := 1e9 / nsPerOp
+// 		b.ReportMetric(msgPerSec, "msg/s")
+// 	}
+// 	if err := writeTimings("symphony_write_zerocopy_times.txt", timings); err != nil {
+// 		b.Logf("Failed to write timing data: %v", err)
+// 	}
+// 	b.StartTimer()
+// }
 
 func BenchmarkSymphony_Read(b *testing.B) {
+	timings := make([]int64, 0, b.N)
+	traceSize := len(traceEntries)
 	b.ResetTimer()
 	b.ReportAllocs()
-	traceSize := len(traceEntries)
 	for i := 0; i < b.N; i++ {
 		idx := i % traceSize
 		entry := traceEntries[idx]
 		in := symphonyBufs[idx]
 
+		start := time.Now()
 		if entry.Op == "SET" {
 			var obj kv_proto.SetRequest
 			_ = obj.UnmarshalSymphony(in)
@@ -485,6 +566,8 @@ func BenchmarkSymphony_Read(b *testing.B) {
 			_ = obj.UnmarshalSymphony(in)
 			_ = obj.Key
 		}
+		elapsed := time.Since(start)
+		timings = append(timings, elapsed.Nanoseconds())
 	}
 	b.StopTimer()
 	if b.N > 0 {
@@ -492,34 +575,44 @@ func BenchmarkSymphony_Read(b *testing.B) {
 		msgPerSec := 1e9 / nsPerOp
 		b.ReportMetric(msgPerSec, "msg/s")
 	}
-	b.StartTimer()
-}
-
-func BenchmarkSymphony_Read_ZeroCopy(b *testing.B) {
-	b.ResetTimer()
-	b.ReportAllocs()
-	traceSize := len(traceEntries)
-	for i := 0; i < b.N; i++ {
-		idx := i % traceSize
-		entry := traceEntries[idx]
-		in := symphonyBufs[idx]
-
-		if entry.Op == "SET" {
-			// Convert buffer to Raw type (zero-copy)
-			raw := kv_proto.SetRequestRaw(in)
-			_ = raw.GetKey()
-			_ = raw.GetValue()
-		} else {
-			// Convert buffer to Raw type (zero-copy)
-			raw := kv_proto.GetRequestRaw(in)
-			_ = raw.GetKey()
-		}
-	}
-	b.StopTimer()
-	if b.N > 0 {
-		nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
-		msgPerSec := 1e9 / nsPerOp
-		b.ReportMetric(msgPerSec, "msg/s")
+	if err := writeTimings("symphony_read_times.txt", timings); err != nil {
+		b.Logf("Failed to write timing data: %v", err)
 	}
 	b.StartTimer()
 }
+
+// func BenchmarkSymphony_Read_ZeroCopy(b *testing.B) {
+// 	timings := make([]int64, 0, b.N)
+// 	traceSize := len(traceEntries)
+// 	b.ResetTimer()
+// 	b.ReportAllocs()
+// 	for i := 0; i < b.N; i++ {
+// 		idx := i % traceSize
+// 		entry := traceEntries[idx]
+// 		in := symphonyBufs[idx]
+
+// 		start := time.Now()
+// 		if entry.Op == "SET" {
+// 			// Convert buffer to Raw type (zero-copy)
+// 			raw := kv_proto.SetRequestRaw(in)
+// 			_ = raw.GetKey()
+// 			_ = raw.GetValue()
+// 		} else {
+// 			// Convert buffer to Raw type (zero-copy)
+// 			raw := kv_proto.GetRequestRaw(in)
+// 			_ = raw.GetKey()
+// 		}
+// 		elapsed := time.Since(start)
+// 		timings = append(timings, elapsed.Nanoseconds())
+// 	}
+// 	b.StopTimer()
+// 	if b.N > 0 {
+// 		nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+// 		msgPerSec := 1e9 / nsPerOp
+// 		b.ReportMetric(msgPerSec, "msg/s")
+// 	}
+// 	if err := writeTimings("symphony_read_zerocopy_times.txt", timings); err != nil {
+// 		b.Logf("Failed to write timing data: %v", err)
+// 	}
+// 	b.StartTimer()
+// }
