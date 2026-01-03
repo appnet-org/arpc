@@ -228,6 +228,13 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		zap.String("from", bufferedPacket.Source.String()),
 		zap.String("to", bufferedPacket.Peer.String()),
 		zap.String("packetType", bufferedPacket.PacketType.String()))
+
+	// Clean up fragments that were used to build the public segment
+	// Only cleanup if this was a buffered packet (SeqNumber == -1) and we have LastUsedSeqNum set
+	if bufferedPacket.SeqNumber == -1 && bufferedPacket.LastUsedSeqNum > 0 {
+		connKey := bufferedPacket.Source.String()
+		state.packetBuffer.CleanupUsedFragments(connKey, bufferedPacket.RPCID, bufferedPacket.LastUsedSeqNum)
+	}
 }
 
 // runElementsChain processes the packet through the element chain.
@@ -259,6 +266,7 @@ func runElementsChain(ctx context.Context, state *ProxyState, packet *util.Buffe
 	}
 	state.packetBuffer.verdictsMu.Lock()
 	state.packetBuffer.verdicts[key] = verdict
+	state.packetBuffer.verdictTimes[key] = time.Now()
 	state.packetBuffer.verdictsMu.Unlock()
 
 	// Check verdict - if dropped, don't forward the packet
