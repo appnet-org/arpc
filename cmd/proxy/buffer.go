@@ -22,27 +22,29 @@ type verdictKey struct {
 // PacketBuffer handles the buffering and reassembly of fragmented RPC packets
 // Similar to DataReassembler but adapted for proxy use
 type PacketBuffer struct {
-	mu            sync.RWMutex
-	incoming      map[string]map[uint64]map[uint16][]byte // connectionKey -> rpcID -> seqNumber -> payload
-	timeouts      map[string]map[uint64]time.Time         // connectionKey -> rpcID -> lastSeen
-	enabled       bool
-	timeout       time.Duration
-	cleanupTicker *time.Ticker
-	done          chan struct{}
-	verdicts      map[verdictKey]util.PacketVerdict
-	verdictTimes  map[verdictKey]time.Time // verdictKey -> lastSeen
-	verdictsMu    sync.RWMutex
+	mu                     sync.RWMutex
+	incoming               map[string]map[uint64]map[uint16][]byte // connectionKey -> rpcID -> seqNumber -> payload
+	timeouts               map[string]map[uint64]time.Time         // connectionKey -> rpcID -> lastSeen
+	publicSegmentExtracted map[string]map[uint64]bool              // connectionKey -> rpcID -> bool (track if public segment was already extracted)
+	enabled                bool
+	timeout                time.Duration
+	cleanupTicker          *time.Ticker
+	done                   chan struct{}
+	verdicts               map[verdictKey]util.PacketVerdict
+	verdictTimes           map[verdictKey]time.Time // verdictKey -> lastSeen
+	verdictsMu             sync.RWMutex
 }
 
 // NewPacketBuffer creates a new packet buffer
 func NewPacketBuffer(timeout time.Duration) *PacketBuffer {
 	pb := &PacketBuffer{
-		timeout:      timeout,
-		incoming:     make(map[string]map[uint64]map[uint16][]byte),
-		timeouts:     make(map[string]map[uint64]time.Time),
-		done:         make(chan struct{}),
-		verdicts:     make(map[verdictKey]util.PacketVerdict),
-		verdictTimes: make(map[verdictKey]time.Time),
+		timeout:                timeout,
+		incoming:               make(map[string]map[uint64]map[uint16][]byte),
+		timeouts:               make(map[string]map[uint64]time.Time),
+		publicSegmentExtracted: make(map[string]map[uint64]bool),
+		done:                   make(chan struct{}),
+		verdicts:               make(map[verdictKey]util.PacketVerdict),
+		verdictTimes:           make(map[verdictKey]time.Time),
 	}
 
 	// Start cleanup routine
@@ -193,9 +195,20 @@ func (pb *PacketBuffer) addFragmentToBuffer(src *net.UDPAddr, dataPacket *packet
 	if _, exists := pb.incoming[connKey]; !exists {
 		pb.incoming[connKey] = make(map[uint64]map[uint16][]byte)
 		pb.timeouts[connKey] = make(map[uint64]time.Time)
+		pb.publicSegmentExtracted[connKey] = make(map[uint64]bool)
 	}
 	if _, exists := pb.incoming[connKey][dataPacket.RPCID]; !exists {
 		pb.incoming[connKey][dataPacket.RPCID] = make(map[uint16][]byte)
+	}
+
+	// If public segment was already extracted, just buffer this fragment and return nil
+	// This prevents duplicate extraction when private segment fragments arrive after public segment extraction
+	// TODO: Related to out-of-order fragment bug - fragments buffered here after public segment
+	// extraction need to be processed once a verdict exists (see CleanupUsedFragments TODO)
+	if pb.publicSegmentExtracted[connKey][dataPacket.RPCID] {
+		pb.incoming[connKey][dataPacket.RPCID][dataPacket.SeqNumber] = dataPacket.Payload
+		pb.timeouts[connKey][dataPacket.RPCID] = time.Now()
+		return nil, 0
 	}
 
 	// Store the fragment
@@ -240,6 +253,9 @@ func (pb *PacketBuffer) addFragmentToBuffer(src *net.UDPAddr, dataPacket *packet
 		cumulativeSize += len(fragmentPayload)
 		seqNum++
 	}
+	// Mark that public segment has been extracted for this RPC ID
+	pb.publicSegmentExtracted[connKey][dataPacket.RPCID] = true
+
 	logging.Debug("Reassembled public segment", zap.Uint64("rpcID", dataPacket.RPCID), zap.Int("size", len(publicSegment)), zap.Uint16("lastUsedSeqNum", lastUsedSeqNum))
 	return publicSegment, lastUsedSeqNum
 }
@@ -328,12 +344,19 @@ func (pb *PacketBuffer) CleanupUsedFragments(connKey string, rpcID uint64, lastU
 		if pb.timeouts[connKey] != nil {
 			delete(pb.timeouts[connKey], rpcID)
 		}
+		// Clear the public segment extracted flag
+		if pb.publicSegmentExtracted[connKey] != nil {
+			delete(pb.publicSegmentExtracted[connKey], rpcID)
+		}
 
 		// Clean up empty connection maps
 		if len(fragments) == 0 {
 			delete(pb.incoming, connKey)
 			if pb.timeouts[connKey] != nil {
 				delete(pb.timeouts, connKey)
+			}
+			if pb.publicSegmentExtracted[connKey] != nil {
+				delete(pb.publicSegmentExtracted, connKey)
 			}
 		}
 	}
@@ -342,6 +365,14 @@ func (pb *PacketBuffer) CleanupUsedFragments(connKey string, rpcID uint64, lastU
 		zap.String("connKey", connKey),
 		zap.Uint64("rpcID", rpcID),
 		zap.Uint16("lastUsedSeqNum", lastUsedSeqNum))
+
+	// TODO: Process remaining buffered fragments if verdict exists
+	// Bug: If fragments arrive out-of-order (e.g., fragments 0, 2, then 1),
+	// and the public segment is extracted from fragments 0+1, fragment 2
+	// remains in the buffer but is never processed. After a verdict is stored,
+	// we should check for remaining fragments and process them via fast-forward
+	// path. This requires storing metadata (RPCID, PacketType, addresses) to
+	// reconstruct BufferedPackets for remaining fragments.
 }
 
 // cleanupRoutine periodically cleans up expired fragments and verdicts
@@ -371,6 +402,9 @@ func (pb *PacketBuffer) cleanupExpiredFragments() {
 				// This RPC has timed out
 				delete(pb.incoming[connKey], rpcID)
 				delete(pb.timeouts[connKey], rpcID)
+				if pb.publicSegmentExtracted[connKey] != nil {
+					delete(pb.publicSegmentExtracted[connKey], rpcID)
+				}
 				expiredCount++
 
 				logging.Debug("Cleaned up expired fragments",
@@ -384,6 +418,9 @@ func (pb *PacketBuffer) cleanupExpiredFragments() {
 		if len(pb.incoming[connKey]) == 0 {
 			delete(pb.incoming, connKey)
 			delete(pb.timeouts, connKey)
+			if pb.publicSegmentExtracted[connKey] != nil {
+				delete(pb.publicSegmentExtracted, connKey)
+			}
 		}
 	}
 

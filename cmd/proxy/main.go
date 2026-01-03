@@ -46,7 +46,7 @@ func DefaultConfig() *Config {
 func getLoggingConfig() *logging.Config {
 	level := os.Getenv("LOG_LEVEL")
 	if level == "" {
-		level = "debug"
+		level = "info"
 	}
 
 	format := os.Getenv("LOG_FORMAT")
@@ -231,9 +231,12 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 
 	// Clean up fragments that were used to build the public segment
 	// Only cleanup if this was a buffered packet (SeqNumber == -1) and we have LastUsedSeqNum set
+	// TODO: After cleanup, process remaining buffered fragments if verdict exists (out-of-order fragment bug)
 	if bufferedPacket.SeqNumber == -1 && bufferedPacket.LastUsedSeqNum > 0 {
 		connKey := bufferedPacket.Source.String()
 		state.packetBuffer.CleanupUsedFragments(connKey, bufferedPacket.RPCID, bufferedPacket.LastUsedSeqNum)
+		// TODO: Check for remaining fragments in buffer and process them via fast-forward if verdict exists
+		// This fixes the bug where out-of-order fragments (e.g., 0,2,1) leave fragment 2 stuck in buffer
 	}
 }
 
