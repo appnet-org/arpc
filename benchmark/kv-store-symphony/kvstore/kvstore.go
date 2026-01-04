@@ -133,7 +133,7 @@ func main() {
 	}
 
 	serializer := &serializer.SymphonySerializer{}
-	server, err := rpc.NewServer(":11000", serializer, nil)
+	server, err := rpc.NewServer(":11000", serializer, nil, true)
 	if err != nil {
 		logging.Fatal("Failed to start server", zap.Error(err))
 	}
