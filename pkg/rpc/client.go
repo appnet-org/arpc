@@ -42,12 +42,23 @@ type Client struct {
 // NewClient creates a new Client using the given serializer and target address.
 // The client will bind to any available local UDP port to avoid port conflicts
 // when creating multiple clients in the same process.
-func NewClient(serializer serializer.Serializer, addr string, rpcElements []element.RPCElement) (*Client, error) {
+// enableEncryption: optional variadic parameter - if true, enables encryption using default keys
+func NewClient(serializer serializer.Serializer, addr string, rpcElements []element.RPCElement, enableEncryption ...bool) (*Client, error) {
 	// Use port 0 to let the OS assign an available port
 	t, err := transport.NewUDPTransport("0.0.0.0:0")
 	if err != nil {
 		return nil, err
 	}
+
+	// Enable encryption if requested (default: false for backward compatibility)
+	encrypt := false
+	if len(enableEncryption) > 0 && enableEncryption[0] {
+		encrypt = true
+	}
+	if encrypt {
+		t.EnableEncryption()
+	}
+
 	c := &Client{
 		transport:       t,
 		serializer:      serializer,
@@ -65,11 +76,22 @@ func NewClient(serializer serializer.Serializer, addr string, rpcElements []elem
 
 // NewClientWithLocalAddr creates a new Client using the given serializer, target address, and local address.
 // This allows specifying a custom local UDP address to bind to.
-func NewClientWithLocalAddr(serializer serializer.Serializer, addr, localAddr string, rpcElements []element.RPCElement) (*Client, error) {
+// enableEncryption: optional variadic parameter - if true, enables encryption using default keys (default: false)
+func NewClientWithLocalAddr(serializer serializer.Serializer, addr, localAddr string, rpcElements []element.RPCElement, enableEncryption ...bool) (*Client, error) {
 	t, err := transport.NewUDPTransport(localAddr)
 	if err != nil {
 		return nil, err
 	}
+
+	// Enable encryption if requested (default: false for backward compatibility)
+	encrypt := false
+	if len(enableEncryption) > 0 && enableEncryption[0] {
+		encrypt = true
+	}
+	if encrypt {
+		t.EnableEncryption()
+	}
+
 	c := &Client{
 		transport:       t,
 		serializer:      serializer,

@@ -43,11 +43,22 @@ type Server struct {
 }
 
 // NewServer initializes a new Server instance with the given address and serializer.
-func NewServer(addr string, serializer serializer.Serializer, rpcElements []element.RPCElement) (*Server, error) {
+// enableEncryption: optional variadic parameter - if true, enables encryption using default keys (default: false)
+func NewServer(addr string, serializer serializer.Serializer, rpcElements []element.RPCElement, enableEncryption ...bool) (*Server, error) {
 	udpTransport, err := transport.NewUDPTransport(addr)
 	if err != nil {
 		return nil, err
 	}
+
+	// Enable encryption if requested (default: false for backward compatibility)
+	encrypt := false
+	if len(enableEncryption) > 0 && enableEncryption[0] {
+		encrypt = true
+	}
+	if encrypt {
+		udpTransport.EnableEncryption()
+	}
+
 	return &Server{
 		transport:       udpTransport,
 		serializer:      serializer,

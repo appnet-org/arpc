@@ -25,6 +25,10 @@ type UDPTransport struct {
 	packets      *packet.PacketRegistry
 	timerManager *TimerManager
 	bufferPool   *common.BufferPool
+	// Encryption settings for Symphony data
+	encryptionEnabled bool
+	publicKey         []byte
+	privateKey        []byte
 }
 
 func NewUDPTransport(address string) (*UDPTransport, error) {
@@ -129,6 +133,16 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 	// Only DataPackets (Request/Response) use Symphony fragmentation
 	// All other packet types use the old FragmentData approach
 	if packetType == packet.PacketTypeRequest || packetType == packet.PacketTypeResponse {
+		// Encrypt data if encryption is enabled
+		if t.encryptionEnabled {
+			logging.Debug("Encrypting data before send",
+				zap.Uint64("rpcID", rpcID),
+				zap.Int("originalSize", len(data)))
+			data = EncryptSymphonyData(data, t.publicKey, t.privateKey)
+			logging.Debug("Data encrypted",
+				zap.Uint64("rpcID", rpcID),
+				zap.Int("encryptedSize", len(data)))
+		}
 		// Calculate effective MTU (subtract DataPacket header overhead)
 		const dataPacketHeaderSize = 29                                 // 1+8+2+2+4+2+4+2+4 bytes
 		effectiveMTU := packet.MaxUDPPayloadSize - dataPacketHeaderSize // 1400 - 29 = 1371
@@ -312,6 +326,17 @@ func (t *UDPTransport) ReassembleDataPacket(pkt *packet.DataPacket, addr *net.UD
 	fullMessage, _, reassembledRPCID, isComplete := t.reassembler.ProcessFragment(pkt, addr, buffer)
 
 	if isComplete {
+		// Decrypt data if encryption is enabled
+		if t.encryptionEnabled {
+			logging.Debug("Decrypting received data",
+				zap.Uint64("rpcID", reassembledRPCID),
+				zap.Int("encryptedSize", len(fullMessage)))
+			fullMessage = DecryptSymphonyData(fullMessage, t.publicKey, t.privateKey)
+			logging.Debug("Data decrypted",
+				zap.Uint64("rpcID", reassembledRPCID),
+				zap.Int("decryptedSize", len(fullMessage)))
+		}
+
 		// For responses, return the original source address from packet headers (SrcIP:SrcPort)
 		// This allows the server to send responses back to the original client
 		originalSrcAddr := &net.UDPAddr{
@@ -379,4 +404,38 @@ func (t *UDPTransport) ListRegisteredPackets() []packet.PacketType {
 // LocalAddr returns the local UDP address of the transport
 func (t *UDPTransport) LocalAddr() *net.UDPAddr {
 	return t.conn.LocalAddr().(*net.UDPAddr)
+}
+
+// SetEncryptionKeys sets the encryption keys for Symphony data encryption/decryption
+// publicKey: key for encrypting/decrypting public segment (required if encryption is used)
+// privateKey: key for encrypting/decrypting private segment (can be nil for public-only)
+// If both keys are nil, default hardcoded keys will be used
+func (t *UDPTransport) SetEncryptionKeys(publicKey, privateKey []byte) {
+	if publicKey == nil && privateKey == nil {
+		// Use default keys if both are nil
+		t.publicKey = DefaultPublicKey
+		t.privateKey = DefaultPrivateKey
+		logging.Info("Encryption enabled with default keys",
+			zap.Int("publicKeySize", len(t.publicKey)),
+			zap.Bool("hasPrivateKey", t.privateKey != nil))
+	} else {
+		t.publicKey = publicKey
+		t.privateKey = privateKey
+		logging.Info("Encryption enabled with custom keys",
+			zap.Int("publicKeySize", len(t.publicKey)),
+			zap.Bool("hasPrivateKey", t.privateKey != nil))
+	}
+	t.encryptionEnabled = true
+}
+
+// EnableEncryption enables encryption using default keys
+func (t *UDPTransport) EnableEncryption() {
+	t.SetEncryptionKeys(nil, nil)
+}
+
+// DisableEncryption disables encryption
+func (t *UDPTransport) DisableEncryption() {
+	t.encryptionEnabled = false
+	t.publicKey = nil
+	t.privateKey = nil
 }
