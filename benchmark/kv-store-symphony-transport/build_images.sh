@@ -12,8 +12,8 @@ DOCKERFILE_PATH="${SCRIPT_DIR}/Dockerfile"
 IMAGE_NAME="kvstore-symphony-transport"
 
 # Define all variants
-# VARIANTS=("udp" "reliable" "cc" "reliable-cc" "fc" "cc-fc" "reliable-fc" "reliable-cc-fc" "reliable-cc-fc-encryption")
-VARIANTS=("reliable-cc-fc-encryption")
+VARIANTS=("udp" "reliable" "cc" "reliable-cc" "fc" "cc-fc" "reliable-fc" "reliable-cc-fc" "reliable-cc-fc-encryption")
+
 # Build and push each variant
 for VARIANT in "${VARIANTS[@]}"; do
     echo "=========================================="
