@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/appnet-org/arpc/pkg/logging"
-	"github.com/appnet-org/proxy/element"
 	"github.com/appnet-org/proxy/util"
 	"go.uber.org/zap"
 )
@@ -69,10 +68,8 @@ func main() {
 
 	logging.Info("Starting bidirectional UDP proxy on :15002 and :15006...")
 
-	// Create element chain with logging
-	elementChain := NewRPCElementChain(
-		element.NewFirewallElement(100),
-	)
+	// Initialize dynamic element loader
+	InitElementLoader(ElementPluginDir + "/" + ElementPluginPrefix)
 
 	config := DefaultConfig()
 
@@ -91,6 +88,14 @@ func main() {
 	// Initialize packet buffer
 	packetBuffer := NewPacketBuffer(config.BufferTimeout)
 	defer packetBuffer.Close()
+
+	// Get the dynamically loaded element chain
+	elementChain := GetElementChain()
+	if elementChain == nil {
+		// Fallback to empty chain if no plugin loaded
+		elementChain = NewRPCElementChain()
+		logging.Warn("No element chain available, using empty chain")
+	}
 
 	state := &ProxyState{
 		elementChain: elementChain,
@@ -250,16 +255,24 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 // Stores the verdict for future fast forwarding of fragments with the same RPC ID.
 // Returns an error if processing fails or if the verdict is PacketVerdictDrop.
 func runElementsChain(ctx context.Context, state *ProxyState, packet *util.BufferedPacket) error {
+	// Get current element chain (may have been updated by plugin loader)
+	elementChain := GetElementChain()
+	if elementChain == nil {
+		// No element chain available, pass through
+		logging.Debug("No element chain available, passing packet through")
+		return nil
+	}
+
 	var err error
 	var processedPacket *util.BufferedPacket
 	var verdict util.PacketVerdict
 	switch packet.PacketType {
 	case util.PacketTypeRequest:
 		// Process request through element chain
-		processedPacket, verdict, _, err = state.elementChain.ProcessRequest(ctx, packet)
+		processedPacket, verdict, _, err = elementChain.ProcessRequest(ctx, packet)
 	case util.PacketTypeResponse:
 		// Process response through element chain (in reverse order)
-		processedPacket, verdict, _, err = state.elementChain.ProcessResponse(ctx, packet)
+		processedPacket, verdict, _, err = elementChain.ProcessResponse(ctx, packet)
 	default:
 		// For other packet util (Error, Unknown, etc.), skip processing
 		// TODO: Add handler for error packets
