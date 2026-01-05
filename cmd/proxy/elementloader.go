@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"plugin"
@@ -10,12 +11,13 @@ import (
 	"time"
 
 	"github.com/appnet-org/arpc/pkg/logging"
+	"github.com/appnet-org/proxy/util"
 	"go.uber.org/zap"
 )
 
 const (
 	// ElementPluginDir is the fixed directory where element plugins are stored
-	ElementPluginDir = "/appnet/elements"
+	ElementPluginDir = "/tmp/arpc/elements"
 	// ElementPluginPrefix is the prefix for element plugin files
 	ElementPluginPrefix = "element-"
 )
@@ -34,6 +36,68 @@ var (
 type elementInit interface {
 	Element() RPCElement
 	Kill() // Optional: for cleanup if plugin has background goroutines
+}
+
+// pluginElementInitWrapper wraps a plugin's ElementInit to adapt it to our elementInit interface
+// This is needed because plugins define their own RPCElement type which is different
+// from main.RPCElement, even though they have the same methods
+type pluginElementInitWrapper struct {
+	pluginInit interface {
+		Element() interface{}
+		Kill()
+	}
+}
+
+func (w *pluginElementInitWrapper) Element() RPCElement {
+	// Get the element from the plugin (returns plugin's RPCElement type)
+	pluginElement := w.pluginInit.Element()
+
+	// Type assert to our RPCElement interface
+	// This works because both types have the same method signatures
+	element, ok := pluginElement.(RPCElement)
+	if !ok {
+		// If direct assertion fails, try to create an adapter
+		// This handles the case where the plugin's type doesn't directly match
+		return &elementAdapter{elem: pluginElement}
+	}
+	return element
+}
+
+func (w *pluginElementInitWrapper) Kill() {
+	w.pluginInit.Kill()
+}
+
+// elementAdapter adapts a plugin's element to our RPCElement interface
+type elementAdapter struct {
+	elem interface{}
+}
+
+func (a *elementAdapter) ProcessRequest(ctx context.Context, packet *util.BufferedPacket) (*util.BufferedPacket, util.PacketVerdict, context.Context, error) {
+	// Use type assertion to call the method
+	if elem, ok := a.elem.(interface {
+		ProcessRequest(context.Context, *util.BufferedPacket) (*util.BufferedPacket, util.PacketVerdict, context.Context, error)
+	}); ok {
+		return elem.ProcessRequest(ctx, packet)
+	}
+	return packet, util.PacketVerdictPass, ctx, nil
+}
+
+func (a *elementAdapter) ProcessResponse(ctx context.Context, packet *util.BufferedPacket) (*util.BufferedPacket, util.PacketVerdict, context.Context, error) {
+	if elem, ok := a.elem.(interface {
+		ProcessResponse(context.Context, *util.BufferedPacket) (*util.BufferedPacket, util.PacketVerdict, context.Context, error)
+	}); ok {
+		return elem.ProcessResponse(ctx, packet)
+	}
+	return packet, util.PacketVerdictPass, ctx, nil
+}
+
+func (a *elementAdapter) Name() string {
+	if elem, ok := a.elem.(interface {
+		Name() string
+	}); ok {
+		return elem.Name()
+	}
+	return "UnknownElement"
 }
 
 func init() {
@@ -170,12 +234,31 @@ func loadElementPlugin(elementPluginPath string) elementInit {
 		return nil
 	}
 
-	elementInit, ok := symElementInit.(elementInit)
+	// Use interface{} and type assertion with a wrapper
+	// This is necessary because plugins define their own RPCElement type
+	// which is different from main.RPCElement even if they have the same methods
+	//
+	// NOTE: plugin.Lookup returns a pointer to the exported variable.
+	// If the plugin exports `var ElementInit SomeInterface = ...`, we get *SomeInterface.
+	// We need to dereference it to get the actual interface value.
+	actualInit := symElementInit
+	if ptr, ok := symElementInit.(*interface{}); ok {
+		actualInit = *ptr
+	}
+	pluginInit, ok := actualInit.(interface {
+		Element() interface{} // Accept any type that implements the methods
+		Kill()
+	})
 	if !ok {
-		logging.Error("Error casting ElementInit from plugin", zap.String("path", elementPluginPath))
+		logging.Error("Error casting ElementInit from plugin - plugin must export ElementInit with Element() and Kill() methods", zap.String("path", elementPluginPath))
 		return nil
 	}
 
+	// Create a wrapper that adapts the plugin's elementInit to our elementInit interface
+	wrapper := &pluginElementInitWrapper{
+		pluginInit: pluginInit,
+	}
+
 	logging.Info("Successfully loaded element plugin", zap.String("path", elementPluginPath))
-	return elementInit
+	return wrapper
 }
