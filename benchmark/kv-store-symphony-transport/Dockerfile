@@ -21,29 +21,41 @@ RUN go mod tidy
 # Build binaries based on variant
 RUN mkdir -p ./bin && \
     if [ "$VARIANT" = "udp" ]; then \
+        echo "Building UDP variant" && \
         go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_udp.go && \
         go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_udp.go; \
     elif [ "$VARIANT" = "reliable" ]; then \
+        echo "Building RELIABLE variant" && \
         go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_reliable.go && \
         go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_reliable.go; \
     elif [ "$VARIANT" = "cc" ]; then \
+        echo "Building CC variant" && \
         go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_cc.go && \
         go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_cc.go; \
     elif [ "$VARIANT" = "reliable-cc" ]; then \
+        echo "Building RELIABLE-CC variant" && \
         go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_reliable_cc.go && \
         go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_reliable_cc.go; \
     elif [ "$VARIANT" = "fc" ]; then \
+        echo "Building FC variant" && \
         go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_fc.go && \
         go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_fc.go; \
     elif [ "$VARIANT" = "cc-fc" ]; then \
+        echo "Building CC-FC variant" && \
         go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_cc_fc.go && \
         go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_cc_fc.go; \
     elif [ "$VARIANT" = "reliable-fc" ]; then \
+        echo "Building RELIABLE-FC variant" && \
         go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_reliable_fc.go && \
         go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_reliable_fc.go; \
     elif [ "$VARIANT" = "reliable-cc-fc" ]; then \
+        echo "Building RELIABLE-CC-FC variant" && \
         go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_reliable_cc_fc.go && \
         go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_reliable_cc_fc.go; \
+    elif [ "$VARIANT" = "reliable-cc-fc-encryption" ]; then \
+        echo "Building RELIABLE-CC-FC-ENCRYPTION variant" && \
+        go build -trimpath -ldflags="-s -w" -o ./bin/frontend ./frontend/frontend_reliable_cc_fc_encryption.go && \
+        go build -trimpath -ldflags="-s -w" -o ./bin/kvstore ./kvstore/kvstore_reliable_cc_fc_encryption.go; \
     else \
         echo "Invalid VARIANT: $VARIANT" && exit 1; \
     fi

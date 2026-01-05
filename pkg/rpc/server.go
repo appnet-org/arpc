@@ -56,6 +56,7 @@ func NewServer(addr string, serializer serializer.Serializer, rpcElements []elem
 		encrypt = true
 	}
 	if encrypt {
+		logging.Info("Enabling encryption on server transport")
 		udpTransport.EnableEncryption()
 	}
 

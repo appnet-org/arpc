@@ -3,10 +3,10 @@ package reliable
 import (
 	"fmt"
 	"net"
-	"sort"
 	"sync"
 	"time"
 
+	"github.com/appnet-org/arpc/pkg/common"
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/packet"
 	"github.com/appnet-org/arpc/pkg/transport"
@@ -244,30 +244,27 @@ const (
 // checkRetransmission checks if a specific message needs retransmission
 func (h *ReliableHandler) checkRetransmission(connKey uint64, rpcID uint64, timeout time.Duration) {
 	h.mu.Lock()
+	defer h.mu.Unlock()
 
 	conn := h.connections[connKey]
 	if conn == nil {
-		h.mu.Unlock()
 		return
 	}
 
 	msgTx, exists := conn.TxMsg[rpcID]
 	if !exists {
 		// Message was already ACKed or removed
-		h.mu.Unlock()
 		return
 	}
 
 	// SendTs.IsZero() means message has been ACKed
 	if msgTx.SendTs.IsZero() {
-		h.mu.Unlock()
 		return
 	}
 
 	// Check if message has timed out
 	now := time.Now()
 	if now.Sub(msgTx.SendTs) <= timeout {
-		h.mu.Unlock()
 		return
 	}
 
@@ -278,36 +275,16 @@ func (h *ReliableHandler) checkRetransmission(connKey uint64, rpcID uint64, time
 		zap.Duration("timeout", timeout),
 		zap.Int("segments", len(msgTx.Segments)))
 
-	// Collect payloads from stored segments to reconstruct full message
-	// We need to sort by sequence number to reconstruct in correct order
-	dstAddr := conn.ConnID.String()
-	packetType := msgTx.PacketType
-
-	// Collect all segments with their sequence numbers
-	type segmentInfo struct {
-		seqNum  uint16
-		payload []byte
-	}
-	segments := make([]segmentInfo, 0, len(msgTx.Segments))
-	for seqNum, pktCopy := range msgTx.Segments {
-		// Extract payload from stored DataPacket (make a copy since it's a slice)
-		payload := make([]byte, len(pktCopy.Payload))
-		copy(payload, pktCopy.Payload)
-		segments = append(segments, segmentInfo{
-			seqNum:  seqNum,
-			payload: payload,
-		})
+	// Construct destination UDP address from connection ID
+	dstAddr := &net.UDPAddr{
+		IP:   net.IP(conn.ConnID.IP[:]),
+		Port: int(conn.ConnID.Port),
 	}
 
-	// Sort segments by sequence number
-	sort.Slice(segments, func(i, j int) bool {
-		return segments[i].seqNum < segments[j].seqNum
-	})
-
-	// Reconstruct full message by concatenating all payloads
-	var fullMessage []byte
-	for _, seg := range segments {
-		fullMessage = append(fullMessage, seg.payload...)
+	// Get buffer pool (may be nil, SerializePacket handles that)
+	var bufferPool *common.BufferPool
+	if poolGetter, ok := h.transport.(interface{ GetBufferPool() *common.BufferPool }); ok {
+		bufferPool = poolGetter.GetBufferPool()
 	}
 
 	// Update SendTs to current time and reschedule timeout for next retry (while holding lock)
@@ -323,22 +300,58 @@ func (h *ReliableHandler) checkRetransmission(connKey uint64, rpcID uint64, time
 		}),
 	)
 
-	// Release lock BEFORE calling transport.Send() to avoid deadlock
-	// transport.Send() will go through handler chain which needs the lock
-	h.mu.Unlock()
+	// Get UDP connection for direct sending
+	udpConn := h.transport.GetConn()
+	if udpConn == nil {
+		logging.Error("Failed to get UDP connection for retransmission",
+			zap.Uint64("rpcID", rpcID),
+			zap.Uint64("connection", connKey))
+		return
+	}
 
-	// Retransmit the full message (lock released)
-	// transport.Send() will fragment it and go through handler chain
-	err := h.transport.Send(dstAddr, rpcID, fullMessage, packetType)
-	if err != nil {
+	// Retransmit each stored segment directly via UDP (bypassing transport.Send() to avoid double encryption)
+	packetType := msgTx.PacketType
+	segmentCount := 0
+	var retransmitErr error
+	for _, seg := range msgTx.Segments {
+		// Serialize the stored packet (already encrypted)
+		packetData, err := packet.SerializePacket(&seg, packetType, bufferPool)
+		if err != nil {
+			logging.Error("Failed to serialize packet for retransmission",
+				zap.Uint64("rpcID", rpcID),
+				zap.Uint16("seqNumber", seg.SeqNumber),
+				zap.Error(err))
+			retransmitErr = err
+			continue
+		}
+
+		// Send directly via UDP
+		_, err = udpConn.WriteToUDP(packetData, dstAddr)
+		if err != nil {
+			logging.Error("Failed to send retransmitted packet",
+				zap.Uint64("rpcID", rpcID),
+				zap.Uint16("seqNumber", seg.SeqNumber),
+				zap.Error(err))
+			retransmitErr = err
+		} else {
+			segmentCount++
+		}
+
+		// Return buffer to pool if available
+		if bufferPool != nil {
+			bufferPool.Put(packetData)
+		}
+	}
+
+	if retransmitErr != nil {
 		logging.Error("Failed to retransmit message",
 			zap.Uint64("rpcID", rpcID),
 			zap.Uint64("connection", connKey),
-			zap.Error(err))
+			zap.Error(retransmitErr))
 	} else {
 		logging.Debug("Retransmitted message",
 			zap.Uint64("rpcID", rpcID),
-			zap.Int("totalSegments", len(segments)),
+			zap.Int("totalSegments", segmentCount),
 			zap.Uint64("connection", connKey))
 	}
 }

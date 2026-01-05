@@ -26,24 +26,26 @@ logger = logging.getLogger(__name__)
 
 # Get the directory of this script
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ARPC_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR))))
 
 # Use relative paths from the script directory
-wrk_path = os.path.join(SCRIPT_DIR, "../wrk/wrk")
-lua_path = os.path.join(SCRIPT_DIR, "../../meta-kv-trace/kvstore-wrk.lua")
+wrk_path = os.path.join(ARPC_DIR, "benchmark/scripts/wrk/wrk")
+lua_path = os.path.join(ARPC_DIR, "benchmark/meta-kv-trace/kvstore-wrk.lua")
 
 # All available transport variants
-ALL_VARIANTS = ["udp", "reliable", "cc", "reliable-cc", "fc", "cc-fc", "reliable-fc", "reliable-cc-fc"]
+ALL_VARIANTS = ["udp", "reliable", "cc", "reliable-cc", "fc", "cc-fc", "reliable-fc", "reliable-cc-fc", "reliable-cc-fc-encryption"]
 
 # Manifest paths for each variant (relative to script directory)
 manifest_dict = {
-    "kv-store-symphony-transport-udp": os.path.join(SCRIPT_DIR, "../../kv-store-symphony-transport/manifest/kvstore-udp.yaml"),
-    "kv-store-symphony-transport-reliable": os.path.join(SCRIPT_DIR, "../../kv-store-symphony-transport/manifest/kvstore-reliable.yaml"),
-    "kv-store-symphony-transport-cc": os.path.join(SCRIPT_DIR, "../../kv-store-symphony-transport/manifest/kvstore-cc.yaml"),
-    "kv-store-symphony-transport-reliable-cc": os.path.join(SCRIPT_DIR, "../../kv-store-symphony-transport/manifest/kvstore-reliable-cc.yaml"),
-    "kv-store-symphony-transport-fc": os.path.join(SCRIPT_DIR, "../../kv-store-symphony-transport/manifest/kvstore-fc.yaml"),
-    "kv-store-symphony-transport-cc-fc": os.path.join(SCRIPT_DIR, "../../kv-store-symphony-transport/manifest/kvstore-cc-fc.yaml"),
-    "kv-store-symphony-transport-reliable-fc": os.path.join(SCRIPT_DIR, "../../kv-store-symphony-transport/manifest/kvstore-reliable-fc.yaml"),
-    "kv-store-symphony-transport-reliable-cc-fc": os.path.join(SCRIPT_DIR, "../../kv-store-symphony-transport/manifest/kvstore-reliable-cc-fc.yaml"),
+    "kv-store-symphony-transport-udp": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-udp.yaml"),
+    "kv-store-symphony-transport-reliable": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-reliable.yaml"),
+    "kv-store-symphony-transport-cc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-cc.yaml"),
+    "kv-store-symphony-transport-reliable-cc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-reliable-cc.yaml"),
+    "kv-store-symphony-transport-fc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-fc.yaml"),
+    "kv-store-symphony-transport-cc-fc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-cc-fc.yaml"),
+    "kv-store-symphony-transport-reliable-fc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-reliable-fc.yaml"),
+    "kv-store-symphony-transport-reliable-cc-fc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-reliable-cc-fc.yaml"),
+    "kv-store-symphony-transport-reliable-cc-fc-encryption": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-reliable-cc-fc-encryption.yaml"),
 }
 
 def parse_arguments():
@@ -66,7 +68,7 @@ Examples:
   python run_kvstore_transport.py --variants cc reliable-cc cc-fc reliable-cc-fc
   
   # Run the full-featured variant
-  python run_kvstore_transport.py --variants reliable-cc-fc
+  python run_kvstore_transport.py --variants reliable-cc-fc reliable-cc-fc-encryption
         """
     )
     parser.add_argument(
