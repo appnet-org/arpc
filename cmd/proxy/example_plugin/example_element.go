@@ -74,8 +74,9 @@ type ExampleElementInit struct {
 	element *ExampleElement
 }
 
-// Element returns the RPCElement instance
-func (e *ExampleElementInit) Element() RPCElement {
+// Element returns the RPCElement instance as interface{}
+// NOTE: Must return interface{} (not a specific type) for plugin type assertion to work
+func (e *ExampleElementInit) Element() interface{} {
 	return e.element
 }
 
@@ -87,8 +88,12 @@ func (e *ExampleElementInit) Kill() {
 }
 
 // ElementInit is the exported symbol that the plugin loader looks for
-// This must be named exactly "ElementInit" and must implement the elementInit interface
-var ElementInit = &ExampleElementInit{
+// This must be named exactly "ElementInit"
+//
+// IMPORTANT: Export as interface{} so that plugin.Lookup returns *interface{},
+// which the elementloader can dereference to get the concrete type that
+// implements Element() and Kill() methods.
+var ElementInit interface{} = &ExampleElementInit{
 	element: &ExampleElement{
 		name: "ExampleElement",
 	},

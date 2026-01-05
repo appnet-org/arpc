@@ -9,7 +9,7 @@ This guide walks you through building and running the Symphony proxy locally, co
 Build the proxy binary and run it under a dedicated user (e.g., `proxyuser`) to prevent redirect loops.
 
 ```bash
-go build -o myproxy
+go build -trimpath -o myproxy
 sudo -u proxyuser ./myproxy
 ```
 
