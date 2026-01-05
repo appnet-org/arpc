@@ -255,75 +255,97 @@ const (
 // checkRetransmission checks if a specific message needs retransmission
 func (h *ReliableHandler) checkRetransmission(connKey uint64, rpcID uint64, timeout time.Duration) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
 	conn := h.connections[connKey]
 	if conn == nil {
+		h.mu.Unlock()
 		return
 	}
 
 	msgTx, exists := conn.TxMsg[rpcID]
 	if !exists {
 		// Message was already ACKed or removed
+		h.mu.Unlock()
 		return
 	}
 
 	// SendTs.IsZero() means message has been ACKed
 	if msgTx.SendTs.IsZero() {
+		h.mu.Unlock()
 		return
 	}
 
 	// Check if message has timed out
 	now := time.Now()
-	if now.Sub(msgTx.SendTs) > timeout {
-		logging.Debug("Message retransmission timeout detected",
-			zap.Uint64("rpcID", rpcID),
-			zap.Uint64("connection", connKey),
-			zap.Duration("elapsed", now.Sub(msgTx.SendTs)),
-			zap.Duration("timeout", timeout),
-			zap.Int("segments", len(msgTx.Segments)))
+	if now.Sub(msgTx.SendTs) <= timeout {
+		h.mu.Unlock()
+		return
+	}
 
-		// Retransmit all segments - serialize on retransmit (lazy serialization)
-		dstAddr := conn.ConnID.String()
-		for seqNum, pktCopy := range msgTx.Segments {
-			// Serialize packet only on retransmission (not on initial send)
-			serializedData, err := h.serializeDataPacket(&pktCopy)
-			if err != nil {
-				logging.Error("Failed to serialize packet for retransmission",
-					zap.Uint64("rpcID", rpcID),
-					zap.Uint16("seqNumber", seqNum),
-					zap.Uint64("connection", connKey),
-					zap.Error(err))
-				continue
-			}
+	logging.Debug("Message retransmission timeout detected",
+		zap.Uint64("rpcID", rpcID),
+		zap.Uint64("connection", connKey),
+		zap.Duration("elapsed", now.Sub(msgTx.SendTs)),
+		zap.Duration("timeout", timeout),
+		zap.Int("segments", len(msgTx.Segments)))
 
-			err = h.transport.Send(dstAddr, rpcID, serializedData, msgTx.PacketType)
-			if err != nil {
-				logging.Error("Failed to retransmit segment",
-					zap.Uint64("rpcID", rpcID),
-					zap.Uint16("seqNumber", seqNum),
-					zap.Uint64("connection", connKey),
-					zap.Error(err))
-			} else {
-				logging.Debug("Retransmitted segment",
-					zap.Uint64("rpcID", rpcID),
-					zap.Uint16("seqNumber", seqNum),
-					zap.Uint64("connection", connKey))
-			}
+	// Collect data to retransmit while holding lock
+	dstAddr := conn.ConnID.String()
+	packetType := msgTx.PacketType
+	segmentsToRetransmit := make([]struct {
+		seqNum         uint16
+		serializedData []byte
+	}, 0, len(msgTx.Segments))
+
+	for seqNum, pktCopy := range msgTx.Segments {
+		// Serialize packet only on retransmission (not on initial send)
+		serializedData, err := h.serializeDataPacket(&pktCopy)
+		if err != nil {
+			logging.Error("Failed to serialize packet for retransmission",
+				zap.Uint64("rpcID", rpcID),
+				zap.Uint16("seqNumber", seqNum),
+				zap.Uint64("connection", connKey),
+				zap.Error(err))
+			continue
 		}
+		segmentsToRetransmit = append(segmentsToRetransmit, struct {
+			seqNum         uint16
+			serializedData []byte
+		}{seqNum, serializedData})
+	}
 
-		// Update SendTs to current time and reschedule timeout for next retry
-		msgTx.SendTs = now
+	// Update SendTs to current time and reschedule timeout for next retry (while holding lock)
+	msgTx.SendTs = now
 
-		// Reschedule timeout for next retry (use RPCID as key directly)
-		timerKey := transport.TimerKey(uint64(TimerKeyMessageTimeoutBase) + rpcID)
-		h.timerMgr.Schedule(
-			timerKey,
-			timeout,
-			transport.TimerCallback(func() {
-				h.checkRetransmission(connKey, rpcID, timeout)
-			}),
-		)
+	// Reschedule timeout for next retry (use RPCID as key directly)
+	timerKey := transport.TimerKey(uint64(TimerKeyMessageTimeoutBase) + rpcID)
+	h.timerMgr.Schedule(
+		timerKey,
+		timeout,
+		transport.TimerCallback(func() {
+			h.checkRetransmission(connKey, rpcID, timeout)
+		}),
+	)
+
+	// Release lock BEFORE calling transport.Send() to avoid deadlock
+	// transport.Send() will go through handler chain which needs the lock
+	h.mu.Unlock()
+
+	// Now retransmit all segments (lock released)
+	for _, segment := range segmentsToRetransmit {
+		err := h.transport.Send(dstAddr, rpcID, segment.serializedData, packetType)
+		if err != nil {
+			logging.Error("Failed to retransmit segment",
+				zap.Uint64("rpcID", rpcID),
+				zap.Uint16("seqNumber", segment.seqNum),
+				zap.Uint64("connection", connKey),
+				zap.Error(err))
+		} else {
+			logging.Debug("Retransmitted segment",
+				zap.Uint64("rpcID", rpcID),
+				zap.Uint16("seqNumber", segment.seqNum),
+				zap.Uint64("connection", connKey))
+		}
 	}
 }
 

@@ -116,7 +116,7 @@ func (s *kvServerReliableCC) evictLRU() {
 func getLoggingConfigReliableCC() *logging.Config {
 	level := os.Getenv("LOG_LEVEL")
 	if level == "" {
-		level = "info"
+		level = "debug"
 	}
 
 	format := os.Getenv("LOG_FORMAT")
