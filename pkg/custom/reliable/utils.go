@@ -1,9 +1,9 @@
 package reliable
 
 import (
-	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"sync"
 	"time"
 
@@ -170,17 +170,6 @@ func (h *ReliableHandler) getOrCreateConnectionLocked(key uint64, connID Connect
 	return conn
 }
 
-// serializeDataPacket serializes a DataPacket for buffering/retransmission
-func (h *ReliableHandler) serializeDataPacket(pkt *packet.DataPacket) ([]byte, error) {
-	// Get the codec for DataPacket from the registry
-	registry := h.transport.GetPacketRegistry()
-	codec, exists := registry.GetCodec(pkt.PacketTypeID)
-	if !exists {
-		return nil, errors.New("codec not found for packet type")
-	}
-	return codec.Serialize(pkt, nil)
-}
-
 // sendACK sends an ACK packet
 func (h *ReliableHandler) sendACK(rpcID uint64, kind uint8, addr *net.UDPAddr) error {
 	// Use cached ACK packet type (initialized during handler creation)
@@ -255,75 +244,102 @@ const (
 // checkRetransmission checks if a specific message needs retransmission
 func (h *ReliableHandler) checkRetransmission(connKey uint64, rpcID uint64, timeout time.Duration) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
 	conn := h.connections[connKey]
 	if conn == nil {
+		h.mu.Unlock()
 		return
 	}
 
 	msgTx, exists := conn.TxMsg[rpcID]
 	if !exists {
 		// Message was already ACKed or removed
+		h.mu.Unlock()
 		return
 	}
 
 	// SendTs.IsZero() means message has been ACKed
 	if msgTx.SendTs.IsZero() {
+		h.mu.Unlock()
 		return
 	}
 
 	// Check if message has timed out
 	now := time.Now()
-	if now.Sub(msgTx.SendTs) > timeout {
-		logging.Debug("Message retransmission timeout detected",
+	if now.Sub(msgTx.SendTs) <= timeout {
+		h.mu.Unlock()
+		return
+	}
+
+	logging.Debug("Message retransmission timeout detected",
+		zap.Uint64("rpcID", rpcID),
+		zap.Uint64("connection", connKey),
+		zap.Duration("elapsed", now.Sub(msgTx.SendTs)),
+		zap.Duration("timeout", timeout),
+		zap.Int("segments", len(msgTx.Segments)))
+
+	// Collect payloads from stored segments to reconstruct full message
+	// We need to sort by sequence number to reconstruct in correct order
+	dstAddr := conn.ConnID.String()
+	packetType := msgTx.PacketType
+
+	// Collect all segments with their sequence numbers
+	type segmentInfo struct {
+		seqNum  uint16
+		payload []byte
+	}
+	segments := make([]segmentInfo, 0, len(msgTx.Segments))
+	for seqNum, pktCopy := range msgTx.Segments {
+		// Extract payload from stored DataPacket (make a copy since it's a slice)
+		payload := make([]byte, len(pktCopy.Payload))
+		copy(payload, pktCopy.Payload)
+		segments = append(segments, segmentInfo{
+			seqNum:  seqNum,
+			payload: payload,
+		})
+	}
+
+	// Sort segments by sequence number
+	sort.Slice(segments, func(i, j int) bool {
+		return segments[i].seqNum < segments[j].seqNum
+	})
+
+	// Reconstruct full message by concatenating all payloads
+	var fullMessage []byte
+	for _, seg := range segments {
+		fullMessage = append(fullMessage, seg.payload...)
+	}
+
+	// Update SendTs to current time and reschedule timeout for next retry (while holding lock)
+	msgTx.SendTs = now
+
+	// Reschedule timeout for next retry (use RPCID as key directly)
+	timerKey := transport.TimerKey(uint64(TimerKeyMessageTimeoutBase) + rpcID)
+	h.timerMgr.Schedule(
+		timerKey,
+		timeout,
+		transport.TimerCallback(func() {
+			h.checkRetransmission(connKey, rpcID, timeout)
+		}),
+	)
+
+	// Release lock BEFORE calling transport.Send() to avoid deadlock
+	// transport.Send() will go through handler chain which needs the lock
+	h.mu.Unlock()
+
+	// Retransmit the full message (lock released)
+	// transport.Send() will fragment it and go through handler chain
+	err := h.transport.Send(dstAddr, rpcID, fullMessage, packetType)
+	if err != nil {
+		logging.Error("Failed to retransmit message",
 			zap.Uint64("rpcID", rpcID),
 			zap.Uint64("connection", connKey),
-			zap.Duration("elapsed", now.Sub(msgTx.SendTs)),
-			zap.Duration("timeout", timeout),
-			zap.Int("segments", len(msgTx.Segments)))
-
-		// Retransmit all segments - serialize on retransmit (lazy serialization)
-		dstAddr := conn.ConnID.String()
-		for seqNum, pktCopy := range msgTx.Segments {
-			// Serialize packet only on retransmission (not on initial send)
-			serializedData, err := h.serializeDataPacket(&pktCopy)
-			if err != nil {
-				logging.Error("Failed to serialize packet for retransmission",
-					zap.Uint64("rpcID", rpcID),
-					zap.Uint16("seqNumber", seqNum),
-					zap.Uint64("connection", connKey),
-					zap.Error(err))
-				continue
-			}
-
-			err = h.transport.Send(dstAddr, rpcID, serializedData, msgTx.PacketType)
-			if err != nil {
-				logging.Error("Failed to retransmit segment",
-					zap.Uint64("rpcID", rpcID),
-					zap.Uint16("seqNumber", seqNum),
-					zap.Uint64("connection", connKey),
-					zap.Error(err))
-			} else {
-				logging.Debug("Retransmitted segment",
-					zap.Uint64("rpcID", rpcID),
-					zap.Uint16("seqNumber", seqNum),
-					zap.Uint64("connection", connKey))
-			}
-		}
-
-		// Update SendTs to current time and reschedule timeout for next retry
-		msgTx.SendTs = now
-
-		// Reschedule timeout for next retry (use RPCID as key directly)
-		timerKey := transport.TimerKey(uint64(TimerKeyMessageTimeoutBase) + rpcID)
-		h.timerMgr.Schedule(
-			timerKey,
-			timeout,
-			transport.TimerCallback(func() {
-				h.checkRetransmission(connKey, rpcID, timeout)
-			}),
-		)
+			zap.Error(err))
+	} else {
+		logging.Debug("Retransmitted message",
+			zap.Uint64("rpcID", rpcID),
+			zap.Int("totalSegments", len(segments)),
+			zap.Uint64("connection", connKey))
 	}
 }
 
@@ -352,20 +368,27 @@ func (h *ReliableHandler) handleSendDataPacket(pkt *packet.DataPacket, packetTyp
 
 	// Track this packet in TxMsg
 	isNewMessage := false
-	if _, exists := conn.TxMsg[pkt.RPCID]; !exists {
-		conn.TxMsg[pkt.RPCID] = &MsgTx{
+	msgTx, exists := conn.TxMsg[pkt.RPCID]
+	if !exists {
+		msgTx = &MsgTx{
 			Count:      uint32(pkt.TotalPackets),
 			SendTs:     time.Now(),
 			DstAddr:    key,
 			PacketType: packetType,
 			Segments:   make(map[uint16]packet.DataPacket),
 		}
+		conn.TxMsg[pkt.RPCID] = msgTx
 		isNewMessage = true
+	} else {
+		// Ensure Segments map is initialized (defensive check)
+		if msgTx.Segments == nil {
+			msgTx.Segments = make(map[uint16]packet.DataPacket)
+		}
 	}
 
 	// Buffer this segment as a packet copy (lazy serialization - no double serialization!)
 	// Dereference pkt to create a value copy, ensuring immutability
-	conn.TxMsg[pkt.RPCID].Segments[pkt.SeqNumber] = *pkt
+	msgTx.Segments[pkt.SeqNumber] = *pkt
 
 	// Schedule timeout for this message (only for first segment)
 	if isNewMessage {
