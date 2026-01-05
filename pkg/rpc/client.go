@@ -56,6 +56,7 @@ func NewClient(serializer serializer.Serializer, addr string, rpcElements []elem
 		encrypt = true
 	}
 	if encrypt {
+		logging.Info("Enabling encryption on client transport")
 		t.EnableEncryption()
 	}
 
@@ -89,6 +90,7 @@ func NewClientWithLocalAddr(serializer serializer.Serializer, addr, localAddr st
 		encrypt = true
 	}
 	if encrypt {
+		logging.Info("Enabling encryption on client transport")
 		t.EnableEncryption()
 	}
 

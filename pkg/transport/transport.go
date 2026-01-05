@@ -439,3 +439,8 @@ func (t *UDPTransport) DisableEncryption() {
 	t.publicKey = nil
 	t.privateKey = nil
 }
+
+// IsEncryptionEnabled returns whether encryption is currently enabled
+func (t *UDPTransport) IsEncryptionEnabled() bool {
+	return t.encryptionEnabled
+}
