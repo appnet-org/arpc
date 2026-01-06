@@ -44,6 +44,7 @@ var (
 	flatBufs     [][]byte
 	capnpBufs    [][]byte
 	symphonyBufs [][]byte
+	hybridBufs   [][]byte
 )
 
 // --- INITIALIZATION ---
@@ -78,6 +79,7 @@ func init() {
 	flatBufs = make([][]byte, len(traceEntries))
 	capnpBufs = make([][]byte, len(traceEntries))
 	symphonyBufs = make([][]byte, len(traceEntries))
+	hybridBufs = make([][]byte, len(traceEntries))
 
 	// Pre-generate data and serialize based on trace entries
 	for i, entry := range traceEntries {
@@ -114,6 +116,10 @@ func init() {
 			// Symphony SetRequest
 			synSet := &kv_proto.SetRequest{Key: key, Value: value}
 			symphonyBufs[i], _ = synSet.MarshalSymphony()
+
+			// Hybrid SetRequest
+			hybridSet := &kv_proto.SetRequest{Key: key, Value: value}
+			hybridBufs[i], _ = hybridSet.MarshalSymphonyHybrid()
 		} else {
 			// GetRequest
 			pGet := &kv_proto.GetRequest{Key: key}
@@ -134,6 +140,10 @@ func init() {
 			// Symphony GetRequest
 			synGet := &kv_proto.GetRequest{Key: key}
 			symphonyBufs[i], _ = synGet.MarshalSymphony()
+
+			// Hybrid GetRequest
+			hybridGet := &kv_proto.GetRequest{Key: key}
+			hybridBufs[i], _ = hybridGet.MarshalSymphonyHybrid()
 		}
 	}
 }
@@ -250,8 +260,31 @@ func writeTimings(filename string, timings []int64) error {
 	return nil
 }
 
+// writeSizes writes size data (in bytes) to a file, one value per line
+func writeSizes(filename string, sizes []int) error {
+	// Create subdirectory for profile data
+	dir := "profile_data"
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	// Write to file in subdirectory
+	path := filepath.Join(dir, filename)
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	for _, s := range sizes {
+		fmt.Fprintf(f, "%d\n", s)
+	}
+	return nil
+}
+
 func BenchmarkProtobuf_Write(b *testing.B) {
 	timings := make([]int64, 0, b.N)
+	sizes := make([]int, 0, b.N)
 	traceSize := len(traceEntries)
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -261,15 +294,17 @@ func BenchmarkProtobuf_Write(b *testing.B) {
 		item := traceData[idx]
 
 		start := time.Now()
+		var buf []byte
 		if entry.Op == "SET" {
 			obj := &kv_proto.SetRequest{Key: item.Key, Value: item.Value}
-			_, _ = proto.Marshal(obj)
+			buf, _ = proto.Marshal(obj)
 		} else {
 			obj := &kv_proto.GetRequest{Key: item.Key}
-			_, _ = proto.Marshal(obj)
+			buf, _ = proto.Marshal(obj)
 		}
 		elapsed := time.Since(start)
 		timings = append(timings, elapsed.Nanoseconds())
+		sizes = append(sizes, len(buf))
 	}
 	b.StopTimer()
 	if b.N > 0 {
@@ -279,6 +314,9 @@ func BenchmarkProtobuf_Write(b *testing.B) {
 	}
 	if err := writeTimings("protobuf_write_times.txt", timings); err != nil {
 		b.Logf("Failed to write timing data: %v", err)
+	}
+	if err := writeSizes("protobuf_write_sizes.txt", sizes); err != nil {
+		b.Logf("Failed to write size data: %v", err)
 	}
 	b.StartTimer()
 }
@@ -321,6 +359,7 @@ func BenchmarkProtobuf_Read(b *testing.B) {
 
 func BenchmarkFlatBuffers_Write(b *testing.B) {
 	timings := make([]int64, 0, b.N)
+	sizes := make([]int, 0, b.N)
 	traceSize := len(traceEntries)
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -331,6 +370,7 @@ func BenchmarkFlatBuffers_Write(b *testing.B) {
 		item := traceData[idx]
 
 		start := time.Now()
+		var buf []byte
 		if entry.Op == "SET" {
 			k := builder.CreateString(item.Key)
 			v := builder.CreateString(item.Value)
@@ -338,16 +378,17 @@ func BenchmarkFlatBuffers_Write(b *testing.B) {
 			kv_flat.SetRequestAddKey(builder, k)
 			kv_flat.SetRequestAddValue(builder, v)
 			builder.Finish(kv_flat.SetRequestEnd(builder))
-			_ = builder.FinishedBytes()
+			buf = builder.FinishedBytes()
 		} else {
 			k := builder.CreateString(item.Key)
 			kv_flat.GetRequestStart(builder)
 			kv_flat.GetRequestAddKey(builder, k)
 			builder.Finish(kv_flat.GetRequestEnd(builder))
-			_ = builder.FinishedBytes()
+			buf = builder.FinishedBytes()
 		}
 		elapsed := time.Since(start)
 		timings = append(timings, elapsed.Nanoseconds())
+		sizes = append(sizes, len(buf))
 	}
 	b.StopTimer()
 	if b.N > 0 {
@@ -357,6 +398,9 @@ func BenchmarkFlatBuffers_Write(b *testing.B) {
 	}
 	if err := writeTimings("flatbuffers_write_times.txt", timings); err != nil {
 		b.Logf("Failed to write timing data: %v", err)
+	}
+	if err := writeSizes("flatbuffers_write_sizes.txt", sizes); err != nil {
+		b.Logf("Failed to write size data: %v", err)
 	}
 	b.StartTimer()
 }
@@ -397,6 +441,7 @@ func BenchmarkFlatBuffers_Read(b *testing.B) {
 
 func BenchmarkCapnp_Write(b *testing.B) {
 	timings := make([]int64, 0, b.N)
+	sizes := make([]int, 0, b.N)
 	traceSize := len(traceEntries)
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -417,9 +462,10 @@ func BenchmarkCapnp_Write(b *testing.B) {
 			req, _ := kv_capnp.NewRootGetRequest(seg)
 			req.SetKey([]byte(item.Key))
 		}
-		_, _ = msg.Marshal()
+		buf, _ := msg.Marshal()
 		elapsed := time.Since(start)
 		timings = append(timings, elapsed.Nanoseconds())
+		sizes = append(sizes, len(buf))
 	}
 	b.StopTimer()
 	if b.N > 0 {
@@ -429,6 +475,9 @@ func BenchmarkCapnp_Write(b *testing.B) {
 	}
 	if err := writeTimings("capnp_write_times.txt", timings); err != nil {
 		b.Logf("Failed to write timing data: %v", err)
+	}
+	if err := writeSizes("capnp_write_sizes.txt", sizes); err != nil {
+		b.Logf("Failed to write size data: %v", err)
 	}
 	b.StartTimer()
 }
@@ -474,6 +523,7 @@ func BenchmarkCapnp_Read(b *testing.B) {
 
 func BenchmarkSymphony_Write(b *testing.B) {
 	timings := make([]int64, 0, b.N)
+	sizes := make([]int, 0, b.N)
 	traceSize := len(traceEntries)
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -483,15 +533,17 @@ func BenchmarkSymphony_Write(b *testing.B) {
 		item := traceData[idx]
 
 		start := time.Now()
+		var buf []byte
 		if entry.Op == "SET" {
 			obj := &kv_proto.SetRequest{Key: item.Key, Value: item.Value}
-			_, _ = obj.MarshalSymphony()
+			buf, _ = obj.MarshalSymphony()
 		} else {
 			obj := &kv_proto.GetRequest{Key: item.Key}
-			_, _ = obj.MarshalSymphony()
+			buf, _ = obj.MarshalSymphony()
 		}
 		elapsed := time.Since(start)
 		timings = append(timings, elapsed.Nanoseconds())
+		sizes = append(sizes, len(buf))
 	}
 	b.StopTimer()
 	if b.N > 0 {
@@ -501,6 +553,9 @@ func BenchmarkSymphony_Write(b *testing.B) {
 	}
 	if err := writeTimings("symphony_write_times.txt", timings); err != nil {
 		b.Logf("Failed to write timing data: %v", err)
+	}
+	if err := writeSizes("symphony_write_sizes.txt", sizes); err != nil {
+		b.Logf("Failed to write size data: %v", err)
 	}
 	b.StartTimer()
 }
@@ -576,6 +631,81 @@ func BenchmarkSymphony_Read(b *testing.B) {
 		b.ReportMetric(msgPerSec, "msg/s")
 	}
 	if err := writeTimings("symphony_read_times.txt", timings); err != nil {
+		b.Logf("Failed to write timing data: %v", err)
+	}
+	b.StartTimer()
+}
+
+func BenchmarkSymphonyHybrid_Write(b *testing.B) {
+	timings := make([]int64, 0, b.N)
+	sizes := make([]int, 0, b.N)
+	traceSize := len(traceEntries)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		idx := i % traceSize
+		entry := traceEntries[idx]
+		item := traceData[idx]
+
+		start := time.Now()
+		var buf []byte
+		if entry.Op == "SET" {
+			obj := &kv_proto.SetRequest{Key: item.Key, Value: item.Value}
+			buf, _ = obj.MarshalSymphonyHybrid()
+		} else {
+			obj := &kv_proto.GetRequest{Key: item.Key}
+			buf, _ = obj.MarshalSymphonyHybrid()
+		}
+		elapsed := time.Since(start)
+		timings = append(timings, elapsed.Nanoseconds())
+		sizes = append(sizes, len(buf))
+	}
+	b.StopTimer()
+	if b.N > 0 {
+		nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+		msgPerSec := 1e9 / nsPerOp
+		b.ReportMetric(msgPerSec, "msg/s")
+	}
+	if err := writeTimings("symphony_hybrid_write_times.txt", timings); err != nil {
+		b.Logf("Failed to write timing data: %v", err)
+	}
+	if err := writeSizes("symphony_hybrid_write_sizes.txt", sizes); err != nil {
+		b.Logf("Failed to write size data: %v", err)
+	}
+	b.StartTimer()
+}
+
+func BenchmarkSymphonyHybrid_Read(b *testing.B) {
+	timings := make([]int64, 0, b.N)
+	traceSize := len(traceEntries)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		idx := i % traceSize
+		entry := traceEntries[idx]
+		in := hybridBufs[idx]
+
+		start := time.Now()
+		if entry.Op == "SET" {
+			var obj kv_proto.SetRequest
+			_ = obj.UnmarshalSymphonyHybrid(in)
+			_ = obj.Key
+			_ = obj.Value
+		} else {
+			var obj kv_proto.GetRequest
+			_ = obj.UnmarshalSymphonyHybrid(in)
+			_ = obj.Key
+		}
+		elapsed := time.Since(start)
+		timings = append(timings, elapsed.Nanoseconds())
+	}
+	b.StopTimer()
+	if b.N > 0 {
+		nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+		msgPerSec := 1e9 / nsPerOp
+		b.ReportMetric(msgPerSec, "msg/s")
+	}
+	if err := writeTimings("symphony_hybrid_read_times.txt", timings); err != nil {
 		b.Logf("Failed to write timing data: %v", err)
 	}
 	b.StartTimer()
