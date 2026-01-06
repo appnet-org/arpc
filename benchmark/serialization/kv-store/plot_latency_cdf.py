@@ -1,5 +1,58 @@
-# Computes and saves CDF plots of latency for read and write operations
-# for different serialization formats (Protobuf, FlatBuffers, Cap'n Proto, fRPC)
+#!/usr/bin/env python3
+"""
+Serialization Latency CDF Plotter
+
+This script computes and plots Cumulative Distribution Functions (CDFs) of latency
+for read and write operations across different serialization formats.
+
+Supported Formats:
+    - FlatBuffers
+    - Cap'n Proto
+    - Protobuf
+    - fRPC (Symphony)
+    - fRPC Hybrid (optional, requires --include-hybrid flag)
+
+Usage:
+    # Plot base formats only (default)
+    python plot_latency_cdf.py
+
+    # Include fRPC Hybrid in the plot
+    python plot_latency_cdf.py --include-hybrid
+
+    # Show help
+    python plot_latency_cdf.py --help
+
+Prerequisites:
+    - Python 3.x
+    - matplotlib
+    - numpy
+
+Input Files:
+    The script expects timing data files in the 'profile_data/' directory:
+        - flatbuffers_write_times.txt
+        - flatbuffers_read_times.txt
+        - capnp_write_times.txt
+        - capnp_read_times.txt
+        - protobuf_write_times.txt
+        - protobuf_read_times.txt
+        - symphony_write_times.txt
+        - symphony_read_times.txt
+        - symphony_hybrid_write_times.txt (if using --include-hybrid)
+        - symphony_hybrid_read_times.txt (if using --include-hybrid)
+
+    Each file should contain one timing value (in nanoseconds) per line.
+
+Output:
+    - serialization_latency_cdf.pdf: A PDF file containing side-by-side CDF plots
+      for write and read latencies with a shared legend at the bottom (base formats only).
+    - serialization_latency_cdf_hybrid.pdf: A PDF file when --include-hybrid is used,
+      containing all formats including fRPC Hybrid.
+
+Command-line Options:
+    --include-hybrid    Include fRPC Hybrid format in the plot (default: False)
+    --help, -h          Show this help message and exit
+"""
+import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib
@@ -11,14 +64,20 @@ matplotlib.rcParams['ps.fonttype'] = 42
 matplotlib.rcParams.update({'font.size': 14})
 
 PROFILE_DATA_DIR = "profile_data"
-OUTPUT_FILE = "serialization_latency_cdf.pdf"
+OUTPUT_FILE_BASE = "serialization_latency_cdf.pdf"
+OUTPUT_FILE_HYBRID = "serialization_latency_cdf_hybrid.pdf"
 
-# Format labels and file names (order matters for legend)
-FORMATS = {
+# Base format labels and file names (order matters for legend)
+BASE_FORMATS = {
     "FlatBuffers": "flatbuffers",
     "Cap'n Proto": "capnp",
     "Protobuf": "protobuf",
     "fRPC": "symphony",
+}
+
+# Hybrid format
+HYBRID_FORMAT = {
+    "fRPC Hybrid": "symphony_hybrid",
 }
 
 def load_timings(filename):
@@ -51,8 +110,8 @@ def plot_merged_latency_cdfs(data_left, data_right,
     fig, axes = plt.subplots(1, 2, figsize=(8, 3))
     
     # Standard SIGCOMM Color Palette & Styles
-    colors = ['#6acc64', '#4878d0', '#82c6e2', '#e6a04e'] 
-    linestyles = ['-', '--', '-.', ':']
+    colors = ['#6acc64', '#4878d0', '#82c6e2', '#e6a04e', '#d65f5f'] 
+    linestyles = ['-', '--', '-.', ':', '-']
     
     if system_order is None:
         system_order = list(data_left.keys())
@@ -92,10 +151,13 @@ def plot_merged_latency_cdfs(data_left, data_right,
     # 4. Shared Legend at Bottom
     handles, labels = axes[0].get_legend_handles_labels()
     
+    # Adjust ncol based on number of systems
+    ncol = len(labels)
+    
     fig.legend(handles, labels, 
                loc='lower center', 
                bbox_to_anchor=(0.5, -0.15), 
-               ncol=4, 
+               ncol=ncol, 
                frameon=True,
                columnspacing=1.5)
 
@@ -109,6 +171,19 @@ def plot_merged_latency_cdfs(data_left, data_right,
     print(f"Saved merged plot to {output_filename}")
 
 def main():
+    parser = argparse.ArgumentParser(description='Plot CDF of serialization latency')
+    parser.add_argument('--include-hybrid', action='store_true',
+                        help='Include fRPC Hybrid in the plot (default: False)')
+    args = parser.parse_args()
+    
+    # Build FORMATS dict based on flag
+    FORMATS = BASE_FORMATS.copy()
+    if args.include_hybrid:
+        FORMATS.update(HYBRID_FORMAT)
+    
+    # Determine output filename based on whether hybrid is included
+    output_file = OUTPUT_FILE_HYBRID if args.include_hybrid else OUTPUT_FILE_BASE
+    
     # Load write timings
     write_timings = {}
     for label, prefix in FORMATS.items():
@@ -138,7 +213,7 @@ def main():
         system_order = list(FORMATS.keys())
         plot_merged_latency_cdfs(write_timings, read_timings,
                                 x_labels=('Write Latency (ns)', 'Read Latency (ns)'),
-                                output_filename=OUTPUT_FILE,
+                                output_filename=output_file,
                                 system_order=system_order)
 
 if __name__ == "__main__":
