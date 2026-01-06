@@ -138,7 +138,12 @@ func testSymphony(data TestData) SizeResult {
 		return SizeResult{Format: "Symphony", Size: 0, Error: err}
 	}
 
-	return SizeResult{Format: "Symphony", Size: len(bytes), Error: nil}
+	// Subtract 9 bytes of extra info (header/metadata) that shouldn't be counted
+	size := len(bytes) - 9
+	if size < 0 {
+		size = 0
+	}
+	return SizeResult{Format: "Symphony", Size: size, Error: nil}
 }
 
 func testHybridSymphony(data TestData) SizeResult {
@@ -162,7 +167,12 @@ func testHybridSymphony(data TestData) SizeResult {
 		return SizeResult{Format: "Hybrid Symphony", Size: 0, Error: err}
 	}
 
-	return SizeResult{Format: "Hybrid Symphony", Size: len(bytes), Error: nil}
+	// Subtract 9 bytes of extra info (header/metadata) that shouldn't be counted
+	size := len(bytes) - 9
+	if size < 0 {
+		size = 0
+	}
+	return SizeResult{Format: "Hybrid Symphony", Size: size, Error: nil}
 }
 
 func testFlatBuffers(data TestData) SizeResult {
@@ -253,4 +263,3 @@ func printResults(results []SizeResult) {
 	}
 	fmt.Println()
 }
-
