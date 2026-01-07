@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/appnet-org/arpc/pkg/logging"
+	"github.com/appnet-org/arpc/pkg/transport"
 	"github.com/appnet-org/proxy/util"
 	"go.uber.org/zap"
 )
@@ -28,16 +29,31 @@ type ProxyState struct {
 
 // Config holds the proxy configuration
 type Config struct {
-	Ports           []int
-	EnableBuffering bool
-	BufferTimeout   time.Duration
+	Ports            []int
+	EnableBuffering  bool
+	EnableEncryption bool
+	EncryptionKey    []byte
+	BufferTimeout    time.Duration
 }
 
 // DefaultConfig returns the default proxy configuration
 func DefaultConfig() *Config {
 	return &Config{
-		Ports:         []int{15002, 15006},
-		BufferTimeout: 30 * time.Second,
+		Ports:            []int{15002, 15006},
+		BufferTimeout:    30 * time.Second,
+		EnableEncryption: false,
+		EncryptionKey:    nil,
+	}
+}
+
+// SetEncryption sets the encryption key for the proxy
+func (c *Config) SetEncryption(key []byte) {
+	if key == nil {
+		c.EnableEncryption = true
+		c.EncryptionKey = transport.DefaultPublicKey
+	} else {
+		c.EnableEncryption = true
+		c.EncryptionKey = key
 	}
 }
 
@@ -73,6 +89,8 @@ func main() {
 
 	config := DefaultConfig()
 
+	config.SetEncryption(nil)
+
 	// Override config from environment variables
 	if bufferTimeout := os.Getenv("BUFFER_TIMEOUT"); bufferTimeout != "" {
 		if timeout, err := time.ParseDuration(bufferTimeout); err == nil {
@@ -83,6 +101,7 @@ func main() {
 	logging.Info("Proxy configuration",
 		zap.Bool("enableBuffering", config.EnableBuffering),
 		zap.Duration("bufferTimeout", config.BufferTimeout),
+		zap.Bool("enableEncryption", config.EnableEncryption),
 		zap.Ints("ports", config.Ports))
 
 	// Initialize packet buffer
@@ -120,7 +139,7 @@ func startProxyServers(config *Config, state *ProxyState) error {
 		wg.Add(1)
 		go func(p int) {
 			defer wg.Done()
-			if err := runProxyServer(p, state); err != nil {
+			if err := runProxyServer(p, state, config); err != nil {
 				errCh <- fmt.Errorf("proxy server on port %d failed: %w", p, err)
 			}
 		}(port)
@@ -140,7 +159,7 @@ func startProxyServers(config *Config, state *ProxyState) error {
 }
 
 // runProxyServer runs a single UDP proxy server on the specified port
-func runProxyServer(port int, state *ProxyState) error {
+func runProxyServer(port int, state *ProxyState, config *Config) error {
 	listenAddr := &net.UDPAddr{Port: port}
 	conn, err := net.ListenUDP("udp", listenAddr)
 	if err != nil {
@@ -164,12 +183,12 @@ func runProxyServer(port int, state *ProxyState) error {
 		data := make([]byte, n)
 		copy(data, buf[:n])
 
-		go handlePacket(conn, state, src, data)
+		go handlePacket(conn, state, src, data, config)
 	}
 }
 
 // handlePacket processes incoming packets and forwards them to the appropriate peer
-func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte) {
+func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte, config *Config) {
 	ctx := context.Background()
 
 	// Process packet (may return nil if still buffering fragments).
@@ -195,6 +214,27 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		return
 	}
 
+	payload := bufferedPacket.Payload
+	publicPayload := payload
+	privatePayload := []byte{}
+
+	// Split the payload into public and private segments
+	if len(payload) > offsetToPrivate(payload) {
+		logging.Debug("Splitting payload into public and private segments", zap.Int("size", len(payload)), zap.Int("offsetToPrivate", offsetToPrivate(payload)))
+		publicPayload = payload[:offsetToPrivate(payload)]
+		privatePayload = payload[offsetToPrivate(payload):]
+	}
+
+	// Decrypt the public segment if encryption is enabled
+	if config.EnableEncryption {
+		publicPayload = transport.DecryptSymphonyData(publicPayload, config.EncryptionKey, nil)
+		logging.Debug("Public segment decrypted", zap.Int("size", len(publicPayload)), zap.String("publicPayload", string(publicPayload)))
+		logging.Debug("offsetToPrivate", zap.Int("offsetToPrivate", offsetToPrivate(publicPayload)))
+	}
+
+	// Update the packet with the decrypted public segment
+	bufferedPacket.Payload = publicPayload
+
 	// If verdict exists (not Unknown), skip element chain and forward the original packet directly
 	// This enables fast forwarding of subsequent fragments without re-processing
 	if existingVerdict != util.PacketVerdictUnknown {
@@ -211,6 +251,14 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 			return
 		}
 	}
+
+	// Encrypt the packet if encryption is enabled
+	if config.EnableEncryption {
+		bufferedPacket.Payload = transport.EncryptSymphonyData(bufferedPacket.Payload, config.EncryptionKey, nil)
+	}
+
+	// Append the private segment to the packet
+	bufferedPacket.Payload = append(bufferedPacket.Payload, privatePayload...)
 
 	// Fragment the packet if needed and forward all fragments
 	fragmentedPackets, err := state.packetBuffer.FragmentPacketForForward(bufferedPacket)
