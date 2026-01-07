@@ -27,6 +27,7 @@ spec:
     spec:
       containers:
       - image: appnetorg/kvstore-symphony-transport:reliable
+        imagePullPolicy: Always
         name: frontend-kvstore-symphony-transport
         command: ["/app/frontend"]
         env:
@@ -66,6 +67,7 @@ spec:
     spec:
       containers:
       - image: appnetorg/kvstore-symphony-transport:reliable
+        imagePullPolicy: Always
         name: kvstore-kvstore-symphony-transport
         command: ["/app/kvstore"]
         env:
