@@ -59,8 +59,8 @@ matplotlib.rcParams['ps.fonttype'] = 42
 matplotlib.rcParams.update({'font.size': 14})
 
 PROFILE_DATA_DIR = "profile_data"
-OUTPUT_FILE_BASE = "serialization_size_cdf.pdf"
-OUTPUT_FILE_HYBRID = "serialization_size_cdf_hybrid.pdf"
+OUTPUT_FILE_BASE = "kv-store-serialization_size_cdf.pdf"
+OUTPUT_FILE_HYBRID = "kv-store-serialization_size_cdf_hybrid.pdf"
 
 # Base format labels and file names (order matters for legend)
 BASE_FORMATS = {
@@ -173,7 +173,7 @@ def main():
     # Load write sizes
     write_sizes = {}
     for label, prefix in FORMATS.items():
-        filename = f"kv-store-{prefix}_write_sizes.txt"
+        filename = f"{prefix}_write_sizes.txt"
         print(f"Loading {filename}...")
         sizes = load_sizes(filename)
         if len(sizes) > 0:

@@ -64,8 +64,8 @@ matplotlib.rcParams['ps.fonttype'] = 42
 matplotlib.rcParams.update({'font.size': 14})
 
 PROFILE_DATA_DIR = "profile_data"
-OUTPUT_FILE_BASE = "serialization_latency_cdf.pdf"
-OUTPUT_FILE_HYBRID = "serialization_latency_cdf_hybrid.pdf"
+OUTPUT_FILE_BASE = "kv-store-serialization_latency_cdf.pdf"
+OUTPUT_FILE_HYBRID = "kv-store-serialization_latency_cdf_hybrid.pdf"
 
 # Base format labels and file names (order matters for legend)
 BASE_FORMATS = {
@@ -199,7 +199,7 @@ def main():
     # Load read timings
     read_timings = {}
     for label, prefix in FORMATS.items():
-        filename = f"kv-store-{prefix}_read_times.txt"
+        filename = f"{prefix}_read_times.txt"
         print(f"Loading {filename}...")
         timings = load_timings(filename)
         if len(timings) > 0:
