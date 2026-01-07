@@ -121,10 +121,12 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.Buff
 		}, verdict, nil
 	}
 
-	// If this is the first packet and the entire pubic segment fits in MTU (offset_private < MTU),
-	// we can process it immediately without buffering
-	if dataPacket.SeqNumber == 0 && isOffsetPrivateLessThanMTU(dataPacket.Payload) {
-		logging.Debug("First packet and entire public segment fits in MTU", zap.Uint64("rpcID", dataPacket.RPCID))
+	// If this is the first packet, the entire public segment fits in MTU (offset_private < MTU),
+	// AND this is the only packet (no fragmentation), we can process it immediately without buffering.
+	// For multi-fragment messages, we must go through buffering so that subsequent fragments can use
+	// the verdict fast-forward path, otherwise they get stuck waiting for fragment 0 that was never buffered.
+	if dataPacket.SeqNumber == 0 && dataPacket.TotalPackets == 1 && isOffsetPrivateLessThanMTU(dataPacket.Payload) {
+		logging.Debug("Single packet and entire public segment fits in MTU", zap.Uint64("rpcID", dataPacket.RPCID))
 		return &util.BufferedPacket{
 			Payload:      dataPacket.Payload,
 			Source:       src,
