@@ -199,7 +199,7 @@ def main():
     # Load read timings
     read_timings = {}
     for label, prefix in FORMATS.items():
-        filename = f"{prefix}_read_times.txt"
+        filename = f"kv-store-{prefix}_read_times.txt"
         print(f"Loading {filename}...")
         timings = load_timings(filename)
         if len(timings) > 0:

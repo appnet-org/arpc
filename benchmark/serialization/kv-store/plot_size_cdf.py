@@ -173,7 +173,7 @@ def main():
     # Load write sizes
     write_sizes = {}
     for label, prefix in FORMATS.items():
-        filename = f"{prefix}_write_sizes.txt"
+        filename = f"kv-store-{prefix}_write_sizes.txt"
         print(f"Loading {filename}...")
         sizes = load_sizes(filename)
         if len(sizes) > 0:
