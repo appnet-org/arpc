@@ -43,7 +43,7 @@ OUTPUT_FILE = "kv_store_termination_latency_overhead_cdf.pdf"
 # System labels and file names
 SYSTEMS = {
     "gRPC": "kv-store-grpc_latency.txt",
-    "gRPC-istio": "kv-store-grpc-istio_latency.txt",
+    "gRPC+Envoy": "kv-store-grpc-istio_latency.txt",
 }
 
 def load_timings(filename):
