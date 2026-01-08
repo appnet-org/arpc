@@ -30,7 +30,6 @@ type ProxyState struct {
 // Config holds the proxy configuration
 type Config struct {
 	Ports            []int
-	EnableBuffering  bool
 	EnableEncryption bool
 	EncryptionKey    []byte
 	BufferTimeout    time.Duration
@@ -89,8 +88,6 @@ func main() {
 
 	config := DefaultConfig()
 
-	config.SetEncryption(nil)
-
 	// Override config from environment variables
 	if bufferTimeout := os.Getenv("BUFFER_TIMEOUT"); bufferTimeout != "" {
 		if timeout, err := time.ParseDuration(bufferTimeout); err == nil {
@@ -98,8 +95,12 @@ func main() {
 		}
 	}
 
+	// Configure encryption from environment variable
+	if enableEncryption := os.Getenv("ENABLE_ENCRYPTION"); enableEncryption == "true" {
+		config.SetEncryption(nil)
+	}
+
 	logging.Info("Proxy configuration",
-		zap.Bool("enableBuffering", config.EnableBuffering),
 		zap.Duration("bufferTimeout", config.BufferTimeout),
 		zap.Bool("enableEncryption", config.EnableEncryption),
 		zap.Ints("ports", config.Ports))
