@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Get the directory of this script
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ARPC_DIR = os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
+ARPC_DIR = "/users/xzhu/arpc"
 
 # Use relative paths from the script directory
 wrk_path = os.path.join(ARPC_DIR, "benchmark/scripts/wrk/wrk")
@@ -33,15 +33,15 @@ lua_path = os.path.join(ARPC_DIR, "benchmark/meta-kv-trace/kvstore-wrk.lua")
 
 manifest_dict = {
     "kv-store-grpc": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore.yaml"),
-    "kv-store-grpc-istio": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore-istio.yaml"),
-    "kv-store-grpc-proxy-h2": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore-proxy-h2.yaml"),
-    "kv-store-thrift-tcp": os.path.join(ARPC_DIR, "benchmark/kv-store-thrift-tcp/manifest/kvstore.yaml"),
-    "kv-store-thrift-http": os.path.join(ARPC_DIR, "benchmark/kv-store-thrift-http/manifest/kvstore.yaml"),
-    "kv-store-symphony": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore.yaml"),
-    "kv-store-symphony-proxy": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore-proxy.yaml"),
-    "kv-store-arpc-tcp": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-tcp.yaml"),
-    "kv-store-arpc-quic": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-quic.yaml"),
-    "kv-store-arpc-h2": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-h2.yaml"),
+    "kv-store-grpc-istio": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore-istio-h2.yaml"),
+    # "kv-store-grpc-proxy-h2": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore-proxy-h2.yaml"),
+    # "kv-store-thrift-tcp": os.path.join(ARPC_DIR, "benchmark/kv-store-thrift-tcp/manifest/kvstore.yaml"),
+    # "kv-store-thrift-http": os.path.join(ARPC_DIR, "benchmark/kv-store-thrift-http/manifest/kvstore.yaml"),
+    # "kv-store-symphony": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore.yaml"),
+    # "kv-store-symphony-proxy": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore-proxy.yaml"),
+    # "kv-store-arpc-tcp": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-tcp.yaml"),
+    # "kv-store-arpc-quic": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-quic.yaml"),
+    # "kv-store-arpc-h2": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-h2.yaml"),
 }
 
 # check if all manifests exist
@@ -140,7 +140,7 @@ def run_wrk_and_collect_latency(application_name):
     logger.info(f"Running wrk for {application_name}")
     
     # Run wrk for latency test
-    cmd = [wrk_path, "-d", "60s", "-t", "1", "-c", "1", "http://10.96.88.88:80", "-s", lua_path, "-L"]
+    cmd = [wrk_path, "-d", "60s", "-t", "1", "-c", "1", "http://10.96.88.88:80", "-s", lua_path, "-L", f"--latency-file=logs/{application_name}_latency.txt"]
     print(" ".join(cmd))
     result = subprocess.run(
         " ".join(cmd),

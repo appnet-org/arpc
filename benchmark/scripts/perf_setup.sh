@@ -32,7 +32,7 @@ echo 0 | sudo tee /proc/sys/kernel/randomize_va_space
 sudo apt-get install luarocks -y
 sudo luarocks install luasocket
 
-git clone https://github.com/wg/wrk.git
+git clone https://github.com/appnet-org/wrk.git
 pushd wrk
 make -j $(nproc)
 
