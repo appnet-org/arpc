@@ -32,13 +32,13 @@ wrk_path = os.path.join(ARPC_DIR, "benchmark/scripts/wrk/wrk")
 lua_path = os.path.join(ARPC_DIR, "benchmark/meta-kv-trace/kvstore-wrk.lua")
 
 manifest_dict = {
-    "kv-store-grpc": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore.yaml"),
-    "kv-store-grpc-istio": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore-istio-h2.yaml"),
+#     "kv-store-grpc": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore.yaml"),
+#     "kv-store-grpc-istio": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore-istio-h2.yaml"),
     # "kv-store-grpc-proxy-h2": os.path.join(ARPC_DIR, "benchmark/kv-store-grpc/manifest/kvstore-proxy-h2.yaml"),
     # "kv-store-thrift-tcp": os.path.join(ARPC_DIR, "benchmark/kv-store-thrift-tcp/manifest/kvstore.yaml"),
     # "kv-store-thrift-http": os.path.join(ARPC_DIR, "benchmark/kv-store-thrift-http/manifest/kvstore.yaml"),
-    # "kv-store-symphony": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore.yaml"),
-    # "kv-store-symphony-proxy": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore-proxy.yaml"),
+    "kv-store-symphony": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore.yaml"),
+    "kv-store-symphony-proxy": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore-proxy.yaml"),
     # "kv-store-arpc-tcp": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-tcp.yaml"),
     # "kv-store-arpc-quic": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-quic.yaml"),
     # "kv-store-arpc-h2": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-h2.yaml"),

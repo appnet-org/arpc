@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/gob"
 	"fmt"
 	"net/url"
 	"os"
@@ -35,6 +37,16 @@ type NativeData struct {
 	Value string
 }
 
+// Simple structs for gob encoding (no protobuf internals)
+type GobGetRequest struct {
+	Key string
+}
+
+type GobSetRequest struct {
+	Key   string
+	Value string
+}
+
 var (
 	traceEntries []TraceEntry
 	traceData    []NativeData
@@ -45,6 +57,7 @@ var (
 	capnpBufs    [][]byte
 	symphonyBufs [][]byte
 	hybridBufs   [][]byte
+	gobBufs      [][]byte
 )
 
 // --- INITIALIZATION ---
@@ -80,6 +93,7 @@ func init() {
 	capnpBufs = make([][]byte, len(traceEntries))
 	symphonyBufs = make([][]byte, len(traceEntries))
 	hybridBufs = make([][]byte, len(traceEntries))
+	gobBufs = make([][]byte, len(traceEntries))
 
 	// Pre-generate data and serialize based on trace entries
 	for i, entry := range traceEntries {
@@ -120,6 +134,13 @@ func init() {
 			// Hybrid SetRequest
 			hybridSet := &kv_proto.SetRequest{Key: key, Value: value}
 			hybridBufs[i], _ = hybridSet.MarshalSymphonyHybrid()
+
+			// Gob SetRequest
+			var buf bytes.Buffer
+			enc := gob.NewEncoder(&buf)
+			gobSet := &GobSetRequest{Key: key, Value: value}
+			_ = enc.Encode(gobSet)
+			gobBufs[i] = buf.Bytes()
 		} else {
 			// GetRequest
 			pGet := &kv_proto.GetRequest{Key: key}
@@ -144,6 +165,13 @@ func init() {
 			// Hybrid GetRequest
 			hybridGet := &kv_proto.GetRequest{Key: key}
 			hybridBufs[i], _ = hybridGet.MarshalSymphonyHybrid()
+
+			// Gob GetRequest
+			var buf bytes.Buffer
+			enc := gob.NewEncoder(&buf)
+			gobGet := &GobGetRequest{Key: key}
+			_ = enc.Encode(gobGet)
+			gobBufs[i] = buf.Bytes()
 		}
 	}
 }
@@ -706,6 +734,89 @@ func BenchmarkSymphonyHybrid_Read(b *testing.B) {
 		b.ReportMetric(msgPerSec, "msg/s")
 	}
 	if err := writeTimings("symphony_hybrid_read_times.txt", timings); err != nil {
+		b.Logf("Failed to write timing data: %v", err)
+	}
+	b.StartTimer()
+}
+
+func BenchmarkGob_Write(b *testing.B) {
+	timings := make([]int64, 0, b.N)
+	sizes := make([]int, 0, b.N)
+	traceSize := len(traceEntries)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		idx := i % traceSize
+		entry := traceEntries[idx]
+		item := traceData[idx]
+
+		start := time.Now()
+		var buf []byte
+		if entry.Op == "SET" {
+			var buffer bytes.Buffer
+			enc := gob.NewEncoder(&buffer)
+			obj := &GobSetRequest{Key: item.Key, Value: item.Value}
+			_ = enc.Encode(obj)
+			buf = buffer.Bytes()
+		} else {
+			var buffer bytes.Buffer
+			enc := gob.NewEncoder(&buffer)
+			obj := &GobGetRequest{Key: item.Key}
+			_ = enc.Encode(obj)
+			buf = buffer.Bytes()
+		}
+		elapsed := time.Since(start)
+		timings = append(timings, elapsed.Nanoseconds())
+		sizes = append(sizes, len(buf))
+	}
+	b.StopTimer()
+	if b.N > 0 {
+		nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+		msgPerSec := 1e9 / nsPerOp
+		b.ReportMetric(msgPerSec, "msg/s")
+	}
+	if err := writeTimings("gob_write_times.txt", timings); err != nil {
+		b.Logf("Failed to write timing data: %v", err)
+	}
+	if err := writeSizes("gob_write_sizes.txt", sizes); err != nil {
+		b.Logf("Failed to write size data: %v", err)
+	}
+	b.StartTimer()
+}
+
+func BenchmarkGob_Read(b *testing.B) {
+	timings := make([]int64, 0, b.N)
+	traceSize := len(traceEntries)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		idx := i % traceSize
+		entry := traceEntries[idx]
+		in := gobBufs[idx]
+
+		start := time.Now()
+		if entry.Op == "SET" {
+			var obj GobSetRequest
+			dec := gob.NewDecoder(bytes.NewReader(in))
+			_ = dec.Decode(&obj)
+			_ = obj.Key
+			_ = obj.Value
+		} else {
+			var obj GobGetRequest
+			dec := gob.NewDecoder(bytes.NewReader(in))
+			_ = dec.Decode(&obj)
+			_ = obj.Key
+		}
+		elapsed := time.Since(start)
+		timings = append(timings, elapsed.Nanoseconds())
+	}
+	b.StopTimer()
+	if b.N > 0 {
+		nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+		msgPerSec := 1e9 / nsPerOp
+		b.ReportMetric(msgPerSec, "msg/s")
+	}
+	if err := writeTimings("gob_read_times.txt", timings); err != nil {
 		b.Logf("Failed to write timing data: %v", err)
 	}
 	b.StartTimer()
