@@ -79,7 +79,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("Get RPC failed: %v", err), http.StatusInternalServerError)
 			return
 		}
-		fmt.Fprintf(w, "Value for key_id '%s' (key='%s'): %s\n", keyID, keyStr, resp.Value)
+		fmt.Fprintf(w, "Value for key_id '%s' (key='%s'): length=%d\n", keyID, keyStr, len(resp.Value))
 
 	case "set":
 		req := &kv.SetRequest{Key: keyStr, Value: valueStr}
@@ -89,8 +89,8 @@ func handler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("Set RPC failed: %v", err), http.StatusInternalServerError)
 			return
 		}
-		fmt.Fprintf(w, "Set key_id '%s' (key='%s') to value='%s'. Response: %s\n",
-			keyID, keyStr, valueStr, resp.Value)
+		fmt.Fprintf(w, "Set key_id '%s' (key='%s') to value_length=%d. Response length: %d\n",
+			keyID, keyStr, len(valueStr), len(resp.Value))
 
 	default:
 		http.Error(w, "Invalid operation. Use op=GET or op=SET", http.StatusBadRequest)
@@ -104,7 +104,7 @@ func main() {
 	}
 
 	serializer := &serializer.SymphonySerializer{}
-	client, err := rpc.NewClient(serializer, ":11000", nil, true)
+	client, err := rpc.NewClient(serializer, ":11000", nil, false)
 	// client, err := rpc.NewClient(serializer, "kvstore.default.svc.cluster.local:11000", nil, true)
 	if err != nil {
 		logging.Fatal("Failed to create RPC client", zap.Error(err))

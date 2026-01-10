@@ -61,7 +61,7 @@ func (s *kvServer) Set(ctx context.Context, req *kv.SetRequest) (*kv.SetResponse
 
 	key := req.GetKey()
 	value := req.GetValue()
-	logging.Debug("Server got Set request", zap.String("key", key), zap.String("value", value))
+	logging.Debug("Server got Set request", zap.String("key", key), zap.String("value length", strconv.Itoa(len(value))))
 
 	// Check if we need to evict an item
 	if len(s.data) >= s.maxSize {
@@ -133,7 +133,7 @@ func main() {
 	}
 
 	serializer := &serializer.SymphonySerializer{}
-	server, err := rpc.NewServer(":11000", serializer, nil, true)
+	server, err := rpc.NewServer(":11000", serializer, nil, false)
 	if err != nil {
 		logging.Fatal("Failed to start server", zap.Error(err))
 	}

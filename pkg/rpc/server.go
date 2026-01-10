@@ -91,11 +91,11 @@ func (s *Server) Start() {
 			}
 			continue
 		}
-		logging.Debug("Received packet", zap.Int("length", len(data)), zap.String("from", addr.String()), zap.Uint64("rpcID", rpcID))
 
 		if data == nil {
 			continue // Either still waiting for fragments or we received an non-data packet
 		}
+		logging.Debug("Received message", zap.Int("length", len(data)), zap.String("from", addr.String()), zap.Uint64("rpcID", rpcID))
 
 		// Data is already the raw payload
 		reqPayloadBytes := data

@@ -508,15 +508,11 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPa
 	if len(completePayload) <= chunkSize {
 		// Single packet case
 		seqNum := uint16(0)
-		totalPackets := uint16(1)
 
 		if bufferedPacket.SeqNumber >= 0 {
 			// Forwarding an existing fragment - preserve its original sequence number and TotalPackets
 			// to maintain the original fragmented message structure
 			seqNum = uint16(bufferedPacket.SeqNumber)
-			if bufferedPacket.TotalPackets > 0 {
-				totalPackets = bufferedPacket.TotalPackets
-			}
 		}
 		// If SeqNumber < 0 (i.e., -1), this is a new message/public segment, use seq 0 and TotalPackets 1
 
@@ -525,7 +521,7 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPa
 		singlePacket := &packet.DataPacket{
 			PacketTypeID: packet.PacketTypeID(uint8(bufferedPacket.PacketType)),
 			RPCID:        bufferedPacket.RPCID,
-			TotalPackets: totalPackets,
+			TotalPackets: bufferedPacket.TotalPackets,
 			SeqNumber:    seqNum,
 			DstIP:        bufferedPacket.DstIP,
 			DstPort:      bufferedPacket.DstPort,
@@ -553,10 +549,10 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPa
 	// This creates a NEW fragmented message (even if the original was fragmented),
 	// so sequence numbers start from 0 and TotalPackets is recalculated based on the payload size.
 	// Note: If the payload was modified by element chain, we correctly recalculate fragmentation here.
-	totalPackets := uint16((len(completePayload) + chunkSize - 1) / chunkSize)
+	totalfragments := uint16((len(completePayload) + chunkSize - 1) / chunkSize)
 	codec := &packet.DataPacketCodec{}
-	fragments := make([]FragmentedPacket, 0, totalPackets)
-	for i := range int(totalPackets) {
+	fragments := make([]FragmentedPacket, 0, totalfragments)
+	for i := range int(totalfragments) {
 		start := i * chunkSize
 		end := min(start+chunkSize, len(completePayload))
 
@@ -564,7 +560,7 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPa
 		fragment := &packet.DataPacket{
 			PacketTypeID: packet.PacketTypeID(uint8(bufferedPacket.PacketType)),
 			RPCID:        bufferedPacket.RPCID,
-			TotalPackets: totalPackets,
+			TotalPackets: bufferedPacket.TotalPackets,
 			SeqNumber:    uint16(i), // New fragmented message, start from 0
 			DstIP:        bufferedPacket.DstIP,
 			DstPort:      bufferedPacket.DstPort,
@@ -589,8 +585,8 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPa
 
 	logging.Debug("Fragmented packet for forwarding",
 		zap.Uint64("rpcID", bufferedPacket.RPCID),
-		zap.Uint16("totalFragments", totalPackets),
-		zap.Int("originalSize", len(completePayload)))
+		zap.Uint16("total packets", bufferedPacket.TotalPackets),
+		zap.Int("payload size", len(completePayload)))
 
 	return fragments, nil
 }

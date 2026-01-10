@@ -40,7 +40,8 @@ func (r *DataReassembler) SetBufferPool(pool *common.BufferPool) {
 func (r *DataReassembler) ProcessFragment(pkt any, addr *net.UDPAddr, buffer []byte) ([]byte, *net.UDPAddr, uint64, bool) {
 	dataPkt := pkt.(*protocol.DataPacket)
 	// log the peer and source port
-	logging.Debug("Processing fragment", zap.String("peer", addr.String()), zap.Uint16("srcPort", dataPkt.SrcPort))
+	logging.Debug("Processing fragment", zap.String("peer", addr.String()), zap.Uint16("srcPort", dataPkt.SrcPort), zap.Uint64("rpcID", dataPkt.RPCID),
+		zap.Uint16("seqNumber", dataPkt.SeqNumber), zap.Uint16("totalPackets", dataPkt.TotalPackets), zap.Int("size", len(dataPkt.Payload)))
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
