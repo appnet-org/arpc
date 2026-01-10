@@ -60,7 +60,7 @@ func (c *Config) SetEncryption(key []byte) {
 func getLoggingConfig() *logging.Config {
 	level := os.Getenv("LOG_LEVEL")
 	if level == "" {
-		level = "debug"
+		level = "info"
 	}
 
 	format := os.Getenv("LOG_FORMAT")
@@ -204,8 +204,53 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	}
 
 	// If bufferedPacket is nil, we're still waiting for more fragments
+	// BUT we should check if a verdict exists and process any buffered fragments
 	if bufferedPacket == nil {
 		logging.Debug("Still buffering packet fragments", zap.String("src", src.String()))
+		// Check if there's a verdict and buffered fragments that need processing
+		// Parse packet to get RPC ID and packet type
+		dataPacket, err := state.packetBuffer.deserializePacket(data)
+		if err == nil {
+			connKey := src.String()
+			packetType := util.PacketType(dataPacket.PacketTypeID)
+			key := verdictKey{
+				RPCID:      dataPacket.RPCID,
+				PacketType: packetType,
+			}
+			state.packetBuffer.verdictsMu.RLock()
+			verdict, verdictExists := state.packetBuffer.verdicts[key]
+			state.packetBuffer.verdictsMu.RUnlock()
+
+			if verdictExists && verdict == util.PacketVerdictPass {
+				// There's a verdict, check if there are buffered fragments to process
+				// Create a dummy metadata packet for ProcessRemainingFragments
+				peer := &net.UDPAddr{IP: net.IP(dataPacket.DstIP[:]), Port: int(dataPacket.DstPort)}
+				dummyMetadata := &util.BufferedPacket{
+					Source:     src,
+					Peer:       peer,
+					PacketType: packetType,
+					RPCID:      dataPacket.RPCID,
+					DstIP:      dataPacket.DstIP,
+					DstPort:    dataPacket.DstPort,
+					SrcIP:      dataPacket.SrcIP,
+					SrcPort:    dataPacket.SrcPort,
+				}
+				// Keep processing remaining fragments until buffer is empty
+				// This handles the case where fragments arrive concurrently while we're processing
+				maxIterations := 1000 // Prevent infinite loops
+				for i := 0; i < maxIterations; i++ {
+					remainingFragments := state.packetBuffer.ProcessRemainingFragments(connKey, dataPacket.RPCID, packetType, dummyMetadata)
+					if len(remainingFragments) == 0 {
+						break // No more fragments to process
+					}
+					for _, fragment := range remainingFragments {
+						if err := processFragmentViaFastForward(conn, state, fragment, config); err != nil {
+							logging.Error("Error processing remaining fragment via fast-forward", zap.Error(err), zap.Uint64("rpcID", fragment.RPCID), zap.Int16("seqNum", fragment.SeqNumber))
+						}
+					}
+				}
+			}
+		}
 		return
 	}
 
@@ -313,12 +358,26 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	connKey := bufferedPacket.Source.String()
 	if bufferedPacket.SeqNumber == -1 {
 		state.packetBuffer.CleanupUsedFragments(connKey, bufferedPacket.RPCID, bufferedPacket.LastUsedSeqNum)
+	}
 
-		// After cleanup, process any remaining buffered fragments if a verdict exists
-		// This fixes the out-of-order fragment bug where fragments remain stuck in buffer
-		// Only process if verdict was just stored or already existed (not dropped)
-		if verdictJustStored || existingVerdict == util.PacketVerdictPass {
+	// After processing any packet (public segment or fast-forwarded fragment), check for remaining buffered fragments
+	// This fixes the bug where fragments arrive after ProcessRemainingFragments was called but remain stuck in buffer
+	// Only process if verdict exists (was just stored or already existed) and is not dropped
+	finalVerdict := existingVerdict
+	if verdictJustStored {
+		// Verdict was just stored, so it's Pass (drop verdicts return early)
+		finalVerdict = util.PacketVerdictPass
+	}
+	shouldProcessRemaining := finalVerdict == util.PacketVerdictPass
+	if shouldProcessRemaining {
+		// Keep processing remaining fragments until buffer is empty
+		// This handles the case where fragments arrive concurrently while we're processing
+		maxIterations := 1000 // Prevent infinite loops
+		for i := 0; i < maxIterations; i++ {
 			remainingFragments := state.packetBuffer.ProcessRemainingFragments(connKey, bufferedPacket.RPCID, bufferedPacket.PacketType, bufferedPacket)
+			if len(remainingFragments) == 0 {
+				break // No more fragments to process
+			}
 			for _, fragment := range remainingFragments {
 				// Process each remaining fragment via fast-forward path
 				if err := processFragmentViaFastForward(conn, state, fragment, config); err != nil {
