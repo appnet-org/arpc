@@ -219,18 +219,28 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	publicPayload := payload
 	privatePayload := []byte{}
 
-	// Split the payload into public and private segments
-	if len(payload) > offsetToPrivate(payload) {
-		logging.Debug("Splitting payload into public and private segments", zap.Int("size", len(payload)), zap.Int("offsetToPrivate", offsetToPrivate(payload)))
-		publicPayload = payload[:offsetToPrivate(payload)]
-		privatePayload = payload[offsetToPrivate(payload):]
-	}
+	// Only decrypt/split if this is the reassembled public segment (SeqNumber == -1)
+	// Fragments (SeqNumber >= 0) should be forwarded as-is without decryption
+	if bufferedPacket.SeqNumber == -1 {
+		// Split the payload into public and private segments
+		if len(payload) > offsetToPrivate(payload) {
+			logging.Debug("Splitting payload into public and private segments", zap.Int("size", len(payload)), zap.Int("offsetToPrivate", offsetToPrivate(payload)))
+			publicPayload = payload[:offsetToPrivate(payload)]
+			privatePayload = payload[offsetToPrivate(payload):]
+		}
 
-	// Decrypt the public segment if encryption is enabled
-	if config.EnableEncryption {
-		publicPayload = transport.DecryptSymphonyData(publicPayload, config.EncryptionKey, nil)
-		logging.Debug("Public segment decrypted", zap.Int("size", len(publicPayload)), zap.String("publicPayload", string(publicPayload)))
-		logging.Debug("offsetToPrivate", zap.Int("offsetToPrivate", offsetToPrivate(publicPayload)))
+		// Decrypt the public segment if encryption is enabled
+		if config.EnableEncryption {
+			publicPayload = transport.DecryptSymphonyData(publicPayload, config.EncryptionKey, nil)
+			logging.Debug("Public segment decrypted", zap.Int("size", len(publicPayload)), zap.String("publicPayload", string(publicPayload)))
+			logging.Debug("offsetToPrivate", zap.Int("offsetToPrivate", offsetToPrivate(publicPayload)))
+		}
+
+		// Update the packet with the decrypted public segment
+		bufferedPacket.Payload = publicPayload
+	} else {
+		// This is a fragment being fast-forwarded - keep payload as-is (already encrypted)
+		logging.Debug("Fast-forwarding fragment without decryption", zap.Int16("seqNumber", bufferedPacket.SeqNumber), zap.Uint64("rpcID", bufferedPacket.RPCID))
 	}
 
 	// Update the packet with the decrypted public segment
@@ -258,12 +268,17 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	}
 
 	// Encrypt the packet if encryption is enabled
-	if config.EnableEncryption {
-		bufferedPacket.Payload = transport.EncryptSymphonyData(bufferedPacket.Payload, config.EncryptionKey, nil)
-	}
+	// Only encrypt if we decrypted it (i.e., SeqNumber == -1)
+	// Fragments (SeqNumber >= 0) are already encrypted and should be forwarded as-is
+	if bufferedPacket.SeqNumber == -1 {
+		// Encrypt the packet if encryption is enabled
+		if config.EnableEncryption {
+			bufferedPacket.Payload = transport.EncryptSymphonyData(bufferedPacket.Payload, config.EncryptionKey, nil)
+		}
 
-	// Append the private segment to the packet
-	bufferedPacket.Payload = append(bufferedPacket.Payload, privatePayload...)
+		// Append the private segment to the packet
+		bufferedPacket.Payload = append(bufferedPacket.Payload, privatePayload...)
+	}
 
 	// Fragment the packet if needed and forward all fragments
 	fragmentedPackets, err := state.packetBuffer.FragmentPacketForForward(bufferedPacket)
@@ -288,6 +303,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	logging.Debug("Forwarded packet",
 		zap.Int("fragments", len(fragmentedPackets)),
 		zap.Int("bytes", len(bufferedPacket.Payload)),
+		zap.Uint64("rpcID", bufferedPacket.RPCID),
 		zap.String("from", bufferedPacket.Source.String()),
 		zap.String("to", bufferedPacket.Peer.String()),
 		zap.String("packetType", bufferedPacket.PacketType.String()))
@@ -295,7 +311,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	// Clean up fragments that were used to build the public segment
 	// Only cleanup if this was a buffered packet (SeqNumber == -1) and we have LastUsedSeqNum set
 	connKey := bufferedPacket.Source.String()
-	if bufferedPacket.SeqNumber == -1 && bufferedPacket.LastUsedSeqNum >= 0 {
+	if bufferedPacket.SeqNumber == -1 {
 		state.packetBuffer.CleanupUsedFragments(connKey, bufferedPacket.RPCID, bufferedPacket.LastUsedSeqNum)
 
 		// After cleanup, process any remaining buffered fragments if a verdict exists
