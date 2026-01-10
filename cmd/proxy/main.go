@@ -236,6 +236,9 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 	// Update the packet with the decrypted public segment
 	bufferedPacket.Payload = publicPayload
 
+	// Track if verdict was just stored (to know if we should process remaining fragments)
+	verdictJustStored := false
+
 	// If verdict exists (not Unknown), skip element chain and forward the original packet directly
 	// This enables fast forwarding of subsequent fragments without re-processing
 	if existingVerdict != util.PacketVerdictUnknown {
@@ -251,6 +254,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 			}
 			return
 		}
+		verdictJustStored = true
 	}
 
 	// Encrypt the packet if encryption is enabled
@@ -290,13 +294,47 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 
 	// Clean up fragments that were used to build the public segment
 	// Only cleanup if this was a buffered packet (SeqNumber == -1) and we have LastUsedSeqNum set
-	// TODO: After cleanup, process remaining buffered fragments if verdict exists (out-of-order fragment bug)
-	if bufferedPacket.SeqNumber == -1 && bufferedPacket.LastUsedSeqNum > 0 {
-		connKey := bufferedPacket.Source.String()
+	connKey := bufferedPacket.Source.String()
+	if bufferedPacket.SeqNumber == -1 && bufferedPacket.LastUsedSeqNum >= 0 {
 		state.packetBuffer.CleanupUsedFragments(connKey, bufferedPacket.RPCID, bufferedPacket.LastUsedSeqNum)
-		// TODO: Check for remaining fragments in buffer and process them via fast-forward if verdict exists
-		// This fixes the bug where out-of-order fragments (e.g., 0,2,1) leave fragment 2 stuck in buffer
+
+		// After cleanup, process any remaining buffered fragments if a verdict exists
+		// This fixes the out-of-order fragment bug where fragments remain stuck in buffer
+		// Only process if verdict was just stored or already existed (not dropped)
+		if verdictJustStored || existingVerdict == util.PacketVerdictPass {
+			remainingFragments := state.packetBuffer.ProcessRemainingFragments(connKey, bufferedPacket.RPCID, bufferedPacket.PacketType, bufferedPacket)
+			for _, fragment := range remainingFragments {
+				// Process each remaining fragment via fast-forward path
+				if err := processFragmentViaFastForward(conn, state, fragment, config); err != nil {
+					logging.Error("Error processing remaining fragment via fast-forward", zap.Error(err), zap.Uint64("rpcID", fragment.RPCID), zap.Int16("seqNum", fragment.SeqNumber))
+				}
+			}
+		}
 	}
+}
+
+// processFragmentViaFastForward processes a fragment via the fast-forward path.
+// It encrypts if needed, serializes it, and forwards it without element chain processing.
+func processFragmentViaFastForward(conn *net.UDPConn, state *ProxyState, fragment *util.BufferedPacket, config *Config) error {
+	// Serialize and forward the fragment
+	fragmentedPackets, err := state.packetBuffer.FragmentPacketForForward(fragment)
+	if err != nil {
+		return fmt.Errorf("failed to fragment packet for forwarding: %w", err)
+	}
+
+	// Send all fragments
+	for _, fp := range fragmentedPackets {
+		if _, err := conn.WriteToUDP(fp.Data, fp.Peer); err != nil {
+			return fmt.Errorf("WriteToUDP error: %w", err)
+		}
+	}
+
+	logging.Debug("Forwarded remaining fragment via fast-forward",
+		zap.Uint64("rpcID", fragment.RPCID),
+		zap.Int16("seqNum", fragment.SeqNumber),
+		zap.Int("fragments", len(fragmentedPackets)))
+
+	return nil
 }
 
 // runElementsChain processes the packet through the element chain.
@@ -306,30 +344,32 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 func runElementsChain(ctx context.Context, state *ProxyState, packet *util.BufferedPacket) error {
 	// Get current element chain (may have been updated by plugin loader)
 	elementChain := GetElementChain()
-	if elementChain == nil {
-		// No element chain available, pass through
-		logging.Debug("No element chain available, passing packet through")
-		return nil
-	}
-
 	var err error
 	var processedPacket *util.BufferedPacket
 	var verdict util.PacketVerdict
-	switch packet.PacketType {
-	case util.PacketTypeRequest:
-		// Process request through element chain
-		processedPacket, verdict, _, err = elementChain.ProcessRequest(ctx, packet)
-	case util.PacketTypeResponse:
-		// Process response through element chain (in reverse order)
-		processedPacket, verdict, _, err = elementChain.ProcessResponse(ctx, packet)
-	default:
-		// For other packet util (Error, Unknown, etc.), skip processing
-		// TODO: Add handler for error packets
-		logging.Debug("Skipping element chain processing for packet type", zap.String("packetType", packet.PacketType.String()))
-		return nil
+
+	if elementChain == nil {
+		// No element chain available, pass through with Pass verdict
+		logging.Debug("No element chain available, passing packet through")
+		verdict = util.PacketVerdictPass
+	} else {
+		switch packet.PacketType {
+		case util.PacketTypeRequest:
+			// Process request through element chain
+			processedPacket, verdict, _, err = elementChain.ProcessRequest(ctx, packet)
+		case util.PacketTypeResponse:
+			// Process response through element chain (in reverse order)
+			processedPacket, verdict, _, err = elementChain.ProcessResponse(ctx, packet)
+		default:
+			// For other packet util (Error, Unknown, etc.), skip processing
+			// TODO: Add handler for error packets
+			logging.Debug("Skipping element chain processing for packet type", zap.String("packetType", packet.PacketType.String()))
+			verdict = util.PacketVerdictPass
+		}
 	}
 
 	// Store the verdict for this RPC ID and packet type (to distinguish requests from responses)
+	// This is critical for fast-forwarding remaining fragments after public segment processing
 	key := verdictKey{
 		RPCID:      packet.RPCID,
 		PacketType: packet.PacketType,

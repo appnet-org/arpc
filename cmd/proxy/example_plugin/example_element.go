@@ -9,7 +9,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/proxy/util"
@@ -98,9 +97,3 @@ var ElementInit interface{} = &ExampleElementInit{
 		name: "ExampleElement",
 	},
 }
-
-// init function is called when the plugin is loaded
-func init() {
-	fmt.Println("ExampleElement plugin loaded successfully")
-}
-

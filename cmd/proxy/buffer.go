@@ -30,6 +30,7 @@ type PacketBuffer struct {
 	incoming               map[string]map[uint64]map[uint16][]byte // connectionKey -> rpcID -> seqNumber -> payload
 	timeouts               map[string]map[uint64]time.Time         // connectionKey -> rpcID -> lastSeen
 	publicSegmentExtracted map[string]map[uint64]bool              // connectionKey -> rpcID -> bool (track if public segment was already extracted)
+	rpcTotalPackets        map[string]map[uint64]uint16            // connectionKey -> rpcID -> TotalPackets
 	enabled                bool
 	timeout                time.Duration
 	cleanupTicker          *time.Ticker
@@ -46,6 +47,7 @@ func NewPacketBuffer(timeout time.Duration) *PacketBuffer {
 		incoming:               make(map[string]map[uint64]map[uint16][]byte),
 		timeouts:               make(map[string]map[uint64]time.Time),
 		publicSegmentExtracted: make(map[string]map[uint64]bool),
+		rpcTotalPackets:        make(map[string]map[uint64]uint16),
 		done:                   make(chan struct{}),
 		verdicts:               make(map[verdictKey]util.PacketVerdict),
 		verdictTimes:           make(map[verdictKey]time.Time),
@@ -202,15 +204,20 @@ func (pb *PacketBuffer) addFragmentToBuffer(src *net.UDPAddr, dataPacket *packet
 		pb.incoming[connKey] = make(map[uint64]map[uint16][]byte)
 		pb.timeouts[connKey] = make(map[uint64]time.Time)
 		pb.publicSegmentExtracted[connKey] = make(map[uint64]bool)
+		pb.rpcTotalPackets[connKey] = make(map[uint64]uint16)
 	}
 	if _, exists := pb.incoming[connKey][dataPacket.RPCID]; !exists {
 		pb.incoming[connKey][dataPacket.RPCID] = make(map[uint16][]byte)
 	}
 
+	// Store TotalPackets if not already set (all fragments of same RPC have same TotalPackets)
+	if _, exists := pb.rpcTotalPackets[connKey][dataPacket.RPCID]; !exists {
+		pb.rpcTotalPackets[connKey][dataPacket.RPCID] = dataPacket.TotalPackets
+	}
+
 	// If public segment was already extracted, just buffer this fragment and return nil
 	// This prevents duplicate extraction when private segment fragments arrive after public segment extraction
-	// TODO: Related to out-of-order fragment bug - fragments buffered here after public segment
-	// extraction need to be processed once a verdict exists (see CleanupUsedFragments TODO)
+	// These fragments will be processed via ProcessRemainingFragments after verdict is stored
 	if pb.publicSegmentExtracted[connKey][dataPacket.RPCID] {
 		pb.incoming[connKey][dataPacket.RPCID][dataPacket.SeqNumber] = dataPacket.Payload
 		pb.timeouts[connKey][dataPacket.RPCID] = time.Now()
@@ -320,6 +327,9 @@ func (pb *PacketBuffer) cleanupFragments(connKey string, rpcID uint64) {
 	if pb.publicSegmentExtracted[connKey] != nil {
 		delete(pb.publicSegmentExtracted[connKey], rpcID)
 	}
+	if pb.rpcTotalPackets[connKey] != nil {
+		delete(pb.rpcTotalPackets[connKey], rpcID)
+	}
 
 	// Clean up empty connection maps
 	if len(pb.incoming[connKey]) == 0 {
@@ -327,6 +337,9 @@ func (pb *PacketBuffer) cleanupFragments(connKey string, rpcID uint64) {
 		delete(pb.timeouts, connKey)
 		if pb.publicSegmentExtracted[connKey] != nil {
 			delete(pb.publicSegmentExtracted, connKey)
+		}
+		if pb.rpcTotalPackets[connKey] != nil {
+			delete(pb.rpcTotalPackets, connKey)
 		}
 	}
 }
@@ -361,6 +374,9 @@ func (pb *PacketBuffer) CleanupUsedFragments(connKey string, rpcID uint64, lastU
 		if pb.publicSegmentExtracted[connKey] != nil {
 			delete(pb.publicSegmentExtracted[connKey], rpcID)
 		}
+		if pb.rpcTotalPackets[connKey] != nil {
+			delete(pb.rpcTotalPackets[connKey], rpcID)
+		}
 
 		// Clean up empty connection maps
 		if len(fragments) == 0 {
@@ -371,6 +387,9 @@ func (pb *PacketBuffer) CleanupUsedFragments(connKey string, rpcID uint64, lastU
 			if pb.publicSegmentExtracted[connKey] != nil {
 				delete(pb.publicSegmentExtracted, connKey)
 			}
+			if pb.rpcTotalPackets[connKey] != nil {
+				delete(pb.rpcTotalPackets, connKey)
+			}
 		}
 	}
 
@@ -378,14 +397,122 @@ func (pb *PacketBuffer) CleanupUsedFragments(connKey string, rpcID uint64, lastU
 		zap.String("connKey", connKey),
 		zap.Uint64("rpcID", rpcID),
 		zap.Uint16("lastUsedSeqNum", lastUsedSeqNum))
+}
 
-	// TODO: Process remaining buffered fragments if verdict exists
-	// Bug: If fragments arrive out-of-order (e.g., fragments 0, 2, then 1),
-	// and the public segment is extracted from fragments 0+1, fragment 2
-	// remains in the buffer but is never processed. After a verdict is stored,
-	// we should check for remaining fragments and process them via fast-forward
-	// path. This requires storing metadata (RPCID, PacketType, addresses) to
-	// reconstruct BufferedPackets for remaining fragments.
+// ProcessRemainingFragments processes remaining buffered fragments after a verdict has been stored.
+// It checks if a verdict exists for the RPC ID and packet type, then reconstructs BufferedPackets
+// for all remaining fragments using the provided metadata. Returns an empty slice if no verdict
+// exists or no remaining fragments are found.
+func (pb *PacketBuffer) ProcessRemainingFragments(connKey string, rpcID uint64, packetType util.PacketType, metadata *util.BufferedPacket) []*util.BufferedPacket {
+	// Check if a verdict exists for this RPC ID and packet type
+	key := verdictKey{
+		RPCID:      rpcID,
+		PacketType: packetType,
+	}
+	pb.verdictsMu.RLock()
+	verdict, verdictExists := pb.verdicts[key]
+	pb.verdictsMu.RUnlock()
+
+	if !verdictExists {
+		logging.Debug("No verdict exists for remaining fragments", zap.Uint64("rpcID", rpcID), zap.String("packetType", packetType.String()))
+		return nil
+	}
+
+	// If verdict is drop, we don't need to process remaining fragments
+	if verdict == util.PacketVerdictDrop {
+		logging.Debug("Verdict is drop for remaining fragments, skipping processing", zap.Uint64("rpcID", rpcID))
+		return nil
+	}
+
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+
+	// Check if there are any remaining fragments
+	fragments, exists := pb.incoming[connKey]
+	if !exists {
+		return nil
+	}
+	rpcFragments, exists := fragments[rpcID]
+	if !exists || len(rpcFragments) == 0 {
+		return nil
+	}
+
+	// Get TotalPackets from stored map, fall back to metadata if not found
+	totalPackets := metadata.TotalPackets
+	if pb.rpcTotalPackets[connKey] != nil {
+		if storedTotal, exists := pb.rpcTotalPackets[connKey][rpcID]; exists {
+			totalPackets = storedTotal
+		}
+	}
+
+	// Create BufferedPacket for each remaining fragment
+	result := make([]*util.BufferedPacket, 0, len(rpcFragments))
+	seqNumsToDelete := make([]uint16, 0, len(rpcFragments))
+
+	for seqNum, payload := range rpcFragments {
+		bufferedPacket := &util.BufferedPacket{
+			Payload:      payload,
+			Source:       metadata.Source,
+			Peer:         metadata.Peer,
+			PacketType:   packetType,
+			RPCID:        rpcID,
+			DstIP:        metadata.DstIP,
+			DstPort:      metadata.DstPort,
+			SrcIP:        metadata.SrcIP,
+			SrcPort:      metadata.SrcPort,
+			IsFull:       false, // These are fragments
+			SeqNumber:    int16(seqNum),
+			TotalPackets: totalPackets,
+		}
+		result = append(result, bufferedPacket)
+		seqNumsToDelete = append(seqNumsToDelete, seqNum)
+
+		logging.Debug("Processing remaining fragment",
+			zap.String("connKey", connKey),
+			zap.Uint64("rpcID", rpcID),
+			zap.Uint16("seqNum", seqNum),
+			zap.String("verdict", verdict.String()))
+	}
+
+	// Remove processed fragments from buffer
+	for _, seqNum := range seqNumsToDelete {
+		delete(rpcFragments, seqNum)
+	}
+
+	// If all fragments are cleaned up, remove the RPC entry
+	if len(rpcFragments) == 0 {
+		delete(fragments, rpcID)
+		if pb.timeouts[connKey] != nil {
+			delete(pb.timeouts[connKey], rpcID)
+		}
+		if pb.publicSegmentExtracted[connKey] != nil {
+			delete(pb.publicSegmentExtracted[connKey], rpcID)
+		}
+		if pb.rpcTotalPackets[connKey] != nil {
+			delete(pb.rpcTotalPackets[connKey], rpcID)
+		}
+
+		// Clean up empty connection maps
+		if len(fragments) == 0 {
+			delete(pb.incoming, connKey)
+			if pb.timeouts[connKey] != nil {
+				delete(pb.timeouts, connKey)
+			}
+			if pb.publicSegmentExtracted[connKey] != nil {
+				delete(pb.publicSegmentExtracted, connKey)
+			}
+			if pb.rpcTotalPackets[connKey] != nil {
+				delete(pb.rpcTotalPackets, connKey)
+			}
+		}
+	}
+
+	logging.Debug("Processed remaining fragments",
+		zap.String("connKey", connKey),
+		zap.Uint64("rpcID", rpcID),
+		zap.Int("count", len(result)))
+
+	return result
 }
 
 // cleanupRoutine periodically cleans up expired fragments and verdicts
@@ -418,6 +545,9 @@ func (pb *PacketBuffer) cleanupExpiredFragments() {
 				if pb.publicSegmentExtracted[connKey] != nil {
 					delete(pb.publicSegmentExtracted[connKey], rpcID)
 				}
+				if pb.rpcTotalPackets[connKey] != nil {
+					delete(pb.rpcTotalPackets[connKey], rpcID)
+				}
 				expiredCount++
 
 				logging.Debug("Cleaned up expired fragments",
@@ -433,6 +563,9 @@ func (pb *PacketBuffer) cleanupExpiredFragments() {
 			delete(pb.timeouts, connKey)
 			if pb.publicSegmentExtracted[connKey] != nil {
 				delete(pb.publicSegmentExtracted, connKey)
+			}
+			if pb.rpcTotalPackets[connKey] != nil {
+				delete(pb.rpcTotalPackets, connKey)
 			}
 		}
 	}
