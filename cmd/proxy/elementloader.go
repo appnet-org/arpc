@@ -36,6 +36,7 @@ var (
 type elementInit interface {
 	Element() RPCElement
 	Kill() // Optional: for cleanup if plugin has background goroutines
+	Init()
 }
 
 // pluginElementInitWrapper wraps a plugin's ElementInit to adapt it to our elementInit interface
@@ -45,6 +46,7 @@ type pluginElementInitWrapper struct {
 	pluginInit interface {
 		Element() interface{}
 		Kill()
+		Init()
 	}
 }
 
@@ -65,6 +67,10 @@ func (w *pluginElementInitWrapper) Element() RPCElement {
 
 func (w *pluginElementInitWrapper) Kill() {
 	w.pluginInit.Kill()
+}
+
+func (w *pluginElementInitWrapper) Init() {
+	w.pluginInit.Init()
 }
 
 // elementAdapter adapts a plugin's element to our RPCElement interface
@@ -199,6 +205,7 @@ func updateElements(prefix string) {
 
 			// Create new chain with the element from plugin
 			element := elementInit.Element()
+			elementInit.Init()
 			if element != nil {
 				// Store atomically - this is a lock-free write
 				currentElementChain.Store(NewRPCElementChain(element))
@@ -248,6 +255,7 @@ func loadElementPlugin(elementPluginPath string) elementInit {
 	pluginInit, ok := actualInit.(interface {
 		Element() interface{} // Accept any type that implements the methods
 		Kill()
+		Init()
 	})
 	if !ok {
 		logging.Error("Error casting ElementInit from plugin - plugin must export ElementInit with Element() and Kill() methods", zap.String("path", elementPluginPath))
