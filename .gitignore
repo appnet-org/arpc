@@ -16,3 +16,5 @@ target/
 Miniconda.sh
 
 **myproxy**
+
+cmd/proxy/proxy

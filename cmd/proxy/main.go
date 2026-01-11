@@ -19,6 +19,9 @@ import (
 const (
 	// DefaultBufferSize is the size of the buffer used for reading packets
 	DefaultBufferSize = 2048
+	// DefaultSocketBufferSize is the size of the UDP socket receive buffer
+	// A larger buffer prevents packet loss during high-throughput bursts
+	DefaultSocketBufferSize = 16 * 1024 * 1024 // 16MB
 )
 
 // ProxyState manages the state of the UDP proxy
@@ -168,6 +171,11 @@ func runProxyServer(port int, state *ProxyState, config *Config) error {
 	}
 	defer conn.Close()
 
+	// Set a larger receive buffer to prevent packet loss during high-throughput bursts
+	if err := conn.SetReadBuffer(DefaultSocketBufferSize); err != nil {
+		logging.Warn("Failed to set UDP receive buffer size", zap.Int("port", port), zap.Error(err))
+	}
+
 	logging.Info("Listening on UDP port", zap.Int("port", port))
 
 	buf := make([]byte, DefaultBufferSize)
@@ -203,54 +211,11 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		return
 	}
 
-	// If bufferedPacket is nil, we're still waiting for more fragments
-	// BUT we should check if a verdict exists and process any buffered fragments
+	// If bufferedPacket is nil, we're still waiting for more fragments.
+	// Check if a verdict exists and forward any buffered fragments that are ready.
 	if bufferedPacket == nil {
 		logging.Debug("Still buffering packet fragments", zap.String("src", src.String()))
-		// Check if there's a verdict and buffered fragments that need processing
-		// Parse packet to get RPC ID and packet type
-		dataPacket, err := state.packetBuffer.deserializePacket(data)
-		if err == nil {
-			connKey := src.String()
-			packetType := util.PacketType(dataPacket.PacketTypeID)
-			key := verdictKey{
-				RPCID:      dataPacket.RPCID,
-				PacketType: packetType,
-			}
-			state.packetBuffer.verdictsMu.RLock()
-			verdict, verdictExists := state.packetBuffer.verdicts[key]
-			state.packetBuffer.verdictsMu.RUnlock()
-
-			if verdictExists && verdict == util.PacketVerdictPass {
-				// There's a verdict, check if there are buffered fragments to process
-				// Create a dummy metadata packet for ProcessRemainingFragments
-				peer := &net.UDPAddr{IP: net.IP(dataPacket.DstIP[:]), Port: int(dataPacket.DstPort)}
-				dummyMetadata := &util.BufferedPacket{
-					Source:     src,
-					Peer:       peer,
-					PacketType: packetType,
-					RPCID:      dataPacket.RPCID,
-					DstIP:      dataPacket.DstIP,
-					DstPort:    dataPacket.DstPort,
-					SrcIP:      dataPacket.SrcIP,
-					SrcPort:    dataPacket.SrcPort,
-				}
-				// Keep processing remaining fragments until buffer is empty
-				// This handles the case where fragments arrive concurrently while we're processing
-				maxIterations := 1000 // Prevent infinite loops
-				for i := 0; i < maxIterations; i++ {
-					remainingFragments := state.packetBuffer.ProcessRemainingFragments(connKey, dataPacket.RPCID, packetType, dummyMetadata)
-					if len(remainingFragments) == 0 {
-						break // No more fragments to process
-					}
-					for _, fragment := range remainingFragments {
-						if err := processFragmentViaFastForward(conn, state, fragment, config); err != nil {
-							logging.Error("Error processing remaining fragment via fast-forward", zap.Error(err), zap.Uint64("rpcID", fragment.RPCID), zap.Int16("seqNum", fragment.SeqNumber))
-						}
-					}
-				}
-			}
-		}
+		tryForwardBufferedFragmentsFromRawPacket(conn, state, src, data, config)
 		return
 	}
 
@@ -287,9 +252,6 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		// This is a fragment being fast-forwarded - keep payload as-is (already encrypted)
 		logging.Debug("Fast-forwarding fragment without decryption", zap.Int16("seqNumber", bufferedPacket.SeqNumber), zap.Uint64("rpcID", bufferedPacket.RPCID))
 	}
-
-	// Update the packet with the decrypted public segment
-	bufferedPacket.Payload = publicPayload
 
 	// Track if verdict was just stored (to know if we should process remaining fragments)
 	verdictJustStored := false
@@ -368,24 +330,52 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		// Verdict was just stored, so it's Pass (drop verdicts return early)
 		finalVerdict = util.PacketVerdictPass
 	}
-	shouldProcessRemaining := finalVerdict == util.PacketVerdictPass
-	if shouldProcessRemaining {
-		// Keep processing remaining fragments until buffer is empty
-		// This handles the case where fragments arrive concurrently while we're processing
-		maxIterations := 1000 // Prevent infinite loops
-		for i := 0; i < maxIterations; i++ {
-			remainingFragments := state.packetBuffer.ProcessRemainingFragments(connKey, bufferedPacket.RPCID, bufferedPacket.PacketType, bufferedPacket)
-			if len(remainingFragments) == 0 {
-				break // No more fragments to process
-			}
-			for _, fragment := range remainingFragments {
-				// Process each remaining fragment via fast-forward path
-				if err := processFragmentViaFastForward(conn, state, fragment, config); err != nil {
-					logging.Error("Error processing remaining fragment via fast-forward", zap.Error(err), zap.Uint64("rpcID", fragment.RPCID), zap.Int16("seqNum", fragment.SeqNumber))
-				}
-			}
+	// After processing, forward any remaining buffered fragments that arrived while we were processing
+	if finalVerdict == util.PacketVerdictPass {
+		forwardBufferedFragments(conn, state, connKey, bufferedPacket.RPCID, bufferedPacket.PacketType, bufferedPacket, config)
+	}
+}
+
+// forwardBufferedFragments retrieves and forwards all remaining buffered fragments for an RPC.
+// ProcessRemainingFragments atomically returns all fragments and removes them from the buffer,
+// so a single call is sufficient.
+func forwardBufferedFragments(conn *net.UDPConn, state *ProxyState, connKey string, rpcID uint64, packetType util.PacketType, metadata *util.BufferedPacket, config *Config) {
+	fragments := state.packetBuffer.ProcessRemainingFragments(connKey, rpcID, packetType, metadata)
+	for _, fragment := range fragments {
+		if err := processFragmentViaFastForward(conn, state, fragment, config); err != nil {
+			logging.Error("Error forwarding buffered fragment",
+				zap.Error(err),
+				zap.Uint64("rpcID", fragment.RPCID),
+				zap.Int16("seqNum", fragment.SeqNumber))
 		}
 	}
+}
+
+// tryForwardBufferedFragmentsFromRawPacket attempts to forward buffered fragments using raw packet data.
+// This is called when a packet fragment arrives but we're still waiting for more data.
+// If a verdict already exists for this RPC, we can forward any buffered fragments immediately.
+func tryForwardBufferedFragmentsFromRawPacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte, config *Config) {
+	dataPacket, err := state.packetBuffer.deserializePacket(data)
+	if err != nil {
+		return
+	}
+
+	connKey := src.String()
+	packetType := util.PacketType(dataPacket.PacketTypeID)
+	peer := &net.UDPAddr{IP: net.IP(dataPacket.DstIP[:]), Port: int(dataPacket.DstPort)}
+
+	metadata := &util.BufferedPacket{
+		Source:     src,
+		Peer:       peer,
+		PacketType: packetType,
+		RPCID:      dataPacket.RPCID,
+		DstIP:      dataPacket.DstIP,
+		DstPort:    dataPacket.DstPort,
+		SrcIP:      dataPacket.SrcIP,
+		SrcPort:    dataPacket.SrcPort,
+	}
+
+	forwardBufferedFragments(conn, state, connKey, dataPacket.RPCID, packetType, metadata, config)
 }
 
 // processFragmentViaFastForward processes a fragment via the fast-forward path.
@@ -445,14 +435,7 @@ func runElementsChain(ctx context.Context, state *ProxyState, packet *util.Buffe
 
 	// Store the verdict for this RPC ID and packet type (to distinguish requests from responses)
 	// This is critical for fast-forwarding remaining fragments after public segment processing
-	key := verdictKey{
-		RPCID:      packet.RPCID,
-		PacketType: packet.PacketType,
-	}
-	state.packetBuffer.verdictsMu.Lock()
-	state.packetBuffer.verdicts[key] = verdict
-	state.packetBuffer.verdictTimes[key] = time.Now()
-	state.packetBuffer.verdictsMu.Unlock()
+	state.packetBuffer.StoreVerdict(packet.RPCID, packet.PacketType, verdict)
 
 	// Check verdict - if dropped, don't forward the packet
 	if verdict == util.PacketVerdictDrop || err != nil {

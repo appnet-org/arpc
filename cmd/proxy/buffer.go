@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"hash/fnv"
 	"net"
 	"sync"
 	"time"
@@ -17,40 +18,66 @@ import (
 // Total: 1+8+2+2+4+2+4+2+4 = 29 bytes
 const DataPacketHeaderSize = 29
 
+const (
+	// numShards is the number of shards for partitioning fragment storage
+	numShards = 256
+)
+
 // verdictKey is a composite key for storing verdicts that distinguishes requests from responses
 type verdictKey struct {
 	RPCID      uint64
 	PacketType util.PacketType
 }
 
+// verdictEntry stores verdict and timestamp for cleanup
+type verdictEntry struct {
+	Verdict    util.PacketVerdict
+	LastAccess time.Time
+}
+
+// fragmentKey is a composite key for fragment storage
+type fragmentKey struct {
+	ConnKey string
+	RPCID   uint64
+	SeqNum  uint16
+}
+
+// rpcState tracks the state of an RPC's fragment reassembly
+type rpcState struct {
+	mu                     sync.Mutex // Per-RPC mutex for serialization
+	Fragments              map[uint16][]byte
+	TotalPackets           uint16
+	PublicSegmentExtracted bool
+	LastSeen               time.Time
+}
+
+// shard manages fragments for a subset of connections
+type shard struct {
+	mu        sync.RWMutex
+	rpcStates map[string]map[uint64]*rpcState // connKey -> rpcID -> state
+}
+
 // PacketBuffer handles the buffering and reassembly of fragmented RPC packets
-// Similar to DataReassembler but adapted for proxy use
 type PacketBuffer struct {
-	mu                     sync.RWMutex
-	incoming               map[string]map[uint64]map[uint16][]byte // connectionKey -> rpcID -> seqNumber -> payload
-	timeouts               map[string]map[uint64]time.Time         // connectionKey -> rpcID -> lastSeen
-	publicSegmentExtracted map[string]map[uint64]bool              // connectionKey -> rpcID -> bool (track if public segment was already extracted)
-	rpcTotalPackets        map[string]map[uint64]uint16            // connectionKey -> rpcID -> TotalPackets
-	enabled                bool
-	timeout                time.Duration
-	cleanupTicker          *time.Ticker
-	done                   chan struct{}
-	verdicts               map[verdictKey]util.PacketVerdict
-	verdictTimes           map[verdictKey]time.Time // verdictKey -> lastSeen
-	verdictsMu             sync.RWMutex
+	shards        [numShards]*shard
+	verdicts      sync.Map // map[verdictKey]*verdictEntry
+	timeout       time.Duration
+	cleanupTicker *time.Ticker
+	done          chan struct{}
 }
 
 // NewPacketBuffer creates a new packet buffer
 func NewPacketBuffer(timeout time.Duration) *PacketBuffer {
 	pb := &PacketBuffer{
-		timeout:                timeout,
-		incoming:               make(map[string]map[uint64]map[uint16][]byte),
-		timeouts:               make(map[string]map[uint64]time.Time),
-		publicSegmentExtracted: make(map[string]map[uint64]bool),
-		rpcTotalPackets:        make(map[string]map[uint64]uint16),
-		done:                   make(chan struct{}),
-		verdicts:               make(map[verdictKey]util.PacketVerdict),
-		verdictTimes:           make(map[verdictKey]time.Time),
+		timeout: timeout,
+		done:    make(chan struct{}),
+	}
+
+	// Initialize shards
+	for i := range pb.shards {
+		pb.shards[i] = &shard{
+			rpcStates: make(map[string]map[uint64]*rpcState),
+		}
 	}
 
 	// Start cleanup routine
@@ -68,6 +95,41 @@ func (pb *PacketBuffer) Close() {
 	close(pb.done)
 }
 
+// getShard returns the shard for a given connection key
+func (pb *PacketBuffer) getShard(connKey string) *shard {
+	h := fnv.New32a()
+	h.Write([]byte(connKey))
+	return pb.shards[h.Sum32()%numShards]
+}
+
+// getOrCreateRPCState gets or creates the RPC state for a connection and RPC ID
+func (s *shard) getOrCreateRPCState(connKey string, rpcID uint64, totalPackets uint16) *rpcState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.rpcStates[connKey] == nil {
+		s.rpcStates[connKey] = make(map[uint64]*rpcState)
+	}
+
+	state, exists := s.rpcStates[connKey][rpcID]
+	if !exists {
+		state = &rpcState{
+			Fragments:              make(map[uint16][]byte),
+			TotalPackets:           totalPackets,
+			PublicSegmentExtracted: false,
+			LastSeen:               time.Now(),
+		}
+		s.rpcStates[connKey][rpcID] = state
+	} else {
+		// Update TotalPackets if not set (don't update LastSeen here - that's done in addFragmentToBuffer)
+		if state.TotalPackets == 0 {
+			state.TotalPackets = totalPackets
+		}
+	}
+
+	return state
+}
+
 // ProcessPacket processes a packet fragment. It buffers fragments and returns a BufferedPacket
 // when we have enough data to cover the public segment, or when a verdict already exists for this RPC ID.
 // Returns (nil, PacketVerdictUnknown, nil) if still waiting for more fragments.
@@ -77,7 +139,6 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.Buff
 	// Parse packet using the packet codec
 	dataPacket, err := pb.deserializePacket(data)
 	if err != nil {
-		// Try to print packet type
 		logging.Error("Failed to deserialize packet", zap.String("packetType", string(data[0])))
 		return nil, util.PacketVerdictUnknown, err
 	}
@@ -90,18 +151,17 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.Buff
 		RPCID:      dataPacket.RPCID,
 		PacketType: packetType,
 	}
-	pb.verdictsMu.Lock()
-	verdict, verdictExists := pb.verdicts[key]
-	if verdictExists {
-		// Update last access time for verdict cleanup
-		pb.verdictTimes[key] = time.Now()
-	}
-	pb.verdictsMu.Unlock()
 
-	if verdictExists {
-		logging.Debug("Verdict exists for RPC ID", zap.Uint64("rpcID", dataPacket.RPCID), zap.String("packetType", packetType.String()), zap.String("verdict", verdict.String()))
+	if val, ok := pb.verdicts.Load(key); ok {
+		entry := val.(*verdictEntry)
+		// Update last access time atomically
+		pb.verdicts.Store(key, &verdictEntry{
+			Verdict:    entry.Verdict,
+			LastAccess: time.Now(),
+		})
+
+		logging.Debug("Verdict exists for RPC ID", zap.Uint64("rpcID", dataPacket.RPCID), zap.String("packetType", packetType.String()), zap.String("verdict", entry.Verdict.String()))
 		// Verdict exists, forward the packet immediately without buffering or element chain processing
-		// Preserve the original fragment's sequence number and TotalPackets for correct forwarding
 		isFull := dataPacket.TotalPackets == 1
 		seqNumber := uint16(0)
 		if !isFull {
@@ -120,13 +180,11 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.Buff
 			IsFull:       isFull,
 			SeqNumber:    int16(seqNumber),
 			TotalPackets: dataPacket.TotalPackets,
-		}, verdict, nil
+		}, entry.Verdict, nil
 	}
 
 	// If this is the first packet, the entire public segment fits in MTU (offset_private < MTU),
 	// AND this is the only packet (no fragmentation), we can process it immediately without buffering.
-	// For multi-fragment messages, we must go through buffering so that subsequent fragments can use
-	// the verdict fast-forward path, otherwise they get stuck waiting for fragment 0 that was never buffered.
 	if dataPacket.SeqNumber == 0 && dataPacket.TotalPackets == 1 && isOffsetPrivateLessThanMTU(dataPacket.Payload) {
 		logging.Debug("Single packet and entire public segment fits in MTU", zap.Uint64("rpcID", dataPacket.RPCID))
 		return &util.BufferedPacket{
@@ -149,9 +207,7 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.Buff
 	// Otherwise, add fragment to buffer and check if we have enough data
 	publicSegment, lastUsedSeqNum := pb.addFragmentToBuffer(src, dataPacket)
 	if publicSegment != nil {
-		// We have enough contiguous data to cover the public segment (bytes 0 to offsetPrivate)
-		// SeqNumber is set to -1 to indicate this is a new fragmented message (the public segment)
-		// that will be re-fragmented if needed when forwarding
+		// We have enough contiguous data to cover the public segment
 		return &util.BufferedPacket{
 			Payload:        publicSegment,
 			Source:         src,
@@ -162,10 +218,10 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.Buff
 			DstPort:        dataPacket.DstPort,
 			SrcIP:          dataPacket.SrcIP,
 			SrcPort:        dataPacket.SrcPort,
-			IsFull:         false,                   // This is only the public segment, not the full packet
-			SeqNumber:      -1,                      // -1 indicates a new message that will be fragmented if needed
-			TotalPackets:   dataPacket.TotalPackets, // Original message's total (may be recalculated when fragmenting)
-			LastUsedSeqNum: lastUsedSeqNum,          // Store last used seq num for cleanup
+			IsFull:         false,
+			SeqNumber:      -1,
+			TotalPackets:   dataPacket.TotalPackets,
+			LastUsedSeqNum: lastUsedSeqNum,
 		}, util.PacketVerdictUnknown, nil
 	}
 
@@ -193,43 +249,32 @@ func isOffsetPrivateLessThanMTU(payload []byte) bool {
 // Returns the assembled public segment if enough data is available, nil otherwise
 // Also returns the last sequence number used in the public segment (if public segment is ready)
 func (pb *PacketBuffer) addFragmentToBuffer(src *net.UDPAddr, dataPacket *packet.DataPacket) ([]byte, uint16) {
-	// Create connection key for this source
 	connKey := src.String()
+	shard := pb.getShard(connKey)
+	state := shard.getOrCreateRPCState(connKey, dataPacket.RPCID, dataPacket.TotalPackets)
 
-	pb.mu.Lock()
-	defer pb.mu.Unlock()
-
-	// Initialize maps if they don't exist
-	if _, exists := pb.incoming[connKey]; !exists {
-		pb.incoming[connKey] = make(map[uint64]map[uint16][]byte)
-		pb.timeouts[connKey] = make(map[uint64]time.Time)
-		pb.publicSegmentExtracted[connKey] = make(map[uint64]bool)
-		pb.rpcTotalPackets[connKey] = make(map[uint64]uint16)
-	}
-	if _, exists := pb.incoming[connKey][dataPacket.RPCID]; !exists {
-		pb.incoming[connKey][dataPacket.RPCID] = make(map[uint16][]byte)
-	}
-
-	// Store TotalPackets if not already set (all fragments of same RPC have same TotalPackets)
-	if _, exists := pb.rpcTotalPackets[connKey][dataPacket.RPCID]; !exists {
-		pb.rpcTotalPackets[connKey][dataPacket.RPCID] = dataPacket.TotalPackets
-	}
+	// Serialize fragment processing per RPC
+	state.mu.Lock()
+	defer state.mu.Unlock()
 
 	// If public segment was already extracted, just buffer this fragment and return nil
-	// This prevents duplicate extraction when private segment fragments arrive after public segment extraction
-	// These fragments will be processed via ProcessRemainingFragments after verdict is stored
-	if pb.publicSegmentExtracted[connKey][dataPacket.RPCID] {
-		pb.incoming[connKey][dataPacket.RPCID][dataPacket.SeqNumber] = dataPacket.Payload
-		pb.timeouts[connKey][dataPacket.RPCID] = time.Now()
+	if state.PublicSegmentExtracted {
+		// Make a copy of the payload
+		payloadCopy := make([]byte, len(dataPacket.Payload))
+		copy(payloadCopy, dataPacket.Payload)
+		state.Fragments[dataPacket.SeqNumber] = payloadCopy
+		state.LastSeen = time.Now()
 		return nil, 0
 	}
 
-	// Store the fragment
-	pb.incoming[connKey][dataPacket.RPCID][dataPacket.SeqNumber] = dataPacket.Payload
-	pb.timeouts[connKey][dataPacket.RPCID] = time.Now()
+	// Make a copy of the payload
+	payloadCopy := make([]byte, len(dataPacket.Payload))
+	copy(payloadCopy, dataPacket.Payload)
+	state.Fragments[dataPacket.SeqNumber] = payloadCopy
+	state.LastSeen = time.Now()
 
-	// Now, check if we have enough data to cover the public segment
-	fragments := pb.incoming[connKey][dataPacket.RPCID]
+	// Check if we have enough data to cover the public segment
+	fragments := state.Fragments
 
 	// Check if first packet exists and get offsetToPrivate
 	firstPacketPayload, hasFirstPacket := fragments[0]
@@ -252,23 +297,23 @@ func (pb *PacketBuffer) addFragmentToBuffer(src *net.UDPAddr, dataPacket *packet
 		seqNum++
 	}
 
-	// lastUsedSeqNum is the last sequence number used (seqNum-1 because seqNum was incremented after the last fragment)
+	// lastUsedSeqNum is the last sequence number used
 	lastUsedSeqNum := seqNum - 1
 
 	// We have enough contiguous data - reassemble the public segment
+	// Use buffer pool if available, otherwise allocate
 	publicSegment := make([]byte, 0, offsetPrivate)
 	cumulativeSize = 0
 	seqNum = 0
 	for cumulativeSize < offsetPrivate {
 		fragmentPayload := fragments[seqNum]
-		// Only take the portion we need to reach offsetPrivate
-		// Note: we are not taking the portion we need to reach offsetPrivate exactly, we are taking the entire fragment
 		publicSegment = append(publicSegment, fragmentPayload...)
 		cumulativeSize += len(fragmentPayload)
 		seqNum++
 	}
-	// Mark that public segment has been extracted for this RPC ID
-	pb.publicSegmentExtracted[connKey][dataPacket.RPCID] = true
+
+	// Mark that public segment has been extracted
+	state.PublicSegmentExtracted = true
 
 	logging.Debug("Reassembled public segment", zap.Uint64("rpcID", dataPacket.RPCID), zap.Int("size", len(publicSegment)), zap.Uint16("lastUsedSeqNum", lastUsedSeqNum))
 	return publicSegment, lastUsedSeqNum
@@ -276,7 +321,6 @@ func (pb *PacketBuffer) addFragmentToBuffer(src *net.UDPAddr, dataPacket *packet
 
 // deserializePacket extracts packet information using the existing packet codec
 func (pb *PacketBuffer) deserializePacket(data []byte) (*packet.DataPacket, error) {
-	// Use the existing DataPacketCodec to deserialize
 	codec := &packet.DataPacketCodec{}
 	packetAny, err := codec.Deserialize(data)
 	if err != nil {
@@ -291,106 +335,29 @@ func (pb *PacketBuffer) deserializePacket(data []byte) (*packet.DataPacket, erro
 	return dataPacket, nil
 }
 
-// reassemblePayload reconstructs the complete payload from fragments
-func (pb *PacketBuffer) reassemblePayload(originalPacket *packet.DataPacket, fragments map[uint16][]byte) ([]byte, error) {
-	// Calculate total payload size
-	var totalPayloadSize int
-	for i := uint16(0); i < originalPacket.TotalPackets; i++ {
-		if fragment, exists := fragments[i]; exists {
-			totalPayloadSize += len(fragment)
-		} else {
-			return nil, fmt.Errorf("missing fragment %d for RPC %d", i, originalPacket.RPCID)
-		}
-	}
-
-	// Concatenate fragments in order to create complete payload
-	completePayload := make([]byte, 0, totalPayloadSize)
-	for i := uint16(0); i < originalPacket.TotalPackets; i++ {
-		fragment := fragments[i]
-		completePayload = append(completePayload, fragment...)
-	}
-
-	return completePayload, nil
-}
-
-// cleanupFragments removes fragment storage for a completed RPC
-func (pb *PacketBuffer) cleanupFragments(connKey string, rpcID uint64) {
-	pb.mu.Lock()
-	defer pb.mu.Unlock()
-
-	if pb.incoming[connKey] != nil {
-		delete(pb.incoming[connKey], rpcID)
-	}
-	if pb.timeouts[connKey] != nil {
-		delete(pb.timeouts[connKey], rpcID)
-	}
-	if pb.publicSegmentExtracted[connKey] != nil {
-		delete(pb.publicSegmentExtracted[connKey], rpcID)
-	}
-	if pb.rpcTotalPackets[connKey] != nil {
-		delete(pb.rpcTotalPackets[connKey], rpcID)
-	}
-
-	// Clean up empty connection maps
-	if len(pb.incoming[connKey]) == 0 {
-		delete(pb.incoming, connKey)
-		delete(pb.timeouts, connKey)
-		if pb.publicSegmentExtracted[connKey] != nil {
-			delete(pb.publicSegmentExtracted, connKey)
-		}
-		if pb.rpcTotalPackets[connKey] != nil {
-			delete(pb.rpcTotalPackets, connKey)
-		}
-	}
-}
-
 // CleanupUsedFragments removes fragments up to and including the lastUsedSeqNum
 // This should be called after the public segment has been successfully forwarded
 func (pb *PacketBuffer) CleanupUsedFragments(connKey string, rpcID uint64, lastUsedSeqNum uint16) {
-	pb.mu.Lock()
-	defer pb.mu.Unlock()
+	shard := pb.getShard(connKey)
+	shard.mu.RLock()
+	rpcStates, exists := shard.rpcStates[connKey]
+	if !exists {
+		shard.mu.RUnlock()
+		return
+	}
+	state, exists := rpcStates[rpcID]
+	if !exists {
+		shard.mu.RUnlock()
+		return
+	}
+	shard.mu.RUnlock()
 
-	fragments, exists := pb.incoming[connKey]
-	if !exists {
-		return
-	}
-	rpcFragments, exists := fragments[rpcID]
-	if !exists {
-		return
-	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
 
 	// Remove fragments from sequence number 0 up to and including lastUsedSeqNum
 	for seqNum := uint16(0); seqNum <= lastUsedSeqNum; seqNum++ {
-		delete(rpcFragments, seqNum)
-	}
-
-	// If all fragments are cleaned up, remove the RPC entry
-	if len(rpcFragments) == 0 {
-		delete(fragments, rpcID)
-		if pb.timeouts[connKey] != nil {
-			delete(pb.timeouts[connKey], rpcID)
-		}
-		// Clear the public segment extracted flag
-		if pb.publicSegmentExtracted[connKey] != nil {
-			delete(pb.publicSegmentExtracted[connKey], rpcID)
-		}
-		if pb.rpcTotalPackets[connKey] != nil {
-			delete(pb.rpcTotalPackets[connKey], rpcID)
-		}
-
-		// Clean up empty connection maps
-		if len(fragments) == 0 {
-			delete(pb.incoming, connKey)
-			if pb.timeouts[connKey] != nil {
-				delete(pb.timeouts, connKey)
-			}
-			if pb.publicSegmentExtracted[connKey] != nil {
-				delete(pb.publicSegmentExtracted, connKey)
-			}
-			if pb.rpcTotalPackets[connKey] != nil {
-				delete(pb.rpcTotalPackets, connKey)
-			}
-		}
+		delete(state.Fragments, seqNum)
 	}
 
 	logging.Debug("Cleaned up used fragments",
@@ -409,49 +376,56 @@ func (pb *PacketBuffer) ProcessRemainingFragments(connKey string, rpcID uint64, 
 		RPCID:      rpcID,
 		PacketType: packetType,
 	}
-	pb.verdictsMu.RLock()
-	verdict, verdictExists := pb.verdicts[key]
-	pb.verdictsMu.RUnlock()
 
+	val, verdictExists := pb.verdicts.Load(key)
 	if !verdictExists {
 		logging.Debug("No verdict exists for remaining fragments", zap.Uint64("rpcID", rpcID), zap.String("packetType", packetType.String()))
 		return nil
 	}
 
-	// If verdict is drop, we don't need to process remaining fragments
-	if verdict == util.PacketVerdictDrop {
+	entry := val.(*verdictEntry)
+	if entry.Verdict == util.PacketVerdictDrop {
 		logging.Debug("Verdict is drop for remaining fragments, skipping processing", zap.Uint64("rpcID", rpcID))
 		return nil
 	}
 
-	pb.mu.Lock()
-	defer pb.mu.Unlock()
-
-	// Check if there are any remaining fragments
-	fragments, exists := pb.incoming[connKey]
+	shard := pb.getShard(connKey)
+	shard.mu.RLock()
+	rpcStates, exists := shard.rpcStates[connKey]
 	if !exists {
+		shard.mu.RUnlock()
 		return nil
 	}
-	rpcFragments, exists := fragments[rpcID]
-	if !exists || len(rpcFragments) == 0 {
+	state, exists := rpcStates[rpcID]
+	if !exists {
+		shard.mu.RUnlock()
+		return nil
+	}
+	shard.mu.RUnlock()
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	if len(state.Fragments) == 0 {
 		return nil
 	}
 
-	// Get TotalPackets from stored map, fall back to metadata if not found
 	totalPackets := metadata.TotalPackets
-	if pb.rpcTotalPackets[connKey] != nil {
-		if storedTotal, exists := pb.rpcTotalPackets[connKey][rpcID]; exists {
-			totalPackets = storedTotal
-		}
+	if state.TotalPackets > 0 {
+		totalPackets = state.TotalPackets
 	}
 
 	// Create BufferedPacket for each remaining fragment
-	result := make([]*util.BufferedPacket, 0, len(rpcFragments))
-	seqNumsToDelete := make([]uint16, 0, len(rpcFragments))
+	result := make([]*util.BufferedPacket, 0, len(state.Fragments))
+	seqNumsToDelete := make([]uint16, 0, len(state.Fragments))
 
-	for seqNum, payload := range rpcFragments {
+	for seqNum, payload := range state.Fragments {
+		// Make a copy of the payload
+		payloadCopy := make([]byte, len(payload))
+		copy(payloadCopy, payload)
+
 		bufferedPacket := &util.BufferedPacket{
-			Payload:      payload,
+			Payload:      payloadCopy,
 			Source:       metadata.Source,
 			Peer:         metadata.Peer,
 			PacketType:   packetType,
@@ -460,7 +434,7 @@ func (pb *PacketBuffer) ProcessRemainingFragments(connKey string, rpcID uint64, 
 			DstPort:      metadata.DstPort,
 			SrcIP:        metadata.SrcIP,
 			SrcPort:      metadata.SrcPort,
-			IsFull:       false, // These are fragments
+			IsFull:       false,
 			SeqNumber:    int16(seqNum),
 			TotalPackets: totalPackets,
 		}
@@ -471,40 +445,12 @@ func (pb *PacketBuffer) ProcessRemainingFragments(connKey string, rpcID uint64, 
 			zap.String("connKey", connKey),
 			zap.Uint64("rpcID", rpcID),
 			zap.Uint16("seqNum", seqNum),
-			zap.String("verdict", verdict.String()))
+			zap.String("verdict", entry.Verdict.String()))
 	}
 
 	// Remove processed fragments from buffer
 	for _, seqNum := range seqNumsToDelete {
-		delete(rpcFragments, seqNum)
-	}
-
-	// If all fragments are cleaned up, remove the RPC entry
-	if len(rpcFragments) == 0 {
-		delete(fragments, rpcID)
-		if pb.timeouts[connKey] != nil {
-			delete(pb.timeouts[connKey], rpcID)
-		}
-		if pb.publicSegmentExtracted[connKey] != nil {
-			delete(pb.publicSegmentExtracted[connKey], rpcID)
-		}
-		if pb.rpcTotalPackets[connKey] != nil {
-			delete(pb.rpcTotalPackets[connKey], rpcID)
-		}
-
-		// Clean up empty connection maps
-		if len(fragments) == 0 {
-			delete(pb.incoming, connKey)
-			if pb.timeouts[connKey] != nil {
-				delete(pb.timeouts, connKey)
-			}
-			if pb.publicSegmentExtracted[connKey] != nil {
-				delete(pb.publicSegmentExtracted, connKey)
-			}
-			if pb.rpcTotalPackets[connKey] != nil {
-				delete(pb.rpcTotalPackets, connKey)
-			}
-		}
+		delete(state.Fragments, seqNum)
 	}
 
 	logging.Debug("Processed remaining fragments",
@@ -530,44 +476,39 @@ func (pb *PacketBuffer) cleanupRoutine() {
 
 // cleanupExpiredFragments removes fragments that have timed out
 func (pb *PacketBuffer) cleanupExpiredFragments() {
-	pb.mu.Lock()
-	defer pb.mu.Unlock()
-
 	now := time.Now()
 	expiredCount := 0
 
-	for connKey, timeouts := range pb.timeouts {
-		for rpcID, lastSeen := range timeouts {
-			if now.Sub(lastSeen) > pb.timeout {
-				// This RPC has timed out
-				delete(pb.incoming[connKey], rpcID)
-				delete(pb.timeouts[connKey], rpcID)
-				if pb.publicSegmentExtracted[connKey] != nil {
-					delete(pb.publicSegmentExtracted[connKey], rpcID)
-				}
-				if pb.rpcTotalPackets[connKey] != nil {
-					delete(pb.rpcTotalPackets[connKey], rpcID)
-				}
-				expiredCount++
+	for _, shard := range pb.shards {
+		shard.mu.Lock()
+		for connKey, rpcStates := range shard.rpcStates {
+			var toDelete []uint64
+			for rpcID, state := range rpcStates {
+				state.mu.Lock()
+				lastSeen := state.LastSeen
+				state.mu.Unlock()
 
-				logging.Debug("Cleaned up expired fragments",
-					zap.String("connKey", connKey),
-					zap.Uint64("rpcID", rpcID),
-					zap.Duration("age", now.Sub(lastSeen)))
+				if now.Sub(lastSeen) > pb.timeout {
+					// This RPC has timed out - mark for deletion
+					toDelete = append(toDelete, rpcID)
+					expiredCount++
+
+					logging.Debug("Cleaned up expired fragments",
+						zap.String("connKey", connKey),
+						zap.Uint64("rpcID", rpcID),
+						zap.Duration("age", now.Sub(lastSeen)))
+				}
+			}
+			// Delete expired RPCs
+			for _, rpcID := range toDelete {
+				delete(rpcStates, rpcID)
+			}
+			// Clean up empty connection maps
+			if len(rpcStates) == 0 {
+				delete(shard.rpcStates, connKey)
 			}
 		}
-
-		// Clean up empty connection maps
-		if len(pb.incoming[connKey]) == 0 {
-			delete(pb.incoming, connKey)
-			delete(pb.timeouts, connKey)
-			if pb.publicSegmentExtracted[connKey] != nil {
-				delete(pb.publicSegmentExtracted, connKey)
-			}
-			if pb.rpcTotalPackets[connKey] != nil {
-				delete(pb.rpcTotalPackets, connKey)
-			}
-		}
+		shard.mu.Unlock()
 	}
 
 	if expiredCount > 0 {
@@ -577,25 +518,23 @@ func (pb *PacketBuffer) cleanupExpiredFragments() {
 
 // cleanupExpiredVerdicts removes verdicts that have timed out
 func (pb *PacketBuffer) cleanupExpiredVerdicts() {
-	pb.verdictsMu.Lock()
-	defer pb.verdictsMu.Unlock()
-
 	now := time.Now()
 	expiredCount := 0
 
-	for key, lastSeen := range pb.verdictTimes {
-		if now.Sub(lastSeen) > pb.timeout {
-			// This verdict has timed out
-			delete(pb.verdicts, key)
-			delete(pb.verdictTimes, key)
+	pb.verdicts.Range(func(key, value interface{}) bool {
+		entry := value.(*verdictEntry)
+		if now.Sub(entry.LastAccess) > pb.timeout {
+			pb.verdicts.Delete(key)
 			expiredCount++
 
+			verdictKey := key.(verdictKey)
 			logging.Debug("Cleaned up expired verdict",
-				zap.Uint64("rpcID", key.RPCID),
-				zap.String("packetType", key.PacketType.String()),
-				zap.Duration("age", now.Sub(lastSeen)))
+				zap.Uint64("rpcID", verdictKey.RPCID),
+				zap.String("packetType", verdictKey.PacketType.String()),
+				zap.Duration("age", now.Sub(entry.LastAccess)))
 		}
-	}
+		return true
+	})
 
 	if expiredCount > 0 {
 		logging.Debug("Verdict cleanup completed", zap.Int("expiredVerdicts", expiredCount))
@@ -604,21 +543,38 @@ func (pb *PacketBuffer) cleanupExpiredVerdicts() {
 
 // GetStats returns buffer statistics for monitoring
 func (pb *PacketBuffer) GetStats() map[string]any {
-	pb.mu.RLock()
-	defer pb.mu.RUnlock()
-
 	stats := map[string]any{
-		"enabled":           pb.enabled,
 		"timeout":           pb.timeout.String(),
-		"activeConnections": len(pb.incoming),
+		"activeConnections": 0,
 		"totalFragments":    0,
 	}
 
-	for _, fragments := range pb.incoming {
-		stats["totalFragments"] = stats["totalFragments"].(int) + len(fragments)
+	for _, shard := range pb.shards {
+		shard.mu.RLock()
+		stats["activeConnections"] = stats["activeConnections"].(int) + len(shard.rpcStates)
+		for _, rpcStates := range shard.rpcStates {
+			for _, state := range rpcStates {
+				state.mu.Lock()
+				stats["totalFragments"] = stats["totalFragments"].(int) + len(state.Fragments)
+				state.mu.Unlock()
+			}
+		}
+		shard.mu.RUnlock()
 	}
 
 	return stats
+}
+
+// StoreVerdict stores a verdict for an RPC ID and packet type
+func (pb *PacketBuffer) StoreVerdict(rpcID uint64, packetType util.PacketType, verdict util.PacketVerdict) {
+	key := verdictKey{
+		RPCID:      rpcID,
+		PacketType: packetType,
+	}
+	pb.verdicts.Store(key, &verdictEntry{
+		Verdict:    verdict,
+		LastAccess: time.Now(),
+	})
 }
 
 // FragmentedPacket represents a fragment ready to be sent
@@ -633,23 +589,16 @@ type FragmentedPacket struct {
 // For multi-packet: creates a new fragmented message with sequence numbers starting from 0.
 // Returns a slice of fragmented packets ready to send.
 func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPacket) ([]FragmentedPacket, error) {
-	// Use the payload directly from bufferedPacket (may have been modified by element chain)
 	completePayload := bufferedPacket.Payload
 	chunkSize := packet.MaxUDPPayloadSize - DataPacketHeaderSize
 
 	// Check if payload fits in a single packet
 	if len(completePayload) <= chunkSize {
-		// Single packet case
 		seqNum := uint16(0)
-
 		if bufferedPacket.SeqNumber >= 0 {
-			// Forwarding an existing fragment - preserve its original sequence number and TotalPackets
-			// to maintain the original fragmented message structure
 			seqNum = uint16(bufferedPacket.SeqNumber)
 		}
-		// If SeqNumber < 0 (i.e., -1), this is a new message/public segment, use seq 0 and TotalPackets 1
 
-		// Create a single packet from payload
 		codec := &packet.DataPacketCodec{}
 		singlePacket := &packet.DataPacket{
 			PacketTypeID: packet.PacketTypeID(uint8(bufferedPacket.PacketType)),
@@ -678,10 +627,7 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPa
 		}, nil
 	}
 
-	// The complete payload exceeds MTU, need to fragment it for transmission.
-	// This creates a NEW fragmented message (even if the original was fragmented),
-	// so sequence numbers start from 0 and TotalPackets is recalculated based on the payload size.
-	// Note: If the payload was modified by element chain, we correctly recalculate fragmentation here.
+	// The complete payload exceeds MTU, need to fragment it for transmission
 	totalfragments := uint16((len(completePayload) + chunkSize - 1) / chunkSize)
 	codec := &packet.DataPacketCodec{}
 	fragments := make([]FragmentedPacket, 0, totalfragments)
@@ -689,12 +635,11 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPa
 		start := i * chunkSize
 		end := min(start+chunkSize, len(completePayload))
 
-		// Create a fragment packet using routing info from bufferedPacket
 		fragment := &packet.DataPacket{
 			PacketTypeID: packet.PacketTypeID(uint8(bufferedPacket.PacketType)),
 			RPCID:        bufferedPacket.RPCID,
-			TotalPackets: bufferedPacket.TotalPackets,
-			SeqNumber:    uint16(i), // New fragmented message, start from 0
+			TotalPackets: totalfragments,
+			SeqNumber:    uint16(i),
 			DstIP:        bufferedPacket.DstIP,
 			DstPort:      bufferedPacket.DstPort,
 			SrcIP:        bufferedPacket.SrcIP,
@@ -702,7 +647,6 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPa
 			Payload:      completePayload[start:end],
 		}
 
-		// Serialize the fragment
 		serialized, err := codec.Serialize(fragment, nil)
 		if err != nil {
 			logging.Error("Failed to serialize fragment", zap.Error(err))
@@ -718,7 +662,7 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPa
 
 	logging.Debug("Fragmented packet for forwarding",
 		zap.Uint64("rpcID", bufferedPacket.RPCID),
-		zap.Uint16("total packets", bufferedPacket.TotalPackets),
+		zap.Uint16("total packets", totalfragments),
 		zap.Int("payload size", len(completePayload)))
 
 	return fragments, nil
