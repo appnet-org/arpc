@@ -1,0 +1,238 @@
+// Copyright 2020 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+namespace onlineboutique;
+
+// -----------------Cart service-----------------
+
+table CartItem {
+    product_id:string;
+    quantity:int32;
+}
+
+table AddItemRequest {
+    user_id:string;
+    item:CartItem;
+}
+
+table EmptyCartRequest {
+    user_id:string;
+}
+
+table GetCartRequest {
+    user_id:string;
+}
+
+table Cart {
+    user_id:string;
+    items:[CartItem];
+}
+
+table Empty {
+}
+
+table EmptyUser {
+    user_id:string;
+}
+
+// ---------------Recommendation service----------
+
+table ListRecommendationsRequest {
+    user_id:string;
+    product_ids:[string];
+}
+
+table ListRecommendationsResponse {
+    product_ids:[string];
+}
+
+// ---------------Product Catalog----------------
+
+table Money {
+    // The 3-letter currency code defined in ISO 4217.
+    currency_code:string;
+
+    // The whole units of the amount.
+    // For example if `currencyCode` is `"USD"`, then 1 unit is one US dollar.
+    units:int64;
+
+    // Number of nano (10^-9) units of the amount.
+    // The value must be between -999,999,999 and +999,999,999 inclusive.
+    // If `units` is positive, `nanos` must be positive or zero.
+    // If `units` is zero, `nanos` can be positive, zero, or negative.
+    // If `units` is negative, `nanos` must be negative or zero.
+    // For example $-1.75 is represented as `units`=-1 and `nanos`=-750,000,000.
+    nanos:int32;
+}
+
+table Product {
+    id:string;
+    name:string;
+    description:string;
+    picture:string;
+    price_usd:Money;
+
+    // Categories such as "clothing" or "kitchen" that can be used to look up
+    // other related products.
+    categories:[string];
+}
+
+table ListProductsResponse {
+    products:[Product];
+}
+
+table GetProductRequest {
+    id:string;
+}
+
+table SearchProductsRequest {
+    query:string;
+}
+
+table SearchProductsResponse {
+    results:[Product];
+}
+
+// ---------------Shipping Service----------
+
+table Address {
+    street_address:string;
+    city:string;
+    state:string;
+    country:string;
+    zip_code:int32;
+}
+
+table GetQuoteRequest {
+    address:Address;
+    items:[CartItem];
+}
+
+table GetQuoteResponse {
+    cost_usd:Money;
+}
+
+table ShipOrderRequest {
+    address:Address;
+    items:[CartItem];
+}
+
+table ShipOrderResponse {
+    tracking_id:string;
+}
+
+// -----------------Currency service-----------------
+
+table GetSupportedCurrenciesResponse {
+    // The 3-letter currency code defined in ISO 4217.
+    currency_codes:[string];
+}
+
+table CurrencyConversionRequest {
+    from:Money;
+
+    // The 3-letter currency code defined in ISO 4217.
+    to_code:string;
+
+    user_id:string;
+}
+
+// -------------Payment service-----------------
+
+table CreditCardInfo {
+    credit_card_number:string;
+    credit_card_cvv:int32;
+    credit_card_expiration_year:int32;
+    credit_card_expiration_month:int32;
+}
+
+table ChargeRequest {
+    amount:Money;
+    credit_card:CreditCardInfo;
+}
+
+table ChargeResponse {
+    transaction_id:string;
+}
+
+// -------------Email service-----------------
+
+table OrderItem {
+    item:CartItem;
+    cost:Money;
+}
+
+table OrderResult {
+    order_id:string;
+    shipping_tracking_id:string;
+    shipping_cost:Money;
+    shipping_address:Address;
+    items:[OrderItem];
+}
+
+table SendOrderConfirmationRequest {
+    email:string;
+    order:OrderResult;
+}
+
+// -------------Checkout service-----------------
+
+table PlaceOrderRequest {
+    user_id:string;
+    user_currency:string;
+    address:Address;
+    email:string;
+    credit_card:CreditCardInfo;
+}
+
+table PlaceOrderResponse {
+    order:OrderResult;
+}
+
+// ------------Ad service------------------
+
+table Ad {
+    // url to redirect to when an ad is clicked.
+    redirect_url:string;
+
+    // short advertisement text to display.
+    text:string;
+}
+
+table AdRequest {
+    user_id:string;
+
+    // List of important key words from the current page describing the context.
+    context_keys:[string];
+}
+
+table AdResponse {
+    ads:[Ad];
+}
+
+// Root types for RPC operations
+root_type AddItemRequest;
+root_type GetCartRequest;
+root_type EmptyCartRequest;
+root_type ListRecommendationsRequest;
+root_type EmptyUser;
+root_type GetProductRequest;
+root_type SearchProductsRequest;
+root_type GetQuoteRequest;
+root_type ShipOrderRequest;
+root_type CurrencyConversionRequest;
+root_type ChargeRequest;
+root_type SendOrderConfirmationRequest;
+root_type PlaceOrderRequest;
+root_type AdRequest;
