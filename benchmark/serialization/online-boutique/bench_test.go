@@ -122,13 +122,10 @@ func BenchmarkProtobuf_Read(b *testing.B) {
 			panic(fmt.Sprintf("failed to serialize Protobuf: %s", entry.TypeName))
 		}
 
+		// Create message instance outside timing (reflection overhead excluded)
+		msg := reflect.New(entry.MsgType.Elem()).Interface().(proto.Message)
+
 		start := time.Now()
-		// Create a new instance of the message type
-		msgType := getMessageType(entry.TypeName)
-		if msgType == nil {
-			panic(fmt.Sprintf("failed to get message type: %s", entry.TypeName))
-		}
-		msg := reflect.New(msgType.Elem()).Interface().(proto.Message)
 		if err := proto.Unmarshal(in, msg); err != nil {
 			panic(fmt.Sprintf("failed to unmarshal Protobuf: %v", err))
 		}
@@ -329,13 +326,10 @@ func BenchmarkSymphony_Read(b *testing.B) {
 			panic(fmt.Sprintf("failed to unmarshal Symphony: %s", entry.TypeName))
 		}
 
+		// Create message instance outside timing (reflection overhead excluded)
+		msg := reflect.New(entry.MsgType.Elem()).Interface().(proto.Message)
+
 		start := time.Now()
-		// Create a new instance and unmarshal
-		msgType := getMessageType(entry.TypeName)
-		if msgType == nil {
-			panic(fmt.Sprintf("failed to get message type: %s", entry.TypeName))
-		}
-		msg := reflect.New(msgType.Elem()).Interface().(proto.Message)
 		if err := unmarshalSymphony(msg, in); err != nil {
 			panic(fmt.Sprintf("failed to unmarshal Symphony: %v", err))
 		}
@@ -403,13 +397,10 @@ func BenchmarkSymphonyHybrid_Read(b *testing.B) {
 			panic(fmt.Sprintf("failed to unmarshal Symphony Hybrid: %s", entry.TypeName))
 		}
 
+		// Create message instance outside timing (reflection overhead excluded)
+		msg := reflect.New(entry.MsgType.Elem()).Interface().(proto.Message)
+
 		start := time.Now()
-		// Create a new instance and unmarshal
-		msgType := getMessageType(entry.TypeName)
-		if msgType == nil {
-			panic(fmt.Sprintf("failed to get message type: %s", entry.TypeName))
-		}
-		msg := reflect.New(msgType.Elem()).Interface().(proto.Message)
 		if err := unmarshalSymphonyHybrid(msg, in); err != nil {
 			panic(fmt.Sprintf("failed to unmarshal Symphony Hybrid: %v", err))
 		}

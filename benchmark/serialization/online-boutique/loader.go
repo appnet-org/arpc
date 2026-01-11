@@ -96,6 +96,7 @@ func loadPayloadFile(filename, typeName string) ([]PayloadEntry, error) {
 		entries = append(entries, PayloadEntry{
 			TypeName: typeName,
 			Message:  msg,
+			MsgType:  getMessageType(typeName),
 		})
 	}
 

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"reflect"
+
 	"google.golang.org/protobuf/proto"
 )
 
@@ -8,6 +10,7 @@ import (
 type PayloadEntry struct {
 	TypeName string
 	Message  proto.Message
+	MsgType  reflect.Type // Pre-computed reflect.Type for faster instance creation
 }
 
 var (
