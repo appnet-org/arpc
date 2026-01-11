@@ -112,7 +112,7 @@ func (s *kvServer) evictLRU() {
 func getLoggingConfig() *logging.Config {
 	level := os.Getenv("LOG_LEVEL")
 	if level == "" {
-		level = "debug"
+		level = "info"
 	}
 
 	format := os.Getenv("LOG_FORMAT")
@@ -132,8 +132,11 @@ func main() {
 		panic(err)
 	}
 
+	// Check if encryption is enabled via environment variable
+	enableEncryption := os.Getenv("ENABLE_ENCRYPTION") == "true"
+
 	serializer := &serializer.SymphonySerializer{}
-	server, err := rpc.NewServer(":11000", serializer, nil, false)
+	server, err := rpc.NewServer(":11000", serializer, nil, enableEncryption)
 	if err != nil {
 		logging.Fatal("Failed to start server", zap.Error(err))
 	}

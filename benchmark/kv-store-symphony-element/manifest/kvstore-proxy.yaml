@@ -51,6 +51,8 @@ spec:
         env:
         - name: LOG_LEVEL
           value: info
+        - name: ENABLE_ENCRYPTION
+          value: "false"
       - name: symphony-proxy
         image: appnetorg/symphony-proxy:latest
         command: ["/app/proxy"]
@@ -118,6 +120,8 @@ spec:
         env:
         - name: LOG_LEVEL
           value: info
+        - name: ENABLE_ENCRYPTION
+          value: "false"
       - name: symphony-proxy
         image: appnetorg/symphony-proxy:latest
         command: ["/app/proxy"]
