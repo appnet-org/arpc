@@ -551,9 +551,9 @@ func BenchmarkEncryption_EqualSplit(b *testing.B) {
 		b.StopTimer()
 		data := generateRandomBytes(size)
 		splitPoint := size / 2
+		b.StartTimer()
 		publicPart := data[:splitPoint]
 		privatePart := data[splitPoint:]
-		b.StartTimer()
 
 		// Encrypt both parts with optimized function
 		encryptedPublic, encryptedPrivate, encryptTime, err := encryptSplitWithTiming(publicPart, privatePart)
@@ -582,6 +582,86 @@ func BenchmarkEncryption_EqualSplit(b *testing.B) {
 		b.Logf("Failed to write encryption timing data: %v", err)
 	}
 	if err := writeTimings("encryption_equal_split_decrypt_times.txt", decryptTimings); err != nil {
+		b.Logf("Failed to write decryption timing data: %v", err)
+	}
+
+	b.StartTimer()
+}
+
+// BenchmarkEncryption_RandomAlignedSplit measures optimized encryption for randomly split strings
+// with the split point aligned to 16 bytes (AES block size)
+func BenchmarkEncryption_RandomAlignedSplit(b *testing.B) {
+	encryptTimings := make([]int64, 0, b.N)
+	decryptTimings := make([]int64, 0, b.N)
+	traceSize := len(traceEntries)
+
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		idx := i % traceSize
+		entry := traceEntries[idx]
+		size := entry.TotalSize
+
+		if size <= 16 {
+			continue // Need at least 16 bytes to have an aligned split
+		}
+
+		// Generate test data and calculate aligned random split point (excluded from timing)
+		b.StopTimer()
+		data := generateRandomBytes(size)
+
+		// Calculate number of possible 16-byte aligned split points
+		// Split points can be at 16, 32, 48, ... up to the largest multiple < size
+		numAlignedPoints := (size - 1) / 16 // number of valid 16-byte aligned split points
+		if numAlignedPoints < 1 {
+			b.StartTimer()
+			continue
+		}
+
+		// Generate random aligned split point
+		splitPointBytes := make([]byte, 4)
+		rand.Read(splitPointBytes)
+		alignedIndex := 1 + (int(splitPointBytes[0])|int(splitPointBytes[1])<<8)%numAlignedPoints
+		splitPoint := alignedIndex * 16
+
+		if splitPoint >= size {
+			splitPoint = (numAlignedPoints) * 16
+		}
+		if splitPoint < 16 {
+			splitPoint = 16
+		}
+
+		publicPart := data[:splitPoint]
+		privatePart := data[splitPoint:]
+		b.StartTimer()
+
+		// Encrypt both parts with optimized function
+		encryptedPublic, encryptedPrivate, encryptTime, err := encryptSplitWithTiming(publicPart, privatePart)
+		if err != nil {
+			b.Fatalf("Encryption failed: %v", err)
+		}
+		encryptTimings = append(encryptTimings, encryptTime)
+
+		// Decrypt both parts with optimized function
+		_, _, decryptTime, err := decryptSplitWithTiming(encryptedPublic, encryptedPrivate)
+		if err != nil {
+			b.Fatalf("Decryption failed: %v", err)
+		}
+		decryptTimings = append(decryptTimings, decryptTime)
+	}
+
+	b.StopTimer()
+
+	if b.N > 0 {
+		nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+		msgPerSec := 1e9 / nsPerOp
+		b.ReportMetric(msgPerSec, "msg/s")
+	}
+
+	if err := writeTimings("encryption_random_aligned_split_encrypt_times.txt", encryptTimings); err != nil {
+		b.Logf("Failed to write encryption timing data: %v", err)
+	}
+	if err := writeTimings("encryption_random_aligned_split_decrypt_times.txt", decryptTimings); err != nil {
 		b.Logf("Failed to write decryption timing data: %v", err)
 	}
 
