@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"sync"
 )
 
 // Default encryption keys (AES-256) - hardcoded for development/testing
@@ -17,6 +18,48 @@ var (
 	// DefaultPrivateKey is a hardcoded 32-byte key for encrypting private segments
 	DefaultPrivateKey, _ = hex.DecodeString("9b5300678420678a3157a4bcacdc3e864693971f8a3fab05b06913fb43c7ebf9")
 )
+
+// Cached GCM objects (thread-safe)
+var (
+	publicGCM  cipher.AEAD
+	privateGCM cipher.AEAD
+	gcmInitMu  sync.RWMutex
+)
+
+// InitGCMObjects initializes cached GCM objects for the given public and private keys.
+// This should be called when encryption keys are set to avoid recreating cipher and GCM objects.
+func InitGCMObjects(publicKey, privateKey []byte) error {
+	gcmInitMu.Lock()
+	defer gcmInitMu.Unlock()
+
+	var err error
+
+	// Create AES cipher for public key
+	publicBlock, err := aes.NewCipher(publicKey)
+	if err != nil {
+		return fmt.Errorf("failed to create public cipher: %w", err)
+	}
+
+	// Create GCM mode for public key
+	publicGCM, err = cipher.NewGCM(publicBlock)
+	if err != nil {
+		return fmt.Errorf("failed to create public GCM: %w", err)
+	}
+
+	// Create AES cipher for private key
+	privateBlock, err := aes.NewCipher(privateKey)
+	if err != nil {
+		return fmt.Errorf("failed to create private cipher: %w", err)
+	}
+
+	// Create GCM mode for private key
+	privateGCM, err = cipher.NewGCM(privateBlock)
+	if err != nil {
+		return fmt.Errorf("failed to create private GCM: %w", err)
+	}
+
+	return nil
+}
 
 // EncryptSymphonyData encrypts Symphony marshaled data using AES-GCM.
 // The public segment (bytes 13 to offsetToPrivate) is encrypted with publicKey.
@@ -50,7 +93,7 @@ func EncryptSymphonyData(data []byte, publicKey []byte, privateKey []byte) []byt
 
 	// Extract and encrypt public segment (bytes 13 to offsetToPrivate)
 	publicPlaintext := data[13:offsetToPrivate]
-	encryptedPublic, err := encryptSegment(publicPlaintext, publicKey)
+	encryptedPublic, err := encryptSegment(publicPlaintext, true)
 	if err != nil {
 		panic(fmt.Sprintf("failed to encrypt public segment: %v", err))
 	}
@@ -71,7 +114,7 @@ func EncryptSymphonyData(data []byte, publicKey []byte, privateKey []byte) []byt
 
 		// Extract and encrypt entire private segment (including version byte)
 		privatePlaintext := data[offsetToPrivate:]
-		encryptedPrivate, err = encryptSegment(privatePlaintext, privateKey)
+		encryptedPrivate, err = encryptSegment(privatePlaintext, false)
 		if err != nil {
 			panic(fmt.Sprintf("failed to encrypt private segment: %v", err))
 		}
@@ -131,7 +174,7 @@ func DecryptSymphonyData(data []byte, publicKey []byte, privateKey []byte) []byt
 
 	// Extract and decrypt public segment
 	encryptedPublic := data[13:encryptedOffsetToPrivate]
-	publicPlaintext, err := decryptSegment(encryptedPublic, publicKey)
+	publicPlaintext, err := decryptSegment(encryptedPublic, true)
 	if err != nil {
 		panic(fmt.Sprintf("failed to decrypt public segment: %v", err))
 	}
@@ -151,7 +194,7 @@ func DecryptSymphonyData(data []byte, publicKey []byte, privateKey []byte) []byt
 
 		// Extract and decrypt private segment
 		encryptedPrivate := data[encryptedOffsetToPrivate:]
-		privatePlaintext, err = decryptSegment(encryptedPrivate, privateKey)
+		privatePlaintext, err = decryptSegment(encryptedPrivate, false)
 		if err != nil {
 			panic(fmt.Sprintf("failed to decrypt private segment: %v", err))
 		}
@@ -183,22 +226,21 @@ func DecryptSymphonyData(data []byte, publicKey []byte, privateKey []byte) []byt
 	return result
 }
 
-// encryptSegment encrypts plaintext using AES-GCM with the provided key.
+// encryptSegment encrypts plaintext using AES-GCM.
 // Returns [nonce(12 bytes)][ciphertext+tag(16 bytes)].
-func encryptSegment(plaintext []byte, key []byte) ([]byte, error) {
-	// Create AES cipher
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create cipher: %w", err)
-	}
-
-	// Create GCM mode
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create GCM: %w", err)
+// Note: Nonce is NOT reusable - each encryption must use a unique nonce for security.
+// isPublic: true to use public key GCM, false to use private key GCM
+func encryptSegment(plaintext []byte, isPublic bool) ([]byte, error) {
+	// Get cached GCM object (reuses cipher and GCM objects)
+	var gcm cipher.AEAD
+	if isPublic {
+		gcm = publicGCM
+	} else {
+		gcm = privateGCM
 	}
 
 	// Generate random nonce (12 bytes for standard GCM)
+	// IMPORTANT: Nonce must be unique for each encryption - never reuse!
 	nonce := make([]byte, gcm.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, fmt.Errorf("failed to generate nonce: %w", err)
@@ -211,20 +253,17 @@ func encryptSegment(plaintext []byte, key []byte) ([]byte, error) {
 	return ciphertext, nil
 }
 
-// decryptSegment decrypts encrypted data using AES-GCM with the provided key.
+// decryptSegment decrypts encrypted data using AES-GCM.
 // Expects input format: [nonce(12 bytes)][ciphertext+tag(16 bytes)].
 // Returns plaintext or error if authentication fails.
-func decryptSegment(encrypted []byte, key []byte) ([]byte, error) {
-	// Create AES cipher
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create cipher: %w", err)
-	}
-
-	// Create GCM mode
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create GCM: %w", err)
+// isPublic: true to use public key GCM, false to use private key GCM
+func decryptSegment(encrypted []byte, isPublic bool) ([]byte, error) {
+	// Get cached GCM object (reuses cipher and GCM objects)
+	var gcm cipher.AEAD
+	if isPublic {
+		gcm = publicGCM
+	} else {
+		gcm = privateGCM
 	}
 
 	// Validate minimum size (nonce + tag)
