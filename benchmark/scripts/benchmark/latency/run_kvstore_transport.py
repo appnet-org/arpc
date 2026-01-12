@@ -39,11 +39,11 @@ ALL_VARIANTS = ["udp", "reliable", "cc", "reliable-cc", "fc", "cc-fc", "reliable
 manifest_dict = {
     "kv-store-symphony-transport-udp": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-udp.yaml"),
     "kv-store-symphony-transport-reliable": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-reliable.yaml"),
-    "kv-store-symphony-transport-cc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-cc.yaml"),
+    # "kv-store-symphony-transport-cc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-cc.yaml"),
     "kv-store-symphony-transport-reliable-cc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-reliable-cc.yaml"),
-    "kv-store-symphony-transport-fc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-fc.yaml"),
-    "kv-store-symphony-transport-cc-fc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-cc-fc.yaml"),
-    "kv-store-symphony-transport-reliable-fc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-reliable-fc.yaml"),
+    # "kv-store-symphony-transport-fc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-fc.yaml"),
+    # "kv-store-symphony-transport-cc-fc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-cc-fc.yaml"),
+    # "kv-store-symphony-transport-reliable-fc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-reliable-fc.yaml"),
     "kv-store-symphony-transport-reliable-cc-fc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-reliable-cc-fc.yaml"),
     "kv-store-symphony-transport-reliable-cc-fc-encryption": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-reliable-cc-fc-encryption.yaml"),
 }
@@ -188,7 +188,19 @@ def run_wrk_and_collect_latency(application_name):
     # Extract latency metrics
     latency_metrics = {}
     error_count = 0
+    requests_per_sec = None
     for line in output_lines:
+        # Check for requests per second
+        if "Requests/sec:" in line:
+            try:
+                # Extract the number after the colon
+                parts = line.split("Requests/sec:")
+                if len(parts) == 2:
+                    requests_per_sec = float(parts[1].strip())
+                    logger.info(f"Found requests/sec: {requests_per_sec}")
+            except (ValueError, IndexError):
+                logger.warning(f"Could not parse requests/sec from line: {line}")
+        
         # Check for non-2xx or 3xx responses
         if "Non-2xx or 3xx responses:" in line:
             try:
@@ -236,11 +248,14 @@ def run_wrk_and_collect_latency(application_name):
         sorted_percentiles = sorted(latency_metrics.keys(), key=lambda x: float(x))
         for p in sorted_percentiles:
             logger.info(f"  {p}%: {latency_metrics[p]:.2f}ms")
+    if requests_per_sec is not None:
+        logger.info(f"Requests/sec: {requests_per_sec:.2f}")
     
-    # Return dict with latency_metrics and error_count
+    # Return dict with latency_metrics, error_count, and requests_per_sec
     return {
         "latency_metrics": latency_metrics,
-        "error_count": error_count
+        "error_count": error_count,
+        "requests_per_sec": requests_per_sec
     }
 
 def cleanup_all_resources():
@@ -343,12 +358,14 @@ def main():
                 "status": "failure",
                 "latency_metrics": wrk_result.get("latency_metrics", {}),
                 "error_count": wrk_result.get("error_count", 0),
+                "requests_per_sec": wrk_result.get("requests_per_sec"),
             }
         else:
             results[manifest_name] = {
                 "status": "success",
                 "latency_metrics": wrk_result.get("latency_metrics", {}),
                 "error_count": wrk_result.get("error_count", 0),
+                "requests_per_sec": wrk_result.get("requests_per_sec"),
             }
         
         # Step 6: Cleanup
@@ -368,6 +385,9 @@ def main():
         status = result.get("status")
         if status == "success":
             latency = result.get("latency_metrics", {})
+            requests_per_sec = result.get("requests_per_sec")
+            if requests_per_sec is not None:
+                logger.info(f"  Requests/sec: {requests_per_sec:.2f}")
             if latency:
                 logger.info(f"  Latency metrics:")
                 # Sort percentiles numerically for better display
@@ -378,8 +398,11 @@ def main():
         elif status == "failure":
             latency = result.get("latency_metrics", {})
             error_count = result.get("error_count", 0)
+            requests_per_sec = result.get("requests_per_sec")
             logger.error(f"  Status: {status}")
             logger.error(f"  Non-2xx or 3xx responses: {error_count}")
+            if requests_per_sec is not None:
+                logger.info(f"  Requests/sec: {requests_per_sec:.2f}")
             if latency:
                 logger.info(f"  Latency metrics:")
                 # Sort percentiles numerically for better display

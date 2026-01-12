@@ -425,6 +425,13 @@ func (t *UDPTransport) SetEncryptionKeys(publicKey, privateKey []byte) {
 			zap.Int("publicKeySize", len(t.publicKey)),
 			zap.Bool("hasPrivateKey", t.privateKey != nil))
 	}
+
+	// Initialize GCM objects with the keys
+	if err := InitGCMObjects(t.publicKey, t.privateKey); err != nil {
+		logging.Error("Failed to initialize GCM objects", zap.Error(err))
+		panic(fmt.Sprintf("Failed to initialize encryption: %v", err))
+	}
+
 	t.encryptionEnabled = true
 }
 
