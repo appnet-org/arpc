@@ -115,6 +115,10 @@ func loadTrace(filename string) ([]TraceEntry, error) {
 		if err != nil {
 			continue // Skip malformed lines
 		}
+		// Skip entries with zero key or value size
+		if entry.KeySize <= 0 || entry.ValueSize <= 0 {
+			continue
+		}
 		entries = append(entries, entry)
 	}
 
@@ -727,6 +731,66 @@ func BenchmarkEncryption_2_8_Split(b *testing.B) {
 		b.Logf("Failed to write encryption timing data: %v", err)
 	}
 	if err := writeTimings("encryption_2_8_split_decrypt_times.txt", decryptTimings); err != nil {
+		b.Logf("Failed to write decryption timing data: %v", err)
+	}
+
+	b.StartTimer()
+}
+
+// BenchmarkEncryption_KeyValueSplit measures optimized encryption for key/value split
+// where the key is in one segment (public) and the value is in another segment (private)
+func BenchmarkEncryption_KeyValueSplit(b *testing.B) {
+	encryptTimings := make([]int64, 0, b.N)
+	decryptTimings := make([]int64, 0, b.N)
+	traceSize := len(traceEntries)
+
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		idx := i % traceSize
+		entry := traceEntries[idx]
+
+		keySize := entry.KeySize
+		valueSize := entry.ValueSize
+
+		if keySize <= 0 || valueSize <= 0 {
+			continue // Need both key and value to have content
+		}
+
+		// Generate test data for key and value separately (excluded from timing)
+		b.StopTimer()
+		keyData := generateRandomBytes(keySize)
+		valueData := generateRandomBytes(valueSize)
+		b.StartTimer()
+
+		// Encrypt both parts with optimized function
+		// Key as public part, Value as private part
+		encryptedKey, encryptedValue, encryptTime, err := encryptSplitWithTiming(keyData, valueData)
+		if err != nil {
+			b.Fatalf("Encryption failed: %v", err)
+		}
+		encryptTimings = append(encryptTimings, encryptTime)
+
+		// Decrypt both parts with optimized function
+		_, _, decryptTime, err := decryptSplitWithTiming(encryptedKey, encryptedValue)
+		if err != nil {
+			b.Fatalf("Decryption failed: %v", err)
+		}
+		decryptTimings = append(decryptTimings, decryptTime)
+	}
+
+	b.StopTimer()
+
+	if b.N > 0 {
+		nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+		msgPerSec := 1e9 / nsPerOp
+		b.ReportMetric(msgPerSec, "msg/s")
+	}
+
+	if err := writeTimings("encryption_key_value_split_encrypt_times.txt", encryptTimings); err != nil {
+		b.Logf("Failed to write encryption timing data: %v", err)
+	}
+	if err := writeTimings("encryption_key_value_split_decrypt_times.txt", decryptTimings); err != nil {
 		b.Logf("Failed to write decryption timing data: %v", err)
 	}
 

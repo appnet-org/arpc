@@ -5,10 +5,10 @@ Encryption Benchmark Latency CDF Plotter
 This script computes and plots Cumulative Distribution Functions (CDFs) of latency
 for encrypt and decrypt operations across different encryption strategies.
 
-Supported Strategies (Optimized versions):
+Supported Strategies:
     - Whole: Encrypt/decrypt entire message at once
     - Random Split: Split message at random boundaries
-    - Equal Split: Split message into equal-sized chunks
+    - Key-Value Split: Split message at key/value boundary
 
 Usage:
     python plot_encryption_cdf.py
@@ -20,12 +20,12 @@ Prerequisites:
 
 Input Files:
     The script expects timing data files in the 'profile_data/' directory:
-        - encryption_whole_optimized_encrypt_times.txt
-        - encryption_whole_optimized_decrypt_times.txt
-        - encryption_random_split_optimized_encrypt_times.txt
-        - encryption_random_split_optimized_decrypt_times.txt
-        - encryption_equal_split_optimized_encrypt_times.txt
-        - encryption_equal_split_optimized_decrypt_times.txt
+        - encryption_whole_encrypt_times.txt
+        - encryption_whole_decrypt_times.txt
+        - encryption_random_split_encrypt_times.txt
+        - encryption_random_split_decrypt_times.txt
+        - encryption_key_value_split_encrypt_times.txt
+        - encryption_key_value_split_decrypt_times.txt
 
     Each file should contain one timing value (in nanoseconds) per line.
 
@@ -48,9 +48,9 @@ OUTPUT_FILE = "encryption_latency_cdf.pdf"
 
 # Format labels and file prefixes (order matters for legend)
 FORMATS = {
-    "Whole": "encryption_whole_optimized",
-    "Random Split": "encryption_random_split_optimized",
-    "Equal Split": "encryption_equal_split_optimized",
+    "Whole": "encryption_whole",
+    "Random Split": "encryption_random_split",
+    "Key-Value Split": "encryption_key_value_split",
 }
 
 def load_timings(filename):
