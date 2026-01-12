@@ -551,9 +551,10 @@ func BenchmarkEncryption_EqualSplit(b *testing.B) {
 		b.StopTimer()
 		data := generateRandomBytes(size)
 		splitPoint := size / 2
-		b.StartTimer()
+
 		publicPart := data[:splitPoint]
 		privatePart := data[splitPoint:]
+		b.StartTimer()
 
 		// Encrypt both parts with optimized function
 		encryptedPublic, encryptedPrivate, encryptTime, err := encryptSplitWithTiming(publicPart, privatePart)
