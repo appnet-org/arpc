@@ -26,6 +26,14 @@ var (
 	gcmInitMu  sync.RWMutex
 )
 
+// Pool for double nonces (24 bytes = 2 * 12) to reduce allocations
+var doubleNoncePool = sync.Pool{
+	New: func() interface{} {
+		b := make([]byte, 24)
+		return &b
+	},
+}
+
 // InitGCMObjects initializes cached GCM objects for the given public and private keys.
 // This should be called when encryption keys are set to avoid recreating cipher and GCM objects.
 func InitGCMObjects(publicKey, privateKey []byte) error {
@@ -91,20 +99,12 @@ func EncryptSymphonyData(data []byte, publicKey []byte, privateKey []byte) []byt
 		panic("publicKey is required for encrypting public segment")
 	}
 
-	// Extract and encrypt public segment (bytes 13 to offsetToPrivate)
+	// Extract segments
 	publicPlaintext := data[13:offsetToPrivate]
-	encryptedPublic, err := encryptSegment(publicPlaintext, true)
-	if err != nil {
-		panic(fmt.Sprintf("failed to encrypt public segment: %v", err))
-	}
-
-	// Calculate new offsetToPrivate
-	// New offset = 13 (header) + len(encryptedPublic)
-	newOffsetToPrivate := 13 + len(encryptedPublic)
-
-	// Check if private segment exists
 	hasPrivateSegment := offsetToPrivate < len(data)
-	var encryptedPrivate []byte
+
+	var encryptedPublic, encryptedPrivate []byte
+	var err error
 
 	if hasPrivateSegment {
 		// Validate privateKey is provided
@@ -112,13 +112,42 @@ func EncryptSymphonyData(data []byte, publicKey []byte, privateKey []byte) []byt
 			panic("privateKey is required for encrypting private segment")
 		}
 
-		// Extract and encrypt entire private segment (including version byte)
-		privatePlaintext := data[offsetToPrivate:]
-		encryptedPrivate, err = encryptSegment(privatePlaintext, false)
+		// Batch nonce generation: get both nonces in a single rand.Read call
+		noncesBuf := doubleNoncePool.Get().(*[]byte)
+		nonces := *noncesBuf
+		if _, err := rand.Read(nonces); err != nil {
+			doubleNoncePool.Put(noncesBuf)
+			panic(fmt.Sprintf("failed to generate nonces: %v", err))
+		}
+
+		// Encrypt public segment with first nonce
+		encryptedPublic, err = encryptSegmentWithNonce(publicPlaintext, true, nonces[:12])
 		if err != nil {
+			doubleNoncePool.Put(noncesBuf)
+			panic(fmt.Sprintf("failed to encrypt public segment: %v", err))
+		}
+
+		// Encrypt private segment with second nonce
+		privatePlaintext := data[offsetToPrivate:]
+		encryptedPrivate, err = encryptSegmentWithNonce(privatePlaintext, false, nonces[12:])
+		if err != nil {
+			doubleNoncePool.Put(noncesBuf)
 			panic(fmt.Sprintf("failed to encrypt private segment: %v", err))
 		}
+
+		// Return pooled buffer
+		doubleNoncePool.Put(noncesBuf)
+	} else {
+		// Public segment only - use standard encryption
+		encryptedPublic, err = encryptSegment(publicPlaintext, true)
+		if err != nil {
+			panic(fmt.Sprintf("failed to encrypt public segment: %v", err))
+		}
 	}
+
+	// Calculate new offsetToPrivate
+	// New offset = 13 (header) + len(encryptedPublic)
+	newOffsetToPrivate := 13 + len(encryptedPublic)
 
 	// Reconstruct buffer: [header(13)][encrypted_public][encrypted_private]
 	totalSize := 13 + len(encryptedPublic) + len(encryptedPrivate)
@@ -231,6 +260,13 @@ func DecryptSymphonyData(data []byte, publicKey []byte, privateKey []byte) []byt
 // Note: Nonce is NOT reusable - each encryption must use a unique nonce for security.
 // isPublic: true to use public key GCM, false to use private key GCM
 func encryptSegment(plaintext []byte, isPublic bool) ([]byte, error) {
+	return encryptSegmentWithNonce(plaintext, isPublic, nil)
+}
+
+// encryptSegmentWithNonce encrypts plaintext using AES-GCM with an optional pre-generated nonce.
+// If nonce is nil, a new random nonce is generated.
+// Returns [nonce(12 bytes)][ciphertext+tag(16 bytes)].
+func encryptSegmentWithNonce(plaintext []byte, isPublic bool, nonce []byte) ([]byte, error) {
 	// Get cached GCM object (reuses cipher and GCM objects)
 	var gcm cipher.AEAD
 	if isPublic {
@@ -239,18 +275,26 @@ func encryptSegment(plaintext []byte, isPublic bool) ([]byte, error) {
 		gcm = privateGCM
 	}
 
-	// Generate random nonce (12 bytes for standard GCM)
-	// IMPORTANT: Nonce must be unique for each encryption - never reuse!
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, fmt.Errorf("failed to generate nonce: %w", err)
+	nonceSize := gcm.NonceSize()
+	tagSize := gcm.Overhead()
+
+	// Generate nonce if not provided
+	if nonce == nil {
+		nonce = make([]byte, nonceSize)
+		if _, err := rand.Read(nonce); err != nil {
+			return nil, fmt.Errorf("failed to generate nonce: %w", err)
+		}
 	}
 
-	// Encrypt and authenticate
-	// Seal appends the ciphertext and tag to nonce
-	ciphertext := gcm.Seal(nonce, nonce, plaintext, nil)
+	// Pre-allocate output buffer with exact capacity: nonce + plaintext + tag
+	totalSize := nonceSize + len(plaintext) + tagSize
+	result := make([]byte, nonceSize, totalSize)
+	copy(result, nonce)
 
-	return ciphertext, nil
+	// Encrypt and authenticate, appending to pre-allocated buffer
+	result = gcm.Seal(result, nonce, plaintext, nil)
+
+	return result, nil
 }
 
 // decryptSegment decrypts encrypted data using AES-GCM.
@@ -268,16 +312,21 @@ func decryptSegment(encrypted []byte, isPublic bool) ([]byte, error) {
 
 	// Validate minimum size (nonce + tag)
 	nonceSize := gcm.NonceSize()
-	if len(encrypted) < nonceSize {
-		return nil, fmt.Errorf("encrypted data too short: %d bytes (expected at least %d)", len(encrypted), nonceSize)
+	tagSize := gcm.Overhead()
+	if len(encrypted) < nonceSize+tagSize {
+		return nil, fmt.Errorf("encrypted data too short: %d bytes (expected at least %d)", len(encrypted), nonceSize+tagSize)
 	}
 
 	// Extract nonce and ciphertext+tag
 	nonce := encrypted[:nonceSize]
 	ciphertextWithTag := encrypted[nonceSize:]
 
+	// Pre-allocate output buffer with exact capacity
+	plaintextSize := len(ciphertextWithTag) - tagSize
+	result := make([]byte, 0, plaintextSize)
+
 	// Decrypt and authenticate
-	plaintext, err := gcm.Open(nil, nonce, ciphertextWithTag, nil)
+	plaintext, err := gcm.Open(result, nonce, ciphertextWithTag, nil)
 	if err != nil {
 		return nil, fmt.Errorf("decryption failed: %w", err)
 	}

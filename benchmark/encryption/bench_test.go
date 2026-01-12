@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -245,6 +246,223 @@ func decryptWithTiming(encrypted []byte, isPublic bool) ([]byte, int64, error) {
 		return nil, 0, err
 	}
 	return decrypted, elapsed.Nanoseconds(), nil
+}
+
+// ============================================================================
+// OPTIMIZED SPLIT ENCRYPTION FUNCTIONS
+// ============================================================================
+
+// Sync pools for reducing allocations
+var (
+	// Pool for single nonce (12 bytes)
+	singleNoncePool = sync.Pool{
+		New: func() interface{} {
+			b := make([]byte, 12)
+			return &b
+		},
+	}
+	// Pool for double nonces (24 bytes = 2 * 12)
+	doubleNoncePool = sync.Pool{
+		New: func() interface{} {
+			b := make([]byte, 24)
+			return &b
+		},
+	}
+)
+
+// encryptWholeOptimized encrypts data with the same optimizations as split:
+// 1. Pooled nonce buffer
+// 2. Pre-allocated output buffer
+func encryptWholeOptimized(plaintext []byte, isPublic bool) ([]byte, error) {
+	var gcm cipher.AEAD
+	if isPublic {
+		gcm = publicGCM
+	} else {
+		gcm = privateGCM
+	}
+
+	nonceSize := gcm.NonceSize()
+	tagSize := gcm.Overhead()
+
+	// Get pooled nonce buffer
+	nonceBuf := singleNoncePool.Get().(*[]byte)
+	nonce := *nonceBuf
+	if _, err := rand.Read(nonce); err != nil {
+		singleNoncePool.Put(nonceBuf)
+		return nil, fmt.Errorf("failed to generate nonce: %w", err)
+	}
+
+	// Pre-allocate output buffer with exact capacity
+	totalSize := nonceSize + len(plaintext) + tagSize
+	result := make([]byte, nonceSize, totalSize)
+	copy(result, nonce)
+
+	// Return pooled buffer
+	singleNoncePool.Put(nonceBuf)
+
+	// Encrypt, appending to pre-allocated buffer
+	result = gcm.Seal(result, result[:nonceSize], plaintext, nil)
+
+	return result, nil
+}
+
+// decryptWholeOptimized decrypts data with the same optimizations as split:
+// 1. Pre-allocated output buffer
+func decryptWholeOptimized(encrypted []byte, isPublic bool) ([]byte, error) {
+	var gcm cipher.AEAD
+	if isPublic {
+		gcm = publicGCM
+	} else {
+		gcm = privateGCM
+	}
+
+	nonceSize := gcm.NonceSize()
+	tagSize := gcm.Overhead()
+
+	if len(encrypted) < nonceSize+tagSize {
+		return nil, fmt.Errorf("encrypted data too short")
+	}
+
+	// Extract nonce and ciphertext
+	nonce := encrypted[:nonceSize]
+	ciphertextWithTag := encrypted[nonceSize:]
+
+	// Pre-allocate output buffer with exact capacity
+	plaintextSize := len(ciphertextWithTag) - tagSize
+	result := make([]byte, 0, plaintextSize)
+
+	// Decrypt
+	plaintext, err := gcm.Open(result, nonce, ciphertextWithTag, nil)
+	if err != nil {
+		return nil, fmt.Errorf("decryption failed: %w", err)
+	}
+
+	return plaintext, nil
+}
+
+// encryptWholeWithTiming encrypts data and returns timing
+func encryptWholeWithTiming(data []byte, isPublic bool) ([]byte, int64, error) {
+	start := time.Now()
+	encrypted, err := encryptWholeOptimized(data, isPublic)
+	elapsed := time.Since(start)
+	if err != nil {
+		return nil, 0, err
+	}
+	return encrypted, elapsed.Nanoseconds(), nil
+}
+
+// decryptWholeWithTiming decrypts data and returns timing
+func decryptWholeWithTiming(encrypted []byte, isPublic bool) ([]byte, int64, error) {
+	start := time.Now()
+	decrypted, err := decryptWholeOptimized(encrypted, isPublic)
+	elapsed := time.Since(start)
+	if err != nil {
+		return nil, 0, err
+	}
+	return decrypted, elapsed.Nanoseconds(), nil
+}
+
+// encryptSplitOptimized encrypts both public and private parts with optimizations:
+// 1. Batch nonce generation (single rand.Read for both nonces)
+// 2. Pre-allocated output buffers
+// 3. Reduced allocations
+func encryptSplitOptimized(publicPart, privatePart []byte) ([]byte, []byte, error) {
+	nonceSize := publicGCM.NonceSize() // 12 bytes
+	tagSize := publicGCM.Overhead()    // 16 bytes
+
+	// Get pooled nonce buffer and generate both nonces in one syscall
+	noncesBuf := doubleNoncePool.Get().(*[]byte)
+	nonces := *noncesBuf
+	if _, err := rand.Read(nonces); err != nil {
+		doubleNoncePool.Put(noncesBuf)
+		return nil, nil, fmt.Errorf("failed to generate nonces: %w", err)
+	}
+
+	// Pre-calculate exact sizes
+	pubCipherSize := nonceSize + len(publicPart) + tagSize
+	privCipherSize := nonceSize + len(privatePart) + tagSize
+
+	// Pre-allocate output buffers with exact capacity
+	encryptedPublic := make([]byte, nonceSize, pubCipherSize)
+	encryptedPrivate := make([]byte, nonceSize, privCipherSize)
+
+	// Copy nonces to output buffers
+	copy(encryptedPublic, nonces[:nonceSize])
+	copy(encryptedPrivate, nonces[nonceSize:])
+
+	// Return pooled buffer
+	doubleNoncePool.Put(noncesBuf)
+
+	// Encrypt in-place, appending to the nonce
+	encryptedPublic = publicGCM.Seal(encryptedPublic, encryptedPublic[:nonceSize], publicPart, nil)
+	encryptedPrivate = privateGCM.Seal(encryptedPrivate, encryptedPrivate[:nonceSize], privatePart, nil)
+
+	return encryptedPublic, encryptedPrivate, nil
+}
+
+// decryptSplitOptimized decrypts both public and private parts with optimizations:
+// 1. Pre-allocated output buffers
+// 2. Reduced allocations
+func decryptSplitOptimized(encryptedPublic, encryptedPrivate []byte) ([]byte, []byte, error) {
+	nonceSize := publicGCM.NonceSize()
+
+	// Validate minimum sizes
+	if len(encryptedPublic) < nonceSize {
+		return nil, nil, fmt.Errorf("encrypted public data too short")
+	}
+	if len(encryptedPrivate) < nonceSize {
+		return nil, nil, fmt.Errorf("encrypted private data too short")
+	}
+
+	// Pre-allocate output buffers (plaintext size = ciphertext - nonce - tag)
+	tagSize := publicGCM.Overhead()
+	pubPlainSize := len(encryptedPublic) - nonceSize - tagSize
+	privPlainSize := len(encryptedPrivate) - nonceSize - tagSize
+
+	if pubPlainSize < 0 || privPlainSize < 0 {
+		return nil, nil, fmt.Errorf("encrypted data too short for decryption")
+	}
+
+	// Pre-allocate with exact capacity
+	publicPlain := make([]byte, 0, pubPlainSize)
+	privatePlain := make([]byte, 0, privPlainSize)
+
+	// Decrypt public
+	var err error
+	publicPlain, err = publicGCM.Open(publicPlain, encryptedPublic[:nonceSize], encryptedPublic[nonceSize:], nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("public decryption failed: %w", err)
+	}
+
+	// Decrypt private
+	privatePlain, err = privateGCM.Open(privatePlain, encryptedPrivate[:nonceSize], encryptedPrivate[nonceSize:], nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("private decryption failed: %w", err)
+	}
+
+	return publicPlain, privatePlain, nil
+}
+
+// encryptSplitWithTiming encrypts both parts and returns timing
+func encryptSplitWithTiming(publicPart, privatePart []byte) ([]byte, []byte, int64, error) {
+	start := time.Now()
+	encPub, encPriv, err := encryptSplitOptimized(publicPart, privatePart)
+	elapsed := time.Since(start)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	return encPub, encPriv, elapsed.Nanoseconds(), nil
+}
+
+// decryptSplitWithTiming decrypts both parts and returns timing
+func decryptSplitWithTiming(encryptedPublic, encryptedPrivate []byte) ([]byte, []byte, int64, error) {
+	start := time.Now()
+	pubPlain, privPlain, err := decryptSplitOptimized(encryptedPublic, encryptedPrivate)
+	elapsed := time.Since(start)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	return pubPlain, privPlain, elapsed.Nanoseconds(), nil
 }
 
 // writeTimings writes timing data (in nanoseconds) to a file, one value per line
@@ -478,6 +696,194 @@ func BenchmarkEncryption_EqualSplit(b *testing.B) {
 		b.Logf("Failed to write encryption timing data: %v", err)
 	}
 	if err := writeTimings("encryption_equal_split_decrypt_times.txt", decryptTimings); err != nil {
+		b.Logf("Failed to write decryption timing data: %v", err)
+	}
+
+	b.StartTimer()
+}
+
+// ============================================================================
+// OPTIMIZED BENCHMARKS
+// ============================================================================
+
+// BenchmarkEncryption_Whole_Optimized measures optimized encryption for whole strings
+// Uses the same optimizations as split: pooled nonce, pre-allocated buffers
+func BenchmarkEncryption_Whole_Optimized(b *testing.B) {
+	encryptTimings := make([]int64, 0, b.N)
+	decryptTimings := make([]int64, 0, b.N)
+	traceSize := len(traceEntries)
+
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		idx := i % traceSize
+		entry := traceEntries[idx]
+		size := entry.TotalSize
+
+		if size <= 0 {
+			continue
+		}
+
+		// Generate test data for this trace entry (excluded from timing)
+		b.StopTimer()
+		data := generateRandomBytes(size)
+		b.StartTimer()
+
+		// Encrypt with optimized function
+		encrypted, encryptTime, err := encryptWholeWithTiming(data, true)
+		if err != nil {
+			b.Fatalf("Encryption failed: %v", err)
+		}
+		encryptTimings = append(encryptTimings, encryptTime)
+
+		// Decrypt with optimized function
+		_, decryptTime, err := decryptWholeWithTiming(encrypted, true)
+		if err != nil {
+			b.Fatalf("Decryption failed: %v", err)
+		}
+		decryptTimings = append(decryptTimings, decryptTime)
+	}
+
+	b.StopTimer()
+
+	if b.N > 0 {
+		nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+		msgPerSec := 1e9 / nsPerOp
+		b.ReportMetric(msgPerSec, "msg/s")
+	}
+
+	if err := writeTimings("encryption_whole_optimized_encrypt_times.txt", encryptTimings); err != nil {
+		b.Logf("Failed to write encryption timing data: %v", err)
+	}
+	if err := writeTimings("encryption_whole_optimized_decrypt_times.txt", decryptTimings); err != nil {
+		b.Logf("Failed to write decryption timing data: %v", err)
+	}
+
+	b.StartTimer()
+}
+
+// BenchmarkEncryption_RandomSplit_Optimized measures optimized encryption for randomly split strings
+func BenchmarkEncryption_RandomSplit_Optimized(b *testing.B) {
+	encryptTimings := make([]int64, 0, b.N)
+	decryptTimings := make([]int64, 0, b.N)
+	traceSize := len(traceEntries)
+
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		idx := i % traceSize
+		entry := traceEntries[idx]
+		size := entry.TotalSize
+
+		if size <= 1 {
+			continue // Need at least 2 bytes to split
+		}
+
+		// Generate test data and calculate random split point (excluded from timing)
+		b.StopTimer()
+		data := generateRandomBytes(size)
+		// Generate random split point between 1 and size-1
+		splitPoint := 1
+		if size > 2 {
+			splitPointBytes := make([]byte, 4)
+			rand.Read(splitPointBytes)
+			splitPoint = 1 + (int(splitPointBytes[0])|int(splitPointBytes[1])<<8|int(splitPointBytes[2])<<16|int(splitPointBytes[3])<<24)%(size-1)
+			if splitPoint < 1 {
+				splitPoint = 1
+			}
+			if splitPoint >= size {
+				splitPoint = size - 1
+			}
+		}
+		publicPart := data[:splitPoint]
+		privatePart := data[splitPoint:]
+		b.StartTimer()
+
+		// Encrypt both parts with optimized function
+		encryptedPublic, encryptedPrivate, encryptTime, err := encryptSplitWithTiming(publicPart, privatePart)
+		if err != nil {
+			b.Fatalf("Encryption failed: %v", err)
+		}
+		encryptTimings = append(encryptTimings, encryptTime)
+
+		// Decrypt both parts with optimized function
+		_, _, decryptTime, err := decryptSplitWithTiming(encryptedPublic, encryptedPrivate)
+		if err != nil {
+			b.Fatalf("Decryption failed: %v", err)
+		}
+		decryptTimings = append(decryptTimings, decryptTime)
+	}
+
+	b.StopTimer()
+
+	if b.N > 0 {
+		nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+		msgPerSec := 1e9 / nsPerOp
+		b.ReportMetric(msgPerSec, "msg/s")
+	}
+
+	if err := writeTimings("encryption_random_split_optimized_encrypt_times.txt", encryptTimings); err != nil {
+		b.Logf("Failed to write encryption timing data: %v", err)
+	}
+	if err := writeTimings("encryption_random_split_optimized_decrypt_times.txt", decryptTimings); err != nil {
+		b.Logf("Failed to write decryption timing data: %v", err)
+	}
+
+	b.StartTimer()
+}
+
+// BenchmarkEncryption_EqualSplit_Optimized measures optimized encryption for equal-length substrings
+func BenchmarkEncryption_EqualSplit_Optimized(b *testing.B) {
+	encryptTimings := make([]int64, 0, b.N)
+	decryptTimings := make([]int64, 0, b.N)
+	traceSize := len(traceEntries)
+
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		idx := i % traceSize
+		entry := traceEntries[idx]
+		size := entry.TotalSize
+
+		if size <= 1 {
+			continue
+		}
+
+		// Generate test data and split into two equal parts (excluded from timing)
+		b.StopTimer()
+		data := generateRandomBytes(size)
+		splitPoint := size / 2
+		publicPart := data[:splitPoint]
+		privatePart := data[splitPoint:]
+		b.StartTimer()
+
+		// Encrypt both parts with optimized function
+		encryptedPublic, encryptedPrivate, encryptTime, err := encryptSplitWithTiming(publicPart, privatePart)
+		if err != nil {
+			b.Fatalf("Encryption failed: %v", err)
+		}
+		encryptTimings = append(encryptTimings, encryptTime)
+
+		// Decrypt both parts with optimized function
+		_, _, decryptTime, err := decryptSplitWithTiming(encryptedPublic, encryptedPrivate)
+		if err != nil {
+			b.Fatalf("Decryption failed: %v", err)
+		}
+		decryptTimings = append(decryptTimings, decryptTime)
+	}
+
+	b.StopTimer()
+
+	if b.N > 0 {
+		nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+		msgPerSec := 1e9 / nsPerOp
+		b.ReportMetric(msgPerSec, "msg/s")
+	}
+
+	if err := writeTimings("encryption_equal_split_optimized_encrypt_times.txt", encryptTimings); err != nil {
+		b.Logf("Failed to write encryption timing data: %v", err)
+	}
+	if err := writeTimings("encryption_equal_split_optimized_decrypt_times.txt", decryptTimings); err != nil {
 		b.Logf("Failed to write decryption timing data: %v", err)
 	}
 
