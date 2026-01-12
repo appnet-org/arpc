@@ -52,7 +52,7 @@ spec:
         - name: LOG_LEVEL
           value: info
         - name: ENABLE_ENCRYPTION
-          value: "false"
+          value: "true"
       - name: symphony-proxy
         image: appnetorg/symphony-proxy:latest
         command: ["/app/proxy"]
@@ -63,7 +63,7 @@ spec:
         env:
         - name: LOG_LEVEL
           value: info
-        - name: ENABLE_PACKET_BUFFERING
+        - name: ENABLE_ENCRYPTION
           value: "true"
 ---
 apiVersion: v1
@@ -121,7 +121,7 @@ spec:
         - name: LOG_LEVEL
           value: info
         - name: ENABLE_ENCRYPTION
-          value: "false"
+          value: "true"
       - name: symphony-proxy
         image: appnetorg/symphony-proxy:latest
         command: ["/app/proxy"]
@@ -132,5 +132,5 @@ spec:
         env:
         - name: LOG_LEVEL
           value: info
-        - name: ENABLE_PACKET_BUFFERING
+        - name: ENABLE_ENCRYPTION
           value: "true"
