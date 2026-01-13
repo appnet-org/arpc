@@ -77,7 +77,7 @@ BASE_FORMATS = {
 
 # Hybrid format
 HYBRID_FORMAT = {
-    "fRPC Hybrid": "symphony_hybrid",
+    "fRPC (B-Opt)": "symphony_hybrid",
 }
 
 def load_timings(filename):
