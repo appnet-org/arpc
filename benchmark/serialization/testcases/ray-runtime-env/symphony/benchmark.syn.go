@@ -6,118 +6,549 @@ import (
 	"fmt"
 )
 
-func (m *RuntimeEnvUris) MarshalSymphony() ([]byte, error) {
-	// Pre-allocate buffer with estimated size
-	buf := make([]byte, 0, 96)
-	var temp [8]byte // Reusable temp buffer for encoding
+// MarshalSymphonyPublic marshals only the public fields (without header)
+func (m *RuntimeEnvUris) MarshalSymphonyPublic() ([]byte, error) {
+	return []byte{}, nil
+}
 
-	// === HEADER SECTION ===
-	buf = append(buf, 0x00) // layout header
-	buf = append(buf, []byte{1, 2}...)
+// MarshalSymphonyPrivate marshals only the private fields (without header)
+func (m *RuntimeEnvUris) MarshalSymphonyPrivate() ([]byte, error) {
+	size := 0
+	size += 8 // table
+	size += 4 + len(m.WorkingDirUri)
+	size += 4 // count for PyModulesUris
+	for _, item := range m.PyModulesUris {
+		size += 4 + len(item)
+	}
+	buf := make([]byte, size)
+	dataLen := 0
+	_ = dataLen
+	count := 0
+	_ = count
+	currentOffset := 0
+	_ = currentOffset
+	tableStart := 0
+	payloadStart := tableStart + 8
+	payloadOffset := 0
+	_ = payloadStart
+	_ = payloadOffset
 
-	// === OFFSET TABLE SECTION ===
-	offset := 0
-
-	// Field 1 (WorkingDirUri): string or bytes
-	buf = append(buf, byte(1))
-	binary.LittleEndian.PutUint16(temp[:2], uint16(offset)) // offset of WorkingDirUri
-	buf = append(buf, temp[:2]...)
-	binary.LittleEndian.PutUint16(temp[:2], uint16(len(m.WorkingDirUri)))
-	buf = append(buf, temp[:2]...)
-	offset += len(m.WorkingDirUri)
+	// Field 1 (WorkingDirUri): variable-length
+	binary.LittleEndian.PutUint32(buf[tableStart+0:], uint32(payloadStart+payloadOffset))
+	dataLen = len(m.WorkingDirUri)
+	binary.LittleEndian.PutUint32(buf[payloadStart+payloadOffset:], uint32(dataLen))
+	copy(buf[payloadStart+payloadOffset+4:], m.WorkingDirUri)
+	payloadOffset += 4 + len(m.WorkingDirUri)
 
 	// Field 2 (PyModulesUris): repeated variable-length
-	buf = append(buf, byte(2))
-	binary.LittleEndian.PutUint16(temp[:2], uint16(offset)) // offset of PyModulesUris
-	buf = append(buf, temp[:2]...)
-	totalLen := 0
+	binary.LittleEndian.PutUint32(buf[tableStart+4:], uint32(payloadStart+payloadOffset))
+	count = len(m.PyModulesUris)
+	binary.LittleEndian.PutUint32(buf[payloadStart+payloadOffset:], uint32(count))
+	currentOffset = payloadStart + payloadOffset + 4
 	for _, item := range m.PyModulesUris {
-		totalLen += 4 + len(item) // 4 bytes for length + (string or bytes) data
+		itemLen := len(item)
+		binary.LittleEndian.PutUint32(buf[currentOffset:], uint32(itemLen))
+		copy(buf[currentOffset+4:], item)
+		currentOffset += 4 + itemLen
 	}
-	binary.LittleEndian.PutUint16(temp[:2], uint16(totalLen))
-	buf = append(buf, temp[:2]...)
-	offset += totalLen
-
-	// === DATA REGION SECTION ===
-
-	// Write string or bytes field (WorkingDirUri)
-	buf = append(buf, []byte(m.WorkingDirUri)...)
-
-	// Write repeated variable-length field (PyModulesUris)
+	payloadOffset += 4 // count
 	for _, item := range m.PyModulesUris {
-		binary.LittleEndian.PutUint32(temp[:4], uint32(len(item)))
-		buf = append(buf, temp[:4]...)
-		buf = append(buf, []byte(item)...)
+		payloadOffset += 4 + len(item)
+	}
+
+	return buf, nil
+}
+
+// UnmarshalSymphonyPublic unmarshals only the public fields (without header)
+func (m *RuntimeEnvUris) UnmarshalSymphonyPublic(data []byte) error {
+	return nil
+}
+
+// UnmarshalSymphonyPrivate unmarshals only the private fields (without header)
+func (m *RuntimeEnvUris) UnmarshalSymphonyPrivate(data []byte) error {
+	payloadOffset := 0
+	_ = payloadOffset
+	dataLen := 0
+	_ = dataLen
+	count := 0
+	_ = count
+	currentOffset := 0
+	_ = currentOffset
+	tableStart := 0
+	_ = tableStart
+
+	// Field 1 (WorkingDirUri): variable-length
+	if len(data) >= tableStart+0+4 {
+		payloadOffset = int(binary.LittleEndian.Uint32(data[tableStart+0:]))
+		if payloadOffset > 0 && len(data) >= payloadOffset+4 {
+			dataLen = int(binary.LittleEndian.Uint32(data[payloadOffset:]))
+			if len(data) >= payloadOffset+4+dataLen {
+				m.WorkingDirUri = string(data[payloadOffset+4 : payloadOffset+4+dataLen])
+			}
+		}
+	}
+
+	// Field 2 (PyModulesUris): repeated variable-length
+	if len(data) >= tableStart+4+4 {
+		payloadOffset = int(binary.LittleEndian.Uint32(data[tableStart+4:]))
+		if payloadOffset > 0 && len(data) >= payloadOffset+4 {
+			count = int(binary.LittleEndian.Uint32(data[payloadOffset:]))
+			m.PyModulesUris = make([]string, 0, count)
+			currentOffset = payloadOffset + 4
+			for i := 0; i < count; i++ {
+				if len(data) >= currentOffset+4 {
+					itemLen := int(binary.LittleEndian.Uint32(data[currentOffset:]))
+					if len(data) >= currentOffset+4+itemLen {
+						m.PyModulesUris = append(m.PyModulesUris, string(data[currentOffset+4:currentOffset+4+itemLen]))
+						currentOffset += 4 + itemLen
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (m *RuntimeEnvUris) MarshalSymphony() ([]byte, error) {
+	size := 0
+	// Public segment:
+	size += 1  // version byte
+	size += 12 // reserved: offset_to_private, service_name, method_name
+	// Private segment:
+	size += 1 // version byte
+	size += 8 // table entries
+	// Field 1 (WorkingDirUri): variable-length payload
+	size += 4 + len(m.WorkingDirUri) // 4 bytes length prefix + data
+	// Field 2 (PyModulesUris): repeated variable-length payload
+	size += 4 // count
+	for _, item := range m.PyModulesUris {
+		size += 4 + len(item) // 4 bytes length prefix + data
+	}
+
+	buf := make([]byte, size)
+
+	dataLen := 0 // avoid no new variables warning
+	_ = dataLen
+	count := 0
+	_ = count
+	currentOffset := 0
+	_ = currentOffset
+
+	// === PUBLIC SEGMENT ===
+	buf[0] = 0x01 // version byte
+
+	// Calculate offset to private segment
+	publicSegmentSize := 13
+
+	// Write reserved header
+	binary.LittleEndian.PutUint32(buf[1:5], uint32(publicSegmentSize)) // offset_to_private
+	binary.LittleEndian.PutUint32(buf[5:9], 0)                         // service_id
+	binary.LittleEndian.PutUint32(buf[9:13], 0)                        // method_id
+
+	// Write public fields
+	publicTableStart := 13
+	publicPayloadStart := publicTableStart + 0
+	publicPayloadOffset := 0
+	_ = publicPayloadStart
+	_ = publicPayloadOffset
+
+	// === PRIVATE SEGMENT ===
+	privateStart := publicSegmentSize
+	buf[privateStart] = 0x01 // version byte
+
+	// Write private fields
+	privateTableStart := privateStart + 1 // 8 bytes table
+	privatePayloadStart := privateTableStart + 8
+	privatePayloadOffset := 0
+	_ = privatePayloadStart
+	_ = privatePayloadOffset
+
+	// Private segment offsets are stored relative to privateStart
+	// Field 1 (WorkingDirUri): variable-length
+	binary.LittleEndian.PutUint32(buf[privateTableStart+0:], uint32((privatePayloadStart+privatePayloadOffset)-privateStart))
+	dataLen = len(m.WorkingDirUri)
+	binary.LittleEndian.PutUint32(buf[privatePayloadStart+privatePayloadOffset:], uint32(dataLen))
+	copy(buf[privatePayloadStart+privatePayloadOffset+4:], m.WorkingDirUri)
+	privatePayloadOffset += 4 + len(m.WorkingDirUri)
+
+	// Field 2 (PyModulesUris): repeated variable-length
+	binary.LittleEndian.PutUint32(buf[privateTableStart+4:], uint32((privatePayloadStart+privatePayloadOffset)-privateStart))
+	count = len(m.PyModulesUris)
+	binary.LittleEndian.PutUint32(buf[privatePayloadStart+privatePayloadOffset:], uint32(count))
+	currentOffset = privatePayloadStart + privatePayloadOffset + 4
+	for _, item := range m.PyModulesUris {
+		itemLen := len(item)
+		binary.LittleEndian.PutUint32(buf[currentOffset:], uint32(itemLen))
+		copy(buf[currentOffset+4:], item)
+		currentOffset += 4 + itemLen
+	}
+	privatePayloadOffset += 4 // count
+	for _, item := range m.PyModulesUris {
+		privatePayloadOffset += 4 + len(item)
 	}
 
 	return buf, nil
 }
 
 func (m *RuntimeEnvUris) UnmarshalSymphony(data []byte) error {
-	// === HEADER PARSING SECTION ===
-	if len(data) < 3 {
-		return fmt.Errorf("data too short for header")
+	if len(data) < 13 {
+		return fmt.Errorf("invalid data: too short")
 	}
-	offset := 0
-	_ = data[offset] // header byte (currently unused)
-	offset++
 
-	fieldOrder := data[offset : offset+2]
-	offset += 2
-
-	// === OFFSET TABLE PARSING SECTION ===
-	type offsetEntry struct{ offset, length uint16 }
-	offsets := map[byte]offsetEntry{}
-	offsetTableSize := 10
-	if len(data) < offset+offsetTableSize {
-		return fmt.Errorf("data too short for offset table")
+	// Validate public segment version
+	if data[0] != 0x01 {
+		return fmt.Errorf("invalid data: wrong public version")
 	}
-	for i := 0; i < 2; i++ {
-		entryOffset := offset + i*5
-		fieldID := data[entryOffset]
-		off := binary.LittleEndian.Uint16(data[entryOffset+1 : entryOffset+3])
-		len := binary.LittleEndian.Uint16(data[entryOffset+3 : entryOffset+5])
-		offsets[fieldID] = offsetEntry{off, len}
+
+	// Read reserved header
+	offsetToPrivate := int(binary.LittleEndian.Uint32(data[1:5]))
+	// service_name := binary.LittleEndian.Uint32(data[5:9])  // not used yet
+	// method_name := binary.LittleEndian.Uint32(data[9:13])  // not used yet
+
+	// Assert private segment exists
+	if offsetToPrivate >= len(data) || data[offsetToPrivate] != 0x01 {
+		return fmt.Errorf("missing private segment")
 	}
-	offset += offsetTableSize
 
-	// === DATA REGION EXTRACTION SECTION ===
-	dataRegion := data[offset:]
-	dataOffset := 0
+	payloadOffset := 0
+	_ = payloadOffset
+	dataLen := 0
+	_ = dataLen
+	count := 0
+	_ = count
+	currentOffset := 0
+	_ = currentOffset
 
-	// === FIELD UNMARSHALING SECTION ===
-	for _, fieldNum := range fieldOrder {
-		switch fieldNum {
-		case 1: // WorkingDirUri
-			// Unmarshal string or []byte field (WorkingDirUri)
-			if entry, ok := offsets[1]; ok {
-				m.WorkingDirUri = string(dataRegion[entry.offset : entry.offset+entry.length])
-				dataOffset += int(entry.length)
+	// === PUBLIC FIELDS ===
+	publicTableStart := 13
+	_ = publicTableStart
+	// === PRIVATE FIELDS ===
+	privateTableStart := offsetToPrivate + 1
+	_ = privateTableStart
+	// Private segment offsets are relative to offsetToPrivate
+	// Field 1 (WorkingDirUri): variable-length
+	if len(data) >= privateTableStart+0+4 {
+		payloadOffset = int(binary.LittleEndian.Uint32(data[privateTableStart+0:]))
+		if payloadOffset > 0 {
+			payloadOffset += offsetToPrivate // convert relative offset to absolute
+		}
+		if payloadOffset > 0 && len(data) >= payloadOffset+4 {
+			dataLen = int(binary.LittleEndian.Uint32(data[payloadOffset:]))
+			if len(data) >= payloadOffset+4+dataLen {
+				m.WorkingDirUri = string(data[payloadOffset+4 : payloadOffset+4+dataLen])
 			}
-		case 2: // PyModulesUris
-			// Unmarshal repeated variable-length field (PyModulesUris)
-			if entry, ok := offsets[2]; ok {
-				m.PyModulesUris = make([]string, 0)
-				fieldData := dataRegion[entry.offset : entry.offset+entry.length]
-				fieldOffset := 0
-				for fieldOffset < len(fieldData) {
-					if fieldOffset+4 > len(fieldData) {
-						return fmt.Errorf("insufficient data for item length")
+		}
+	}
+
+	// Field 2 (PyModulesUris): repeated variable-length
+	if len(data) >= privateTableStart+4+4 {
+		payloadOffset = int(binary.LittleEndian.Uint32(data[privateTableStart+4:]))
+		if payloadOffset > 0 {
+			payloadOffset += offsetToPrivate // convert relative offset to absolute
+		}
+		if payloadOffset > 0 && len(data) >= payloadOffset+4 {
+			count = int(binary.LittleEndian.Uint32(data[payloadOffset:]))
+			m.PyModulesUris = make([]string, 0, count)
+			currentOffset = payloadOffset + 4
+			for i := 0; i < count; i++ {
+				if len(data) >= currentOffset+4 {
+					itemLen := int(binary.LittleEndian.Uint32(data[currentOffset:]))
+					if len(data) >= currentOffset+4+itemLen {
+						m.PyModulesUris = append(m.PyModulesUris, string(data[currentOffset+4:currentOffset+4+itemLen]))
+						currentOffset += 4 + itemLen
 					}
-					itemLen := binary.LittleEndian.Uint32(fieldData[fieldOffset : fieldOffset+4])
-					fieldOffset += 4
-					if itemLen == 0 {
-						m.PyModulesUris = append(m.PyModulesUris, "")
-						continue
-					}
-					if fieldOffset+int(itemLen) > len(fieldData) {
-						return fmt.Errorf("insufficient data for item data")
-					}
-					itemData := fieldData[fieldOffset : fieldOffset+int(itemLen)]
-					fieldOffset += int(itemLen)
-					m.PyModulesUris = append(m.PyModulesUris, string(itemData))
 				}
-				dataOffset += int(entry.length)
+			}
+		}
+	}
+
+	return nil
+}
+
+type RuntimeEnvUrisRaw []byte
+
+func (m RuntimeEnvUrisRaw) MarshalSymphony() ([]byte, error) {
+	return []byte(m), nil
+}
+
+func (m *RuntimeEnvUrisRaw) UnmarshalSymphony(data []byte) error {
+	*m = RuntimeEnvUrisRaw(data)
+	return nil
+}
+
+func (m RuntimeEnvUrisRaw) GetWorkingDirUri() string {
+	// ASSERT: Private field requires complete buffer
+	if len(m) < 5 {
+		panic("private getter called on invalid buffer")
+	}
+	offsetToPrivate := int(binary.LittleEndian.Uint32(m[1:5]))
+	if offsetToPrivate >= len(m) || m[offsetToPrivate] != 0x01 {
+		panic("private getter called on public-only buffer")
+	}
+	// Field 1 (WorkingDirUri): variable-length
+	if len(m) < offsetToPrivate+1+4 {
+		return ""
+	}
+	payloadOffset := int(binary.LittleEndian.Uint32(m[offsetToPrivate+1:]))
+	if payloadOffset == 0 {
+		return ""
+	}
+	payloadOffset += offsetToPrivate // convert relative offset to absolute
+	if len(m) < payloadOffset+4 {
+		return ""
+	}
+	dataLen := int(binary.LittleEndian.Uint32(m[payloadOffset:]))
+	if len(m) < payloadOffset+4+dataLen {
+		return ""
+	}
+	return string(m[payloadOffset+4 : payloadOffset+4+dataLen])
+}
+
+func (m RuntimeEnvUrisRaw) GetPyModulesUris() []string {
+	// ASSERT: Private field requires complete buffer
+	if len(m) < 5 {
+		panic("private getter called on invalid buffer")
+	}
+	offsetToPrivate := int(binary.LittleEndian.Uint32(m[1:5]))
+	if offsetToPrivate >= len(m) || m[offsetToPrivate] != 0x01 {
+		panic("private getter called on public-only buffer")
+	}
+	// Field 2 (PyModulesUris): repeated variable-length
+	if len(m) < offsetToPrivate+5+4 {
+		return nil
+	}
+	payloadOffset := int(binary.LittleEndian.Uint32(m[offsetToPrivate+5:]))
+	if payloadOffset == 0 {
+		return nil
+	}
+	payloadOffset += offsetToPrivate // convert relative offset to absolute
+	if len(m) < payloadOffset+4 {
+		return nil
+	}
+	count := int(binary.LittleEndian.Uint32(m[payloadOffset:]))
+	result := make([]string, count)
+	currentOffset := payloadOffset + 4
+	for i := 0; i < count; i++ {
+		if len(m) < currentOffset+4 {
+			return nil
+		}
+		itemLen := int(binary.LittleEndian.Uint32(m[currentOffset:]))
+		if len(m) < currentOffset+4+itemLen {
+			return nil
+		}
+		result[i] = string(m[currentOffset+4 : currentOffset+4+itemLen])
+		currentOffset += 4 + itemLen
+	}
+	return result
+}
+
+func (m *RuntimeEnvUrisRaw) SetWorkingDirUri(v string) error {
+	// ASSERT: Private field setter requires complete buffer
+	if len(*m) < 5 {
+		panic("private setter called on invalid buffer")
+	}
+	offsetToPrivate := int(binary.LittleEndian.Uint32((*m)[1:5]))
+	if offsetToPrivate >= len(*m) || (*m)[offsetToPrivate] != 0x01 {
+		panic("private setter called on public-only buffer")
+	}
+	// Field 1 (WorkingDirUri): variable-length
+	if len(*m) < offsetToPrivate+1+4 {
+		return fmt.Errorf("buffer too short for table entry")
+	}
+	oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[offsetToPrivate+1:]))
+	if oldPayloadOffset > 0 {
+		oldPayloadOffset += offsetToPrivate // convert relative offset to absolute
+	}
+	var oldDataLen int
+	if oldPayloadOffset > 0 && len(*m) >= oldPayloadOffset+4 {
+		oldDataLen = int(binary.LittleEndian.Uint32((*m)[oldPayloadOffset:]))
+	}
+	newDataLen := len(v)
+	if oldPayloadOffset > 0 && newDataLen <= oldDataLen {
+		// Update in-place (waste space)
+		binary.LittleEndian.PutUint32((*m)[oldPayloadOffset:], uint32(newDataLen))
+		copy((*m)[oldPayloadOffset+4:], v)
+		return nil
+	}
+	// Need to remarshal: unmarshal, update, marshal
+	var temp RuntimeEnvUris
+	if err := temp.UnmarshalSymphony([]byte(*m)); err != nil {
+		return fmt.Errorf("failed to unmarshal: %w", err)
+	}
+	temp.WorkingDirUri = v
+	newData, err := temp.MarshalSymphony()
+	if err != nil {
+		return fmt.Errorf("failed to marshal: %w", err)
+	}
+	*m = RuntimeEnvUrisRaw(newData)
+	return nil
+}
+
+func (m *RuntimeEnvUrisRaw) SetPyModulesUris(v []string) error {
+	// ASSERT: Private field setter requires complete buffer
+	if len(*m) < 5 {
+		panic("private setter called on invalid buffer")
+	}
+	offsetToPrivate := int(binary.LittleEndian.Uint32((*m)[1:5]))
+	if offsetToPrivate >= len(*m) || (*m)[offsetToPrivate] != 0x01 {
+		panic("private setter called on public-only buffer")
+	}
+	// Field 2 (PyModulesUris): repeated variable-length
+	if len(*m) < offsetToPrivate+5+4 {
+		return fmt.Errorf("buffer too short for table entry")
+	}
+	oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[offsetToPrivate+5:]))
+	if oldPayloadOffset > 0 {
+		oldPayloadOffset += offsetToPrivate // convert relative offset to absolute
+	}
+	var oldCount int
+	var oldDataSize int
+	if oldPayloadOffset > 0 && len(*m) >= oldPayloadOffset+4 {
+		oldCount = int(binary.LittleEndian.Uint32((*m)[oldPayloadOffset:]))
+		// Calculate old data size: 4 bytes count + for each item: 4 bytes length + data
+		oldDataSize = 4
+		currentOffset := oldPayloadOffset + 4
+		for i := 0; i < oldCount; i++ {
+			if len(*m) < currentOffset+4 {
+				break
+			}
+			itemLen := int(binary.LittleEndian.Uint32((*m)[currentOffset:]))
+			oldDataSize += 4 + itemLen
+			currentOffset += 4 + itemLen
+		}
+	}
+	newCount := len(v)
+	newDataSize := 4 // count
+	for _, item := range v {
+		newDataSize += 4 + len(item) // 4 bytes length + data
+	}
+	if oldPayloadOffset > 0 && newDataSize <= oldDataSize {
+		// Update in-place (waste space)
+		binary.LittleEndian.PutUint32((*m)[oldPayloadOffset:], uint32(newCount))
+		currentOffset := oldPayloadOffset + 4
+		for _, item := range v {
+			itemLen := len(item)
+			binary.LittleEndian.PutUint32((*m)[currentOffset:], uint32(itemLen))
+			copy((*m)[currentOffset+4:], item)
+			currentOffset += 4 + itemLen
+		}
+		return nil
+	}
+	// Need to remarshal: unmarshal, update, marshal
+	var temp RuntimeEnvUris
+	if err := temp.UnmarshalSymphony([]byte(*m)); err != nil {
+		return fmt.Errorf("failed to unmarshal: %w", err)
+	}
+	temp.PyModulesUris = v
+	newData, err := temp.MarshalSymphony()
+	if err != nil {
+		return fmt.Errorf("failed to marshal: %w", err)
+	}
+	*m = RuntimeEnvUrisRaw(newData)
+	return nil
+}
+
+// MarshalSymphonyPublic marshals only the public fields (without header)
+func (m *RuntimeEnvConfig) MarshalSymphonyPublic() ([]byte, error) {
+	return []byte{}, nil
+}
+
+// MarshalSymphonyPrivate marshals only the private fields (without header)
+func (m *RuntimeEnvConfig) MarshalSymphonyPrivate() ([]byte, error) {
+	size := 0
+	size += 9 // table
+	size += 4 // count for LogFiles
+	for _, item := range m.LogFiles {
+		size += 4 + len(item)
+	}
+	buf := make([]byte, size)
+	dataLen := 0
+	_ = dataLen
+	count := 0
+	_ = count
+	currentOffset := 0
+	_ = currentOffset
+	tableStart := 0
+	payloadStart := tableStart + 9
+	payloadOffset := 0
+	_ = payloadStart
+	_ = payloadOffset
+
+	// Field 1 (SetupTimeoutSeconds): fixed-length (4 bytes)
+	binary.LittleEndian.PutUint32(buf[tableStart+0:], uint32(m.SetupTimeoutSeconds))
+
+	// Field 2 (EagerInstall): fixed-length (1 bytes)
+	if m.EagerInstall {
+		buf[tableStart+4] = 1
+	} else {
+		buf[tableStart+4] = 0
+	}
+
+	// Field 3 (LogFiles): repeated variable-length
+	binary.LittleEndian.PutUint32(buf[tableStart+5:], uint32(payloadStart+payloadOffset))
+	count = len(m.LogFiles)
+	binary.LittleEndian.PutUint32(buf[payloadStart+payloadOffset:], uint32(count))
+	currentOffset = payloadStart + payloadOffset + 4
+	for _, item := range m.LogFiles {
+		itemLen := len(item)
+		binary.LittleEndian.PutUint32(buf[currentOffset:], uint32(itemLen))
+		copy(buf[currentOffset+4:], item)
+		currentOffset += 4 + itemLen
+	}
+	payloadOffset += 4 // count
+	for _, item := range m.LogFiles {
+		payloadOffset += 4 + len(item)
+	}
+
+	return buf, nil
+}
+
+// UnmarshalSymphonyPublic unmarshals only the public fields (without header)
+func (m *RuntimeEnvConfig) UnmarshalSymphonyPublic(data []byte) error {
+	return nil
+}
+
+// UnmarshalSymphonyPrivate unmarshals only the private fields (without header)
+func (m *RuntimeEnvConfig) UnmarshalSymphonyPrivate(data []byte) error {
+	payloadOffset := 0
+	_ = payloadOffset
+	dataLen := 0
+	_ = dataLen
+	count := 0
+	_ = count
+	currentOffset := 0
+	_ = currentOffset
+	tableStart := 0
+	_ = tableStart
+
+	// Field 1 (SetupTimeoutSeconds): fixed-length (4 bytes)
+	if len(data) < tableStart+4 {
+		return fmt.Errorf("invalid data: too short for field")
+	}
+	m.SetupTimeoutSeconds = int32(binary.LittleEndian.Uint32(data[tableStart+0:]))
+
+	// Field 2 (EagerInstall): fixed-length (1 bytes)
+	if len(data) < tableStart+5 {
+		return fmt.Errorf("invalid data: too short for field")
+	}
+	m.EagerInstall = data[tableStart+4] != 0
+
+	// Field 3 (LogFiles): repeated variable-length
+	if len(data) >= tableStart+5+4 {
+		payloadOffset = int(binary.LittleEndian.Uint32(data[tableStart+5:]))
+		if payloadOffset > 0 && len(data) >= payloadOffset+4 {
+			count = int(binary.LittleEndian.Uint32(data[payloadOffset:]))
+			m.LogFiles = make([]string, 0, count)
+			currentOffset = payloadOffset + 4
+			for i := 0; i < count; i++ {
+				if len(data) >= currentOffset+4 {
+					itemLen := int(binary.LittleEndian.Uint32(data[currentOffset:]))
+					if len(data) >= currentOffset+4+itemLen {
+						m.LogFiles = append(m.LogFiles, string(data[currentOffset+4:currentOffset+4+itemLen]))
+						currentOffset += 4 + itemLen
+					}
+				}
 			}
 		}
 	}
@@ -126,129 +557,467 @@ func (m *RuntimeEnvUris) UnmarshalSymphony(data []byte) error {
 }
 
 func (m *RuntimeEnvConfig) MarshalSymphony() ([]byte, error) {
-	// Pre-allocate buffer with estimated size
-	buf := make([]byte, 0, 57)
-	var temp [8]byte // Reusable temp buffer for encoding
+	size := 0
+	// Public segment:
+	size += 1  // version byte
+	size += 12 // reserved: offset_to_private, service_name, method_name
+	// Private segment:
+	size += 1 // version byte
+	size += 9 // table entries
+	// Field 3 (LogFiles): repeated variable-length payload
+	size += 4 // count
+	for _, item := range m.LogFiles {
+		size += 4 + len(item) // 4 bytes length prefix + data
+	}
 
-	// === HEADER SECTION ===
-	buf = append(buf, 0x00) // layout header
-	buf = append(buf, []byte{1, 2, 3}...)
+	buf := make([]byte, size)
 
-	// === OFFSET TABLE SECTION ===
-	offset := 0
+	dataLen := 0 // avoid no new variables warning
+	_ = dataLen
+	count := 0
+	_ = count
+	currentOffset := 0
+	_ = currentOffset
 
-	offset += 4 // SetupTimeoutSeconds
+	// === PUBLIC SEGMENT ===
+	buf[0] = 0x01 // version byte
 
-	offset += 1 // EagerInstall
+	// Calculate offset to private segment
+	publicSegmentSize := 13
+
+	// Write reserved header
+	binary.LittleEndian.PutUint32(buf[1:5], uint32(publicSegmentSize)) // offset_to_private
+	binary.LittleEndian.PutUint32(buf[5:9], 0)                         // service_id
+	binary.LittleEndian.PutUint32(buf[9:13], 0)                        // method_id
+
+	// Write public fields
+	publicTableStart := 13
+	publicPayloadStart := publicTableStart + 0
+	publicPayloadOffset := 0
+	_ = publicPayloadStart
+	_ = publicPayloadOffset
+
+	// === PRIVATE SEGMENT ===
+	privateStart := publicSegmentSize
+	buf[privateStart] = 0x01 // version byte
+
+	// Write private fields
+	privateTableStart := privateStart + 1 // 9 bytes table
+	privatePayloadStart := privateTableStart + 9
+	privatePayloadOffset := 0
+	_ = privatePayloadStart
+	_ = privatePayloadOffset
+
+	// Private segment offsets are stored relative to privateStart
+	// Field 1 (SetupTimeoutSeconds): fixed-length (4 bytes)
+	binary.LittleEndian.PutUint32(buf[privateTableStart+0:], uint32(m.SetupTimeoutSeconds))
+
+	// Field 2 (EagerInstall): fixed-length (1 bytes)
+	if m.EagerInstall {
+		buf[privateTableStart+4] = 1
+	} else {
+		buf[privateTableStart+4] = 0
+	}
 
 	// Field 3 (LogFiles): repeated variable-length
-	buf = append(buf, byte(3))
-	binary.LittleEndian.PutUint16(temp[:2], uint16(offset)) // offset of LogFiles
-	buf = append(buf, temp[:2]...)
-	totalLen := 0
+	binary.LittleEndian.PutUint32(buf[privateTableStart+5:], uint32((privatePayloadStart+privatePayloadOffset)-privateStart))
+	count = len(m.LogFiles)
+	binary.LittleEndian.PutUint32(buf[privatePayloadStart+privatePayloadOffset:], uint32(count))
+	currentOffset = privatePayloadStart + privatePayloadOffset + 4
 	for _, item := range m.LogFiles {
-		totalLen += 4 + len(item) // 4 bytes for length + (string or bytes) data
+		itemLen := len(item)
+		binary.LittleEndian.PutUint32(buf[currentOffset:], uint32(itemLen))
+		copy(buf[currentOffset+4:], item)
+		currentOffset += 4 + itemLen
 	}
-	binary.LittleEndian.PutUint16(temp[:2], uint16(totalLen))
-	buf = append(buf, temp[:2]...)
-	offset += totalLen
-
-	// === DATA REGION SECTION ===
-
-	// Write fixed field (SetupTimeoutSeconds)
-	binary.LittleEndian.PutUint32(temp[:4], uint32(m.SetupTimeoutSeconds))
-	buf = append(buf, temp[:4]...)
-
-	// Write fixed field (EagerInstall)
-	if m.EagerInstall {
-		buf = append(buf, 1)
-	} else {
-		buf = append(buf, 0)
-	}
-
-	// Write repeated variable-length field (LogFiles)
+	privatePayloadOffset += 4 // count
 	for _, item := range m.LogFiles {
-		binary.LittleEndian.PutUint32(temp[:4], uint32(len(item)))
-		buf = append(buf, temp[:4]...)
-		buf = append(buf, []byte(item)...)
+		privatePayloadOffset += 4 + len(item)
 	}
 
 	return buf, nil
 }
 
 func (m *RuntimeEnvConfig) UnmarshalSymphony(data []byte) error {
-	// === HEADER PARSING SECTION ===
-	if len(data) < 4 {
-		return fmt.Errorf("data too short for header")
+	if len(data) < 13 {
+		return fmt.Errorf("invalid data: too short")
 	}
-	offset := 0
-	_ = data[offset] // header byte (currently unused)
-	offset++
 
-	fieldOrder := data[offset : offset+3]
-	offset += 3
-
-	// === OFFSET TABLE PARSING SECTION ===
-	type offsetEntry struct{ offset, length uint16 }
-	offsets := map[byte]offsetEntry{}
-	offsetTableSize := 5
-	if len(data) < offset+offsetTableSize {
-		return fmt.Errorf("data too short for offset table")
+	// Validate public segment version
+	if data[0] != 0x01 {
+		return fmt.Errorf("invalid data: wrong public version")
 	}
-	for i := 0; i < 1; i++ {
-		entryOffset := offset + i*5
-		fieldID := data[entryOffset]
-		off := binary.LittleEndian.Uint16(data[entryOffset+1 : entryOffset+3])
-		len := binary.LittleEndian.Uint16(data[entryOffset+3 : entryOffset+5])
-		offsets[fieldID] = offsetEntry{off, len}
+
+	// Read reserved header
+	offsetToPrivate := int(binary.LittleEndian.Uint32(data[1:5]))
+	// service_name := binary.LittleEndian.Uint32(data[5:9])  // not used yet
+	// method_name := binary.LittleEndian.Uint32(data[9:13])  // not used yet
+
+	// Assert private segment exists
+	if offsetToPrivate >= len(data) || data[offsetToPrivate] != 0x01 {
+		return fmt.Errorf("missing private segment")
 	}
-	offset += offsetTableSize
 
-	// === DATA REGION EXTRACTION SECTION ===
-	dataRegion := data[offset:]
-	dataOffset := 0
+	payloadOffset := 0
+	_ = payloadOffset
+	dataLen := 0
+	_ = dataLen
+	count := 0
+	_ = count
+	currentOffset := 0
+	_ = currentOffset
 
-	// === FIELD UNMARSHALING SECTION ===
-	for _, fieldNum := range fieldOrder {
-		switch fieldNum {
-		case 1: // SetupTimeoutSeconds
-			// Unmarshal fixed field (SetupTimeoutSeconds)
-			if dataOffset+4 > len(dataRegion) {
-				return fmt.Errorf("insufficient data for fixed field")
-			}
-			m.SetupTimeoutSeconds = int32(binary.LittleEndian.Uint32(dataRegion[dataOffset : dataOffset+4]))
-			dataOffset += 4
-		case 2: // EagerInstall
-			// Unmarshal fixed field (EagerInstall)
-			if dataOffset+1 > len(dataRegion) {
-				return fmt.Errorf("insufficient data for fixed field")
-			}
-			m.EagerInstall = dataRegion[dataOffset] != 0
-			dataOffset += 1
-		case 3: // LogFiles
-			// Unmarshal repeated variable-length field (LogFiles)
-			if entry, ok := offsets[3]; ok {
-				m.LogFiles = make([]string, 0)
-				fieldData := dataRegion[entry.offset : entry.offset+entry.length]
-				fieldOffset := 0
-				for fieldOffset < len(fieldData) {
-					if fieldOffset+4 > len(fieldData) {
-						return fmt.Errorf("insufficient data for item length")
+	// === PUBLIC FIELDS ===
+	publicTableStart := 13
+	_ = publicTableStart
+	// === PRIVATE FIELDS ===
+	privateTableStart := offsetToPrivate + 1
+	_ = privateTableStart
+	// Private segment offsets are relative to offsetToPrivate
+	// Field 1 (SetupTimeoutSeconds): fixed-length (4 bytes)
+	if len(data) < privateTableStart+4 {
+		return fmt.Errorf("invalid data: too short for field")
+	}
+	m.SetupTimeoutSeconds = int32(binary.LittleEndian.Uint32(data[privateTableStart+0:]))
+
+	// Field 2 (EagerInstall): fixed-length (1 bytes)
+	if len(data) < privateTableStart+5 {
+		return fmt.Errorf("invalid data: too short for field")
+	}
+	m.EagerInstall = data[privateTableStart+4] != 0
+
+	// Field 3 (LogFiles): repeated variable-length
+	if len(data) >= privateTableStart+5+4 {
+		payloadOffset = int(binary.LittleEndian.Uint32(data[privateTableStart+5:]))
+		if payloadOffset > 0 {
+			payloadOffset += offsetToPrivate // convert relative offset to absolute
+		}
+		if payloadOffset > 0 && len(data) >= payloadOffset+4 {
+			count = int(binary.LittleEndian.Uint32(data[payloadOffset:]))
+			m.LogFiles = make([]string, 0, count)
+			currentOffset = payloadOffset + 4
+			for i := 0; i < count; i++ {
+				if len(data) >= currentOffset+4 {
+					itemLen := int(binary.LittleEndian.Uint32(data[currentOffset:]))
+					if len(data) >= currentOffset+4+itemLen {
+						m.LogFiles = append(m.LogFiles, string(data[currentOffset+4:currentOffset+4+itemLen]))
+						currentOffset += 4 + itemLen
 					}
-					itemLen := binary.LittleEndian.Uint32(fieldData[fieldOffset : fieldOffset+4])
-					fieldOffset += 4
-					if itemLen == 0 {
-						m.LogFiles = append(m.LogFiles, "")
-						continue
-					}
-					if fieldOffset+int(itemLen) > len(fieldData) {
-						return fmt.Errorf("insufficient data for item data")
-					}
-					itemData := fieldData[fieldOffset : fieldOffset+int(itemLen)]
-					fieldOffset += int(itemLen)
-					m.LogFiles = append(m.LogFiles, string(itemData))
 				}
-				dataOffset += int(entry.length)
+			}
+		}
+	}
+
+	return nil
+}
+
+type RuntimeEnvConfigRaw []byte
+
+func (m RuntimeEnvConfigRaw) MarshalSymphony() ([]byte, error) {
+	return []byte(m), nil
+}
+
+func (m *RuntimeEnvConfigRaw) UnmarshalSymphony(data []byte) error {
+	*m = RuntimeEnvConfigRaw(data)
+	return nil
+}
+
+func (m RuntimeEnvConfigRaw) GetSetupTimeoutSeconds() int32 {
+	// ASSERT: Private field requires complete buffer
+	if len(m) < 5 {
+		panic("private getter called on invalid buffer")
+	}
+	offsetToPrivate := int(binary.LittleEndian.Uint32(m[1:5]))
+	if offsetToPrivate >= len(m) || m[offsetToPrivate] != 0x01 {
+		panic("private getter called on public-only buffer")
+	}
+	// Field 1 (SetupTimeoutSeconds): fixed-length (4 bytes)
+	if len(m) < offsetToPrivate+1+4 {
+		return 0
+	}
+	return int32(binary.LittleEndian.Uint32(m[offsetToPrivate+1:]))
+}
+
+func (m RuntimeEnvConfigRaw) GetEagerInstall() bool {
+	// ASSERT: Private field requires complete buffer
+	if len(m) < 5 {
+		panic("private getter called on invalid buffer")
+	}
+	offsetToPrivate := int(binary.LittleEndian.Uint32(m[1:5]))
+	if offsetToPrivate >= len(m) || m[offsetToPrivate] != 0x01 {
+		panic("private getter called on public-only buffer")
+	}
+	// Field 2 (EagerInstall): fixed-length (1 bytes)
+	if len(m) < offsetToPrivate+5+1 {
+		return false
+	}
+	return m[offsetToPrivate+5] != 0
+}
+
+func (m RuntimeEnvConfigRaw) GetLogFiles() []string {
+	// ASSERT: Private field requires complete buffer
+	if len(m) < 5 {
+		panic("private getter called on invalid buffer")
+	}
+	offsetToPrivate := int(binary.LittleEndian.Uint32(m[1:5]))
+	if offsetToPrivate >= len(m) || m[offsetToPrivate] != 0x01 {
+		panic("private getter called on public-only buffer")
+	}
+	// Field 3 (LogFiles): repeated variable-length
+	if len(m) < offsetToPrivate+6+4 {
+		return nil
+	}
+	payloadOffset := int(binary.LittleEndian.Uint32(m[offsetToPrivate+6:]))
+	if payloadOffset == 0 {
+		return nil
+	}
+	payloadOffset += offsetToPrivate // convert relative offset to absolute
+	if len(m) < payloadOffset+4 {
+		return nil
+	}
+	count := int(binary.LittleEndian.Uint32(m[payloadOffset:]))
+	result := make([]string, count)
+	currentOffset := payloadOffset + 4
+	for i := 0; i < count; i++ {
+		if len(m) < currentOffset+4 {
+			return nil
+		}
+		itemLen := int(binary.LittleEndian.Uint32(m[currentOffset:]))
+		if len(m) < currentOffset+4+itemLen {
+			return nil
+		}
+		result[i] = string(m[currentOffset+4 : currentOffset+4+itemLen])
+		currentOffset += 4 + itemLen
+	}
+	return result
+}
+
+func (m *RuntimeEnvConfigRaw) SetSetupTimeoutSeconds(v int32) error {
+	// ASSERT: Private field setter requires complete buffer
+	if len(*m) < 5 {
+		panic("private setter called on invalid buffer")
+	}
+	offsetToPrivate := int(binary.LittleEndian.Uint32((*m)[1:5]))
+	if offsetToPrivate >= len(*m) || (*m)[offsetToPrivate] != 0x01 {
+		panic("private setter called on public-only buffer")
+	}
+	// Field 1 (SetupTimeoutSeconds): fixed-length (4 bytes)
+	if len(*m) < offsetToPrivate+1+4 {
+		return fmt.Errorf("buffer too short")
+	}
+	binary.LittleEndian.PutUint32((*m)[offsetToPrivate+1:], uint32(v))
+	return nil
+}
+
+func (m *RuntimeEnvConfigRaw) SetEagerInstall(v bool) error {
+	// ASSERT: Private field setter requires complete buffer
+	if len(*m) < 5 {
+		panic("private setter called on invalid buffer")
+	}
+	offsetToPrivate := int(binary.LittleEndian.Uint32((*m)[1:5]))
+	if offsetToPrivate >= len(*m) || (*m)[offsetToPrivate] != 0x01 {
+		panic("private setter called on public-only buffer")
+	}
+	// Field 2 (EagerInstall): fixed-length (1 bytes)
+	if len(*m) < offsetToPrivate+5+1 {
+		return fmt.Errorf("buffer too short")
+	}
+	if v {
+		(*m)[offsetToPrivate+5] = 1
+	} else {
+		(*m)[offsetToPrivate+5] = 0
+	}
+	return nil
+}
+
+func (m *RuntimeEnvConfigRaw) SetLogFiles(v []string) error {
+	// ASSERT: Private field setter requires complete buffer
+	if len(*m) < 5 {
+		panic("private setter called on invalid buffer")
+	}
+	offsetToPrivate := int(binary.LittleEndian.Uint32((*m)[1:5]))
+	if offsetToPrivate >= len(*m) || (*m)[offsetToPrivate] != 0x01 {
+		panic("private setter called on public-only buffer")
+	}
+	// Field 3 (LogFiles): repeated variable-length
+	if len(*m) < offsetToPrivate+6+4 {
+		return fmt.Errorf("buffer too short for table entry")
+	}
+	oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[offsetToPrivate+6:]))
+	if oldPayloadOffset > 0 {
+		oldPayloadOffset += offsetToPrivate // convert relative offset to absolute
+	}
+	var oldCount int
+	var oldDataSize int
+	if oldPayloadOffset > 0 && len(*m) >= oldPayloadOffset+4 {
+		oldCount = int(binary.LittleEndian.Uint32((*m)[oldPayloadOffset:]))
+		// Calculate old data size: 4 bytes count + for each item: 4 bytes length + data
+		oldDataSize = 4
+		currentOffset := oldPayloadOffset + 4
+		for i := 0; i < oldCount; i++ {
+			if len(*m) < currentOffset+4 {
+				break
+			}
+			itemLen := int(binary.LittleEndian.Uint32((*m)[currentOffset:]))
+			oldDataSize += 4 + itemLen
+			currentOffset += 4 + itemLen
+		}
+	}
+	newCount := len(v)
+	newDataSize := 4 // count
+	for _, item := range v {
+		newDataSize += 4 + len(item) // 4 bytes length + data
+	}
+	if oldPayloadOffset > 0 && newDataSize <= oldDataSize {
+		// Update in-place (waste space)
+		binary.LittleEndian.PutUint32((*m)[oldPayloadOffset:], uint32(newCount))
+		currentOffset := oldPayloadOffset + 4
+		for _, item := range v {
+			itemLen := len(item)
+			binary.LittleEndian.PutUint32((*m)[currentOffset:], uint32(itemLen))
+			copy((*m)[currentOffset+4:], item)
+			currentOffset += 4 + itemLen
+		}
+		return nil
+	}
+	// Need to remarshal: unmarshal, update, marshal
+	var temp RuntimeEnvConfig
+	if err := temp.UnmarshalSymphony([]byte(*m)); err != nil {
+		return fmt.Errorf("failed to unmarshal: %w", err)
+	}
+	temp.LogFiles = v
+	newData, err := temp.MarshalSymphony()
+	if err != nil {
+		return fmt.Errorf("failed to marshal: %w", err)
+	}
+	*m = RuntimeEnvConfigRaw(newData)
+	return nil
+}
+
+// MarshalSymphonyPublic marshals only the public fields (without header)
+func (m *RuntimeEnvInfo) MarshalSymphonyPublic() ([]byte, error) {
+	return []byte{}, nil
+}
+
+// MarshalSymphonyPrivate marshals only the private fields (without header)
+func (m *RuntimeEnvInfo) MarshalSymphonyPrivate() ([]byte, error) {
+	size := 0
+	size += 12 // table
+	size += 4 + len(m.SerializedRuntimeEnv)
+	if m.Uris != nil {
+		nested, _ := m.Uris.MarshalSymphony()
+		size += 4 + len(nested)
+	}
+	if m.RuntimeEnvConfig != nil {
+		nested, _ := m.RuntimeEnvConfig.MarshalSymphony()
+		size += 4 + len(nested)
+	}
+	buf := make([]byte, size)
+	dataLen := 0
+	_ = dataLen
+	count := 0
+	_ = count
+	currentOffset := 0
+	_ = currentOffset
+	tableStart := 0
+	payloadStart := tableStart + 12
+	payloadOffset := 0
+	_ = payloadStart
+	_ = payloadOffset
+
+	// Field 1 (SerializedRuntimeEnv): variable-length
+	binary.LittleEndian.PutUint32(buf[tableStart+0:], uint32(payloadStart+payloadOffset))
+	dataLen = len(m.SerializedRuntimeEnv)
+	binary.LittleEndian.PutUint32(buf[payloadStart+payloadOffset:], uint32(dataLen))
+	copy(buf[payloadStart+payloadOffset+4:], m.SerializedRuntimeEnv)
+	payloadOffset += 4 + len(m.SerializedRuntimeEnv)
+
+	// Field 2 (Uris): nested message
+	if m.Uris != nil {
+		binary.LittleEndian.PutUint32(buf[tableStart+4:], uint32(payloadStart+payloadOffset))
+		nestedData, err := m.Uris.MarshalSymphony()
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal nested message: %w", err)
+		}
+		nestedSize := len(nestedData)
+		binary.LittleEndian.PutUint32(buf[payloadStart+payloadOffset:], uint32(nestedSize))
+		copy(buf[payloadStart+payloadOffset+4:], nestedData)
+		payloadOffset += 4 + nestedSize
+	} else {
+		binary.LittleEndian.PutUint32(buf[tableStart+4:], 0)
+	}
+
+	// Field 3 (RuntimeEnvConfig): nested message
+	if m.RuntimeEnvConfig != nil {
+		binary.LittleEndian.PutUint32(buf[tableStart+8:], uint32(payloadStart+payloadOffset))
+		nestedData, err := m.RuntimeEnvConfig.MarshalSymphony()
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal nested message: %w", err)
+		}
+		nestedSize := len(nestedData)
+		binary.LittleEndian.PutUint32(buf[payloadStart+payloadOffset:], uint32(nestedSize))
+		copy(buf[payloadStart+payloadOffset+4:], nestedData)
+		payloadOffset += 4 + nestedSize
+	} else {
+		binary.LittleEndian.PutUint32(buf[tableStart+8:], 0)
+	}
+
+	return buf, nil
+}
+
+// UnmarshalSymphonyPublic unmarshals only the public fields (without header)
+func (m *RuntimeEnvInfo) UnmarshalSymphonyPublic(data []byte) error {
+	return nil
+}
+
+// UnmarshalSymphonyPrivate unmarshals only the private fields (without header)
+func (m *RuntimeEnvInfo) UnmarshalSymphonyPrivate(data []byte) error {
+	payloadOffset := 0
+	_ = payloadOffset
+	dataLen := 0
+	_ = dataLen
+	count := 0
+	_ = count
+	currentOffset := 0
+	_ = currentOffset
+	tableStart := 0
+	_ = tableStart
+
+	// Field 1 (SerializedRuntimeEnv): variable-length
+	if len(data) >= tableStart+0+4 {
+		payloadOffset = int(binary.LittleEndian.Uint32(data[tableStart+0:]))
+		if payloadOffset > 0 && len(data) >= payloadOffset+4 {
+			dataLen = int(binary.LittleEndian.Uint32(data[payloadOffset:]))
+			if len(data) >= payloadOffset+4+dataLen {
+				m.SerializedRuntimeEnv = string(data[payloadOffset+4 : payloadOffset+4+dataLen])
+			}
+		}
+	}
+
+	// Field 2 (Uris): nested message
+	if len(data) >= tableStart+4+4 {
+		payloadOffset = int(binary.LittleEndian.Uint32(data[tableStart+4:]))
+		if payloadOffset > 0 && len(data) >= payloadOffset+4 {
+			dataLen = int(binary.LittleEndian.Uint32(data[payloadOffset:]))
+			if len(data) >= payloadOffset+4+dataLen {
+				m.Uris = &RuntimeEnvUris{}
+				if err := m.Uris.UnmarshalSymphony(data[payloadOffset+4 : payloadOffset+4+dataLen]); err != nil {
+					return fmt.Errorf("failed to unmarshal nested message: %w", err)
+				}
+			}
+		}
+	}
+
+	// Field 3 (RuntimeEnvConfig): nested message
+	if len(data) >= tableStart+8+4 {
+		payloadOffset = int(binary.LittleEndian.Uint32(data[tableStart+8:]))
+		if payloadOffset > 0 && len(data) >= payloadOffset+4 {
+			dataLen = int(binary.LittleEndian.Uint32(data[payloadOffset:]))
+			if len(data) >= payloadOffset+4+dataLen {
+				m.RuntimeEnvConfig = &RuntimeEnvConfig{}
+				if err := m.RuntimeEnvConfig.UnmarshalSymphony(data[payloadOffset+4 : payloadOffset+4+dataLen]); err != nil {
+					return fmt.Errorf("failed to unmarshal nested message: %w", err)
+				}
 			}
 		}
 	}
@@ -257,150 +1026,445 @@ func (m *RuntimeEnvConfig) UnmarshalSymphony(data []byte) error {
 }
 
 func (m *RuntimeEnvInfo) MarshalSymphony() ([]byte, error) {
-	// Pre-allocate buffer with estimated size
-	buf := make([]byte, 0, 223)
-	var temp [8]byte // Reusable temp buffer for encoding
-
-	// === HEADER SECTION ===
-	buf = append(buf, 0x00) // layout header
-	buf = append(buf, []byte{1, 2, 3}...)
-
-	// === PRE-MARSHAL/CACHE SECTION FOR NESTED MESSAGES ===
-
-	var err error
-	cachedSingularMessages := make(map[byte][]byte)
-	// Cache field 2 (Uris): singular message
+	size := 0
+	// Public segment:
+	size += 1  // version byte
+	size += 12 // reserved: offset_to_private, service_name, method_name
+	// Private segment:
+	size += 1  // version byte
+	size += 12 // table entries
+	// Field 1 (SerializedRuntimeEnv): variable-length payload
+	size += 4 + len(m.SerializedRuntimeEnv) // 4 bytes length prefix + data
+	// Field 2 (Uris): nested message payload
 	if m.Uris != nil {
-		cachedSingularMessages[2], err = m.Uris.MarshalSymphony()
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal singular message field Uris: %w", err)
+		nestedSize1 := 0
+		// Public segment:
+		nestedSize1 += 1  // version byte
+		nestedSize1 += 12 // reserved: offset_to_private, service_name, method_name
+		// Private segment:
+		nestedSize1 += 1 // version byte
+		nestedSize1 += 8 // table entries
+		// Field 1 (WorkingDirUri): variable-length payload
+		nestedSize1 += 4 + len(m.Uris.WorkingDirUri) // 4 bytes length prefix + data
+		// Field 2 (PyModulesUris): repeated variable-length payload
+		nestedSize1 += 4 // count
+		for _, item := range m.Uris.PyModulesUris {
+			nestedSize1 += 4 + len(item) // 4 bytes length prefix + data
 		}
-	}
 
-	// Cache field 3 (RuntimeEnvConfig): singular message
+		size += 4 + nestedSize1 // 4 bytes size + message data
+	}
+	// Field 3 (RuntimeEnvConfig): nested message payload
 	if m.RuntimeEnvConfig != nil {
-		cachedSingularMessages[3], err = m.RuntimeEnvConfig.MarshalSymphony()
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal singular message field RuntimeEnvConfig: %w", err)
+		nestedSize1 := 0
+		// Public segment:
+		nestedSize1 += 1  // version byte
+		nestedSize1 += 12 // reserved: offset_to_private, service_name, method_name
+		// Private segment:
+		nestedSize1 += 1 // version byte
+		nestedSize1 += 9 // table entries
+		// Field 3 (LogFiles): repeated variable-length payload
+		nestedSize1 += 4 // count
+		for _, item := range m.RuntimeEnvConfig.LogFiles {
+			nestedSize1 += 4 + len(item) // 4 bytes length prefix + data
 		}
+
+		size += 4 + nestedSize1 // 4 bytes size + message data
 	}
 
-	// === OFFSET TABLE SECTION ===
-	offset := 0
+	buf := make([]byte, size)
 
-	// Field 1 (SerializedRuntimeEnv): string or bytes
-	buf = append(buf, byte(1))
-	binary.LittleEndian.PutUint16(temp[:2], uint16(offset)) // offset of SerializedRuntimeEnv
-	buf = append(buf, temp[:2]...)
-	binary.LittleEndian.PutUint16(temp[:2], uint16(len(m.SerializedRuntimeEnv)))
-	buf = append(buf, temp[:2]...)
-	offset += len(m.SerializedRuntimeEnv)
+	dataLen := 0 // avoid no new variables warning
+	_ = dataLen
+	count := 0
+	_ = count
+	currentOffset := 0
+	_ = currentOffset
+
+	// === PUBLIC SEGMENT ===
+	buf[0] = 0x01 // version byte
+
+	// Calculate offset to private segment
+	publicSegmentSize := 13
+
+	// Write reserved header
+	binary.LittleEndian.PutUint32(buf[1:5], uint32(publicSegmentSize)) // offset_to_private
+	binary.LittleEndian.PutUint32(buf[5:9], 0)                         // service_id
+	binary.LittleEndian.PutUint32(buf[9:13], 0)                        // method_id
+
+	// Write public fields
+	publicTableStart := 13
+	publicPayloadStart := publicTableStart + 0
+	publicPayloadOffset := 0
+	_ = publicPayloadStart
+	_ = publicPayloadOffset
+
+	// === PRIVATE SEGMENT ===
+	privateStart := publicSegmentSize
+	buf[privateStart] = 0x01 // version byte
+
+	// Write private fields
+	privateTableStart := privateStart + 1 // 12 bytes table
+	privatePayloadStart := privateTableStart + 12
+	privatePayloadOffset := 0
+	_ = privatePayloadStart
+	_ = privatePayloadOffset
+
+	// Private segment offsets are stored relative to privateStart
+	// Field 1 (SerializedRuntimeEnv): variable-length
+	binary.LittleEndian.PutUint32(buf[privateTableStart+0:], uint32((privatePayloadStart+privatePayloadOffset)-privateStart))
+	dataLen = len(m.SerializedRuntimeEnv)
+	binary.LittleEndian.PutUint32(buf[privatePayloadStart+privatePayloadOffset:], uint32(dataLen))
+	copy(buf[privatePayloadStart+privatePayloadOffset+4:], m.SerializedRuntimeEnv)
+	privatePayloadOffset += 4 + len(m.SerializedRuntimeEnv)
 
 	// Field 2 (Uris): nested message
-	buf = append(buf, byte(2))
-	binary.LittleEndian.PutUint16(temp[:2], uint16(offset))
-	buf = append(buf, temp[:2]...)
-	binary.LittleEndian.PutUint16(temp[:2], uint16(len(cachedSingularMessages[2])))
-	buf = append(buf, temp[:2]...)
-	offset += len(cachedSingularMessages[2])
+	if m.Uris != nil {
+		binary.LittleEndian.PutUint32(buf[privateTableStart+4:], uint32((privatePayloadStart+privatePayloadOffset)-privateStart))
+		nestedData, err := m.Uris.MarshalSymphony()
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal nested message: %w", err)
+		}
+		nestedSize := len(nestedData)
+		binary.LittleEndian.PutUint32(buf[privatePayloadStart+privatePayloadOffset:], uint32(nestedSize))
+		copy(buf[privatePayloadStart+privatePayloadOffset+4:], nestedData)
+		privatePayloadOffset += 4 + nestedSize
+	} else {
+		binary.LittleEndian.PutUint32(buf[privateTableStart+4:], 0)
+	}
 
 	// Field 3 (RuntimeEnvConfig): nested message
-	buf = append(buf, byte(3))
-	binary.LittleEndian.PutUint16(temp[:2], uint16(offset))
-	buf = append(buf, temp[:2]...)
-	binary.LittleEndian.PutUint16(temp[:2], uint16(len(cachedSingularMessages[3])))
-	buf = append(buf, temp[:2]...)
-	offset += len(cachedSingularMessages[3])
-
-	// === DATA REGION SECTION ===
-
-	// Write string or bytes field (SerializedRuntimeEnv)
-	buf = append(buf, []byte(m.SerializedRuntimeEnv)...)
-
-	// Write nested message field (Uris)
-	buf = append(buf, cachedSingularMessages[2]...)
-
-	// Write nested message field (RuntimeEnvConfig)
-	buf = append(buf, cachedSingularMessages[3]...)
+	if m.RuntimeEnvConfig != nil {
+		binary.LittleEndian.PutUint32(buf[privateTableStart+8:], uint32((privatePayloadStart+privatePayloadOffset)-privateStart))
+		nestedData, err := m.RuntimeEnvConfig.MarshalSymphony()
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal nested message: %w", err)
+		}
+		nestedSize := len(nestedData)
+		binary.LittleEndian.PutUint32(buf[privatePayloadStart+privatePayloadOffset:], uint32(nestedSize))
+		copy(buf[privatePayloadStart+privatePayloadOffset+4:], nestedData)
+		privatePayloadOffset += 4 + nestedSize
+	} else {
+		binary.LittleEndian.PutUint32(buf[privateTableStart+8:], 0)
+	}
 
 	return buf, nil
 }
 
 func (m *RuntimeEnvInfo) UnmarshalSymphony(data []byte) error {
-	// === HEADER PARSING SECTION ===
-	if len(data) < 4 {
-		return fmt.Errorf("data too short for header")
+	if len(data) < 13 {
+		return fmt.Errorf("invalid data: too short")
 	}
-	offset := 0
-	_ = data[offset] // header byte (currently unused)
-	offset++
 
-	fieldOrder := data[offset : offset+3]
-	offset += 3
-
-	// === OFFSET TABLE PARSING SECTION ===
-	type offsetEntry struct{ offset, length uint16 }
-	offsets := map[byte]offsetEntry{}
-	offsetTableSize := 15
-	if len(data) < offset+offsetTableSize {
-		return fmt.Errorf("data too short for offset table")
+	// Validate public segment version
+	if data[0] != 0x01 {
+		return fmt.Errorf("invalid data: wrong public version")
 	}
-	for i := 0; i < 3; i++ {
-		entryOffset := offset + i*5
-		fieldID := data[entryOffset]
-		off := binary.LittleEndian.Uint16(data[entryOffset+1 : entryOffset+3])
-		len := binary.LittleEndian.Uint16(data[entryOffset+3 : entryOffset+5])
-		offsets[fieldID] = offsetEntry{off, len}
+
+	// Read reserved header
+	offsetToPrivate := int(binary.LittleEndian.Uint32(data[1:5]))
+	// service_name := binary.LittleEndian.Uint32(data[5:9])  // not used yet
+	// method_name := binary.LittleEndian.Uint32(data[9:13])  // not used yet
+
+	// Assert private segment exists
+	if offsetToPrivate >= len(data) || data[offsetToPrivate] != 0x01 {
+		return fmt.Errorf("missing private segment")
 	}
-	offset += offsetTableSize
 
-	// === DATA REGION EXTRACTION SECTION ===
-	dataRegion := data[offset:]
-	dataOffset := 0
+	payloadOffset := 0
+	_ = payloadOffset
+	dataLen := 0
+	_ = dataLen
+	count := 0
+	_ = count
+	currentOffset := 0
+	_ = currentOffset
 
-	// === FIELD UNMARSHALING SECTION ===
-	for _, fieldNum := range fieldOrder {
-		switch fieldNum {
-		case 1: // SerializedRuntimeEnv
-			// Unmarshal string or []byte field (SerializedRuntimeEnv)
-			if entry, ok := offsets[1]; ok {
-				m.SerializedRuntimeEnv = string(dataRegion[entry.offset : entry.offset+entry.length])
-				dataOffset += int(entry.length)
-			}
-		case 2: // Uris
-			// Unmarshal nested message field (Uris)
-			if entry, ok := offsets[2]; ok {
-				if entry.length == 0 {
-					m.Uris = nil
-				} else {
-					fieldData := dataRegion[entry.offset : entry.offset+entry.length]
-					if m.Uris == nil {
-						m.Uris = &RuntimeEnvUris{}
-					}
-					if err := m.Uris.UnmarshalSymphony(fieldData); err != nil {
-						return fmt.Errorf("failed to unmarshal singular nested message: %w", err)
-					}
-				}
-				dataOffset += int(entry.length)
-			}
-		case 3: // RuntimeEnvConfig
-			// Unmarshal nested message field (RuntimeEnvConfig)
-			if entry, ok := offsets[3]; ok {
-				if entry.length == 0 {
-					m.RuntimeEnvConfig = nil
-				} else {
-					fieldData := dataRegion[entry.offset : entry.offset+entry.length]
-					if m.RuntimeEnvConfig == nil {
-						m.RuntimeEnvConfig = &RuntimeEnvConfig{}
-					}
-					if err := m.RuntimeEnvConfig.UnmarshalSymphony(fieldData); err != nil {
-						return fmt.Errorf("failed to unmarshal singular nested message: %w", err)
-					}
-				}
-				dataOffset += int(entry.length)
+	// === PUBLIC FIELDS ===
+	publicTableStart := 13
+	_ = publicTableStart
+	// === PRIVATE FIELDS ===
+	privateTableStart := offsetToPrivate + 1
+	_ = privateTableStart
+	// Private segment offsets are relative to offsetToPrivate
+	// Field 1 (SerializedRuntimeEnv): variable-length
+	if len(data) >= privateTableStart+0+4 {
+		payloadOffset = int(binary.LittleEndian.Uint32(data[privateTableStart+0:]))
+		if payloadOffset > 0 {
+			payloadOffset += offsetToPrivate // convert relative offset to absolute
+		}
+		if payloadOffset > 0 && len(data) >= payloadOffset+4 {
+			dataLen = int(binary.LittleEndian.Uint32(data[payloadOffset:]))
+			if len(data) >= payloadOffset+4+dataLen {
+				m.SerializedRuntimeEnv = string(data[payloadOffset+4 : payloadOffset+4+dataLen])
 			}
 		}
 	}
 
+	// Field 2 (Uris): nested message
+	if len(data) >= privateTableStart+4+4 {
+		payloadOffset = int(binary.LittleEndian.Uint32(data[privateTableStart+4:]))
+		if payloadOffset > 0 {
+			payloadOffset += offsetToPrivate // convert relative offset to absolute
+		}
+		if payloadOffset > 0 && len(data) >= payloadOffset+4 {
+			dataLen = int(binary.LittleEndian.Uint32(data[payloadOffset:]))
+			if len(data) >= payloadOffset+4+dataLen {
+				m.Uris = &RuntimeEnvUris{}
+				if err := m.Uris.UnmarshalSymphony(data[payloadOffset+4 : payloadOffset+4+dataLen]); err != nil {
+					return fmt.Errorf("failed to unmarshal nested message: %w", err)
+				}
+			}
+		}
+	}
+
+	// Field 3 (RuntimeEnvConfig): nested message
+	if len(data) >= privateTableStart+8+4 {
+		payloadOffset = int(binary.LittleEndian.Uint32(data[privateTableStart+8:]))
+		if payloadOffset > 0 {
+			payloadOffset += offsetToPrivate // convert relative offset to absolute
+		}
+		if payloadOffset > 0 && len(data) >= payloadOffset+4 {
+			dataLen = int(binary.LittleEndian.Uint32(data[payloadOffset:]))
+			if len(data) >= payloadOffset+4+dataLen {
+				m.RuntimeEnvConfig = &RuntimeEnvConfig{}
+				if err := m.RuntimeEnvConfig.UnmarshalSymphony(data[payloadOffset+4 : payloadOffset+4+dataLen]); err != nil {
+					return fmt.Errorf("failed to unmarshal nested message: %w", err)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+type RuntimeEnvInfoRaw []byte
+
+func (m RuntimeEnvInfoRaw) MarshalSymphony() ([]byte, error) {
+	return []byte(m), nil
+}
+
+func (m *RuntimeEnvInfoRaw) UnmarshalSymphony(data []byte) error {
+	*m = RuntimeEnvInfoRaw(data)
+	return nil
+}
+
+func (m RuntimeEnvInfoRaw) GetSerializedRuntimeEnv() string {
+	// ASSERT: Private field requires complete buffer
+	if len(m) < 5 {
+		panic("private getter called on invalid buffer")
+	}
+	offsetToPrivate := int(binary.LittleEndian.Uint32(m[1:5]))
+	if offsetToPrivate >= len(m) || m[offsetToPrivate] != 0x01 {
+		panic("private getter called on public-only buffer")
+	}
+	// Field 1 (SerializedRuntimeEnv): variable-length
+	if len(m) < offsetToPrivate+1+4 {
+		return ""
+	}
+	payloadOffset := int(binary.LittleEndian.Uint32(m[offsetToPrivate+1:]))
+	if payloadOffset == 0 {
+		return ""
+	}
+	payloadOffset += offsetToPrivate // convert relative offset to absolute
+	if len(m) < payloadOffset+4 {
+		return ""
+	}
+	dataLen := int(binary.LittleEndian.Uint32(m[payloadOffset:]))
+	if len(m) < payloadOffset+4+dataLen {
+		return ""
+	}
+	return string(m[payloadOffset+4 : payloadOffset+4+dataLen])
+}
+
+func (m RuntimeEnvInfoRaw) GetUris() RuntimeEnvUrisRaw {
+	// ASSERT: Private field requires complete buffer
+	if len(m) < 5 {
+		panic("private getter called on invalid buffer")
+	}
+	offsetToPrivate := int(binary.LittleEndian.Uint32(m[1:5]))
+	if offsetToPrivate >= len(m) || m[offsetToPrivate] != 0x01 {
+		panic("private getter called on public-only buffer")
+	}
+	// Field 2 (Uris): nested message
+	if len(m) < offsetToPrivate+5+4 {
+		return nil
+	}
+	payloadOffset := int(binary.LittleEndian.Uint32(m[offsetToPrivate+5:]))
+	if payloadOffset == 0 {
+		return nil
+	}
+	payloadOffset += offsetToPrivate // convert relative offset to absolute
+	if len(m) < payloadOffset+4 {
+		return nil
+	}
+	nestedSize := int(binary.LittleEndian.Uint32(m[payloadOffset:]))
+	if len(m) < payloadOffset+4+nestedSize {
+		return nil
+	}
+	return RuntimeEnvUrisRaw(m[payloadOffset+4 : payloadOffset+4+nestedSize])
+}
+
+func (m RuntimeEnvInfoRaw) GetRuntimeEnvConfig() RuntimeEnvConfigRaw {
+	// ASSERT: Private field requires complete buffer
+	if len(m) < 5 {
+		panic("private getter called on invalid buffer")
+	}
+	offsetToPrivate := int(binary.LittleEndian.Uint32(m[1:5]))
+	if offsetToPrivate >= len(m) || m[offsetToPrivate] != 0x01 {
+		panic("private getter called on public-only buffer")
+	}
+	// Field 3 (RuntimeEnvConfig): nested message
+	if len(m) < offsetToPrivate+9+4 {
+		return nil
+	}
+	payloadOffset := int(binary.LittleEndian.Uint32(m[offsetToPrivate+9:]))
+	if payloadOffset == 0 {
+		return nil
+	}
+	payloadOffset += offsetToPrivate // convert relative offset to absolute
+	if len(m) < payloadOffset+4 {
+		return nil
+	}
+	nestedSize := int(binary.LittleEndian.Uint32(m[payloadOffset:]))
+	if len(m) < payloadOffset+4+nestedSize {
+		return nil
+	}
+	return RuntimeEnvConfigRaw(m[payloadOffset+4 : payloadOffset+4+nestedSize])
+}
+
+func (m *RuntimeEnvInfoRaw) SetSerializedRuntimeEnv(v string) error {
+	// ASSERT: Private field setter requires complete buffer
+	if len(*m) < 5 {
+		panic("private setter called on invalid buffer")
+	}
+	offsetToPrivate := int(binary.LittleEndian.Uint32((*m)[1:5]))
+	if offsetToPrivate >= len(*m) || (*m)[offsetToPrivate] != 0x01 {
+		panic("private setter called on public-only buffer")
+	}
+	// Field 1 (SerializedRuntimeEnv): variable-length
+	if len(*m) < offsetToPrivate+1+4 {
+		return fmt.Errorf("buffer too short for table entry")
+	}
+	oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[offsetToPrivate+1:]))
+	if oldPayloadOffset > 0 {
+		oldPayloadOffset += offsetToPrivate // convert relative offset to absolute
+	}
+	var oldDataLen int
+	if oldPayloadOffset > 0 && len(*m) >= oldPayloadOffset+4 {
+		oldDataLen = int(binary.LittleEndian.Uint32((*m)[oldPayloadOffset:]))
+	}
+	newDataLen := len(v)
+	if oldPayloadOffset > 0 && newDataLen <= oldDataLen {
+		// Update in-place (waste space)
+		binary.LittleEndian.PutUint32((*m)[oldPayloadOffset:], uint32(newDataLen))
+		copy((*m)[oldPayloadOffset+4:], v)
+		return nil
+	}
+	// Need to remarshal: unmarshal, update, marshal
+	var temp RuntimeEnvInfo
+	if err := temp.UnmarshalSymphony([]byte(*m)); err != nil {
+		return fmt.Errorf("failed to unmarshal: %w", err)
+	}
+	temp.SerializedRuntimeEnv = v
+	newData, err := temp.MarshalSymphony()
+	if err != nil {
+		return fmt.Errorf("failed to marshal: %w", err)
+	}
+	*m = RuntimeEnvInfoRaw(newData)
+	return nil
+}
+
+func (m *RuntimeEnvInfoRaw) SetUris(v RuntimeEnvUrisRaw) error {
+	// ASSERT: Private field setter requires complete buffer
+	if len(*m) < 5 {
+		panic("private setter called on invalid buffer")
+	}
+	offsetToPrivate := int(binary.LittleEndian.Uint32((*m)[1:5]))
+	if offsetToPrivate >= len(*m) || (*m)[offsetToPrivate] != 0x01 {
+		panic("private setter called on public-only buffer")
+	}
+	// Field 2 (Uris): nested message
+	if len(*m) < offsetToPrivate+5+4 {
+		return fmt.Errorf("buffer too short for table entry")
+	}
+	oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[offsetToPrivate+5:]))
+	if oldPayloadOffset > 0 {
+		oldPayloadOffset += offsetToPrivate // convert relative offset to absolute
+	}
+	var oldNestedSize int
+	if oldPayloadOffset > 0 && len(*m) >= oldPayloadOffset+4 {
+		oldNestedSize = int(binary.LittleEndian.Uint32((*m)[oldPayloadOffset:]))
+	}
+	newNestedSize := len(v)
+	if oldPayloadOffset > 0 && newNestedSize <= oldNestedSize {
+		// Update in-place (waste space)
+		binary.LittleEndian.PutUint32((*m)[oldPayloadOffset:], uint32(newNestedSize))
+		copy((*m)[oldPayloadOffset+4:], v)
+		return nil
+	}
+	// Need to remarshal: unmarshal, update, marshal
+	var temp RuntimeEnvInfo
+	if err := temp.UnmarshalSymphony([]byte(*m)); err != nil {
+		return fmt.Errorf("failed to unmarshal: %w", err)
+	}
+	if temp.Uris == nil {
+		temp.Uris = &RuntimeEnvUris{}
+	}
+	if err := temp.Uris.UnmarshalSymphony([]byte(v)); err != nil {
+		return fmt.Errorf("failed to unmarshal nested message: %w", err)
+	}
+	newData, err := temp.MarshalSymphony()
+	if err != nil {
+		return fmt.Errorf("failed to marshal: %w", err)
+	}
+	*m = RuntimeEnvInfoRaw(newData)
+	return nil
+}
+
+func (m *RuntimeEnvInfoRaw) SetRuntimeEnvConfig(v RuntimeEnvConfigRaw) error {
+	// ASSERT: Private field setter requires complete buffer
+	if len(*m) < 5 {
+		panic("private setter called on invalid buffer")
+	}
+	offsetToPrivate := int(binary.LittleEndian.Uint32((*m)[1:5]))
+	if offsetToPrivate >= len(*m) || (*m)[offsetToPrivate] != 0x01 {
+		panic("private setter called on public-only buffer")
+	}
+	// Field 3 (RuntimeEnvConfig): nested message
+	if len(*m) < offsetToPrivate+9+4 {
+		return fmt.Errorf("buffer too short for table entry")
+	}
+	oldPayloadOffset := int(binary.LittleEndian.Uint32((*m)[offsetToPrivate+9:]))
+	if oldPayloadOffset > 0 {
+		oldPayloadOffset += offsetToPrivate // convert relative offset to absolute
+	}
+	var oldNestedSize int
+	if oldPayloadOffset > 0 && len(*m) >= oldPayloadOffset+4 {
+		oldNestedSize = int(binary.LittleEndian.Uint32((*m)[oldPayloadOffset:]))
+	}
+	newNestedSize := len(v)
+	if oldPayloadOffset > 0 && newNestedSize <= oldNestedSize {
+		// Update in-place (waste space)
+		binary.LittleEndian.PutUint32((*m)[oldPayloadOffset:], uint32(newNestedSize))
+		copy((*m)[oldPayloadOffset+4:], v)
+		return nil
+	}
+	// Need to remarshal: unmarshal, update, marshal
+	var temp RuntimeEnvInfo
+	if err := temp.UnmarshalSymphony([]byte(*m)); err != nil {
+		return fmt.Errorf("failed to unmarshal: %w", err)
+	}
+	if temp.RuntimeEnvConfig == nil {
+		temp.RuntimeEnvConfig = &RuntimeEnvConfig{}
+	}
+	if err := temp.RuntimeEnvConfig.UnmarshalSymphony([]byte(v)); err != nil {
+		return fmt.Errorf("failed to unmarshal nested message: %w", err)
+	}
+	newData, err := temp.MarshalSymphony()
+	if err != nil {
+		return fmt.Errorf("failed to marshal: %w", err)
+	}
+	*m = RuntimeEnvInfoRaw(newData)
 	return nil
 }

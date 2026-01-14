@@ -3,10 +3,37 @@ package echo
 
 import (
 	"context"
-
 	"github.com/appnet-org/arpc/pkg/rpc"
 	"github.com/appnet-org/arpc/pkg/rpc/element"
 )
+
+// Service IDs
+const (
+	ServiceID_EchoService = 1
+)
+
+// Service name <-> ID mappings
+var serviceNameToID = map[string]uint32{
+	"EchoService": ServiceID_EchoService,
+}
+
+var serviceIDToName = map[uint32]string{
+	ServiceID_EchoService: "EchoService",
+}
+
+// Method IDs for EchoService
+const (
+	EchoService_MethodID_Echo = 1
+)
+
+// Method name <-> ID mappings for EchoService
+var EchoService_methodNameToID = map[string]uint32{
+	"Echo": EchoService_MethodID_Echo,
+}
+
+var EchoService_methodIDToName = map[uint32]string{
+	EchoService_MethodID_Echo: "Echo",
+}
 
 // EchoServiceClient is the client API for EchoService service.
 type EchoServiceClient interface {
@@ -18,6 +45,10 @@ type arpcEchoServiceClient struct {
 }
 
 func NewEchoServiceClient(client *rpc.Client) EchoServiceClient {
+	// Create and register service registry
+	registry := rpc.NewServiceRegistry()
+	registry.RegisterService("EchoService", ServiceID_EchoService, EchoService_methodNameToID)
+	client.SetServiceRegistry(registry)
 	return &arpcEchoServiceClient{client: client}
 }
 
@@ -36,10 +67,12 @@ type EchoServiceServer interface {
 func RegisterEchoServiceServer(s *rpc.Server, srv EchoServiceServer) {
 	s.RegisterService(&rpc.ServiceDesc{
 		ServiceName: "EchoService",
+		ServiceID:   ServiceID_EchoService,
 		ServiceImpl: srv,
-		Methods: map[string]*rpc.MethodDesc{
-			"Echo": {
+		MethodsByID: map[uint32]*rpc.MethodDesc{
+			EchoService_MethodID_Echo: {
 				MethodName: "Echo",
+				MethodID:   EchoService_MethodID_Echo,
 				Handler:    _EchoService_Echo_Handler,
 			},
 		},

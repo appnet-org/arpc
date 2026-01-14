@@ -374,6 +374,13 @@ func generateRemarshalLogic(g *protogen.GeneratedFile, msg *protogen.Message, go
 	if isPublic {
 		// For public fields: unmarshal complete (will only get public fields), update, marshal complete, truncate
 		g.P("    // Need to remarshal: unmarshal, update, marshal, truncate to public-only")
+		// Preserve reserved bytes (serviceID and methodID) from original buffer
+		g.P("    // Preserve reserved bytes (serviceID at bytes 5-9, methodID at bytes 9-13) from original buffer")
+		g.P("    var originalServiceID, originalMethodID uint32")
+		g.P("    if len(*m) >= 13 {")
+		g.P("        originalServiceID = binary.LittleEndian.Uint32((*m)[5:9])")
+		g.P("        originalMethodID = binary.LittleEndian.Uint32((*m)[9:13])")
+		g.P("    }")
 		g.P(fmt.Sprintf("    var temp %s", msgType))
 		g.P("    // Create a fake complete buffer by appending a minimal private segment")
 		g.P("    // Calculate private table size")
@@ -402,6 +409,12 @@ func generateRemarshalLogic(g *protogen.GeneratedFile, msg *protogen.Message, go
 		g.P("    fullData, err := temp.MarshalSymphony()")
 		g.P("    if err != nil {")
 		g.P("        return fmt.Errorf(\"failed to marshal: %w\", err)")
+		g.P("    }")
+		// Restore reserved bytes in the marshaled payload
+		g.P("    // Restore reserved bytes (serviceID and methodID) in the marshaled payload")
+		g.P("    if len(fullData) >= 13 {")
+		g.P("        binary.LittleEndian.PutUint32(fullData[5:9], originalServiceID)")
+		g.P("        binary.LittleEndian.PutUint32(fullData[9:13], originalMethodID)")
 		g.P("    }")
 		g.P("    offsetToPrivate := int(binary.LittleEndian.Uint32(fullData[1:5]))")
 		g.P("    *m = ", msgType, "Raw(fullData[:offsetToPrivate])")
