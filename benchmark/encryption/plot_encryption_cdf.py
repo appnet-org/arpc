@@ -19,15 +19,18 @@ Prerequisites:
     - numpy
 
 Input Files:
-    The script expects timing data files in the 'profile_data/' directory:
-        - encryption_whole_encrypt_times.txt
-        - encryption_whole_decrypt_times.txt
-        - encryption_random_split_encrypt_times.txt
-        - encryption_random_split_decrypt_times.txt
-        - encryption_key_value_split_encrypt_times.txt
-        - encryption_key_value_split_decrypt_times.txt
+    The script expects CSV timing data files in the 'profile_data/' directory:
+        - encryption_whole_encrypt_times.csv
+        - encryption_whole_decrypt_times.csv
+        - encryption_random_split_encrypt_times.csv
+        - encryption_random_split_decrypt_times.csv
+        - encryption_key_value_split_encrypt_times.csv
+        - encryption_key_value_split_decrypt_times.csv
 
-    Each file should contain one timing value (in nanoseconds) per line.
+    CSV format:
+        latency_ns,message_size
+        1234,256
+        ...
 
 Output:
     - encryption_latency_cdf.pdf: A PDF file containing side-by-side CDF plots
@@ -54,18 +57,30 @@ FORMATS = {
 }
 
 def load_timings(filename):
-    """Load timing data from a file in nanoseconds."""
+    """Load timing data from a CSV file in nanoseconds.
+    
+    Expected CSV format:
+        latency_ns,message_size
+        1234,256
+        5678,512
+        ...
+    
+    Returns only the latency values (message_size is ignored).
+    """
     filepath = os.path.join(PROFILE_DATA_DIR, filename)
     timings = []
     
     with open(filepath, "r") as f:
+        header = f.readline()  # Skip CSV header
         for line in f:
             line = line.strip()
             if line:
                 try:
-                    ns = int(line)
+                    # CSV format: latency_ns,message_size
+                    parts = line.split(',')
+                    ns = int(parts[0])
                     timings.append(ns)
-                except ValueError:
+                except (ValueError, IndexError):
                     continue
     
     return np.array(timings)
@@ -147,7 +162,7 @@ def main():
     # Load encrypt timings
     encrypt_timings = {}
     for label, prefix in FORMATS.items():
-        filename = f"{prefix}_encrypt_times.txt"
+        filename = f"{prefix}_encrypt_times.csv"
         print(f"Loading {filename}...")
         try:
             timings = load_timings(filename)
@@ -162,7 +177,7 @@ def main():
     # Load decrypt timings
     decrypt_timings = {}
     for label, prefix in FORMATS.items():
-        filename = f"{prefix}_decrypt_times.txt"
+        filename = f"{prefix}_decrypt_times.csv"
         print(f"Loading {filename}...")
         try:
             timings = load_timings(filename)

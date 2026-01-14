@@ -8,6 +8,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"net/url"
@@ -16,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -38,7 +40,21 @@ var (
 	// Cached GCM objects (matching transport package)
 	publicGCM  cipher.AEAD
 	privateGCM cipher.AEAD
+	// Counter for nonce generation (avoids syscall overhead in benchmarks)
+	nonceCounter uint64
 )
+
+// generateNonceFromCounter fills the nonce buffer with counter-based values.
+// AES-GCM only requires nonces to be unique per key, not random.
+// This avoids syscall overhead from crypto/rand for more accurate benchmarking.
+func generateNonceFromCounter(nonce []byte) {
+	counter := atomic.AddUint64(&nonceCounter, 1)
+	// Clear buffer and write counter (nonce is 12 bytes, counter is 8 bytes)
+	for i := range nonce {
+		nonce[i] = 0
+	}
+	binary.LittleEndian.PutUint64(nonce, counter)
+}
 
 func init() {
 	// Initialize keys (same as in encryption.go)
@@ -205,13 +221,10 @@ func encryptWholeOptimized(plaintext []byte, isPublic bool) ([]byte, error) {
 	nonceSize := gcm.NonceSize()
 	tagSize := gcm.Overhead()
 
-	// Get pooled nonce buffer
+	// Get pooled nonce buffer and generate counter-based nonce (no syscall)
 	nonceBuf := singleNoncePool.Get().(*[]byte)
 	nonce := *nonceBuf
-	if _, err := rand.Read(nonce); err != nil {
-		singleNoncePool.Put(nonceBuf)
-		return nil, fmt.Errorf("failed to generate nonce: %w", err)
-	}
+	generateNonceFromCounter(nonce)
 
 	// Pre-allocate output buffer with exact capacity
 	totalSize := nonceSize + len(plaintext) + tagSize
@@ -291,13 +304,11 @@ func encryptSplitOptimized(publicPart, privatePart []byte) ([]byte, []byte, erro
 	nonceSize := publicGCM.NonceSize() // 12 bytes
 	tagSize := publicGCM.Overhead()    // 16 bytes
 
-	// Get pooled nonce buffer and generate both nonces in one syscall
+	// Get pooled nonce buffer and generate counter-based nonces (no syscall)
 	noncesBuf := doubleNoncePool.Get().(*[]byte)
 	nonces := *noncesBuf
-	if _, err := rand.Read(nonces); err != nil {
-		doubleNoncePool.Put(noncesBuf)
-		return nil, nil, fmt.Errorf("failed to generate nonces: %w", err)
-	}
+	generateNonceFromCounter(nonces[:nonceSize])
+	generateNonceFromCounter(nonces[nonceSize:])
 
 	// Pre-calculate exact sizes
 	pubCipherSize := nonceSize + len(publicPart) + tagSize
@@ -386,6 +397,12 @@ func decryptSplitWithTiming(encryptedPublic, encryptedPrivate []byte) ([]byte, [
 	return pubPlain, privPlain, elapsed.Nanoseconds(), nil
 }
 
+// TimingEntry represents a single timing measurement with associated message size
+type TimingEntry struct {
+	LatencyNs   int64 // Latency in nanoseconds
+	MessageSize int   // Size of message in bytes
+}
+
 // writeTimings writes timing data (in nanoseconds) to a file, one value per line
 func writeTimings(filename string, timings []int64) error {
 	// Create subdirectory for profile data
@@ -408,11 +425,37 @@ func writeTimings(filename string, timings []int64) error {
 	return nil
 }
 
+// writeTimingsWithSize writes timing data with message sizes to a CSV file
+// Format: latency_ns,message_size
+func writeTimingsWithSize(filename string, entries []TimingEntry) error {
+	// Create subdirectory for profile data
+	dir := "profile_data"
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	// Write to file in subdirectory
+	path := filepath.Join(dir, filename)
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	// Write CSV header
+	fmt.Fprintf(f, "latency_ns,message_size\n")
+
+	for _, e := range entries {
+		fmt.Fprintf(f, "%d,%d\n", e.LatencyNs, e.MessageSize)
+	}
+	return nil
+}
+
 // BenchmarkEncryption_Whole measures optimized encryption for whole strings
 // Uses the same optimizations as split: pooled nonce, pre-allocated buffers
 func BenchmarkEncryption_Whole(b *testing.B) {
-	encryptTimings := make([]int64, 0, b.N)
-	decryptTimings := make([]int64, 0, b.N)
+	encryptTimings := make([]TimingEntry, 0, b.N)
+	decryptTimings := make([]TimingEntry, 0, b.N)
 	traceSize := len(traceEntries)
 
 	b.ReportAllocs()
@@ -436,14 +479,14 @@ func BenchmarkEncryption_Whole(b *testing.B) {
 		if err != nil {
 			b.Fatalf("Encryption failed: %v", err)
 		}
-		encryptTimings = append(encryptTimings, encryptTime)
+		encryptTimings = append(encryptTimings, TimingEntry{LatencyNs: encryptTime, MessageSize: size})
 
 		// Decrypt with optimized function
 		_, decryptTime, err := decryptWholeWithTiming(encrypted, true)
 		if err != nil {
 			b.Fatalf("Decryption failed: %v", err)
 		}
-		decryptTimings = append(decryptTimings, decryptTime)
+		decryptTimings = append(decryptTimings, TimingEntry{LatencyNs: decryptTime, MessageSize: size})
 	}
 
 	b.StopTimer()
@@ -454,10 +497,10 @@ func BenchmarkEncryption_Whole(b *testing.B) {
 		b.ReportMetric(msgPerSec, "msg/s")
 	}
 
-	if err := writeTimings("encryption_whole_encrypt_times.txt", encryptTimings); err != nil {
+	if err := writeTimingsWithSize("encryption_whole_encrypt_times.csv", encryptTimings); err != nil {
 		b.Logf("Failed to write encryption timing data: %v", err)
 	}
-	if err := writeTimings("encryption_whole_decrypt_times.txt", decryptTimings); err != nil {
+	if err := writeTimingsWithSize("encryption_whole_decrypt_times.csv", decryptTimings); err != nil {
 		b.Logf("Failed to write decryption timing data: %v", err)
 	}
 
@@ -466,8 +509,8 @@ func BenchmarkEncryption_Whole(b *testing.B) {
 
 // BenchmarkEncryption_RandomSplit measures optimized encryption for randomly split strings
 func BenchmarkEncryption_RandomSplit(b *testing.B) {
-	encryptTimings := make([]int64, 0, b.N)
-	decryptTimings := make([]int64, 0, b.N)
+	encryptTimings := make([]TimingEntry, 0, b.N)
+	decryptTimings := make([]TimingEntry, 0, b.N)
 	traceSize := len(traceEntries)
 
 	b.ReportAllocs()
@@ -506,14 +549,14 @@ func BenchmarkEncryption_RandomSplit(b *testing.B) {
 		if err != nil {
 			b.Fatalf("Encryption failed: %v", err)
 		}
-		encryptTimings = append(encryptTimings, encryptTime)
+		encryptTimings = append(encryptTimings, TimingEntry{LatencyNs: encryptTime, MessageSize: size})
 
 		// Decrypt both parts with optimized function
 		_, _, decryptTime, err := decryptSplitWithTiming(encryptedPublic, encryptedPrivate)
 		if err != nil {
 			b.Fatalf("Decryption failed: %v", err)
 		}
-		decryptTimings = append(decryptTimings, decryptTime)
+		decryptTimings = append(decryptTimings, TimingEntry{LatencyNs: decryptTime, MessageSize: size})
 	}
 
 	b.StopTimer()
@@ -524,10 +567,68 @@ func BenchmarkEncryption_RandomSplit(b *testing.B) {
 		b.ReportMetric(msgPerSec, "msg/s")
 	}
 
-	if err := writeTimings("encryption_random_split_encrypt_times.txt", encryptTimings); err != nil {
+	if err := writeTimingsWithSize("encryption_random_split_encrypt_times.csv", encryptTimings); err != nil {
 		b.Logf("Failed to write encryption timing data: %v", err)
 	}
-	if err := writeTimings("encryption_random_split_decrypt_times.txt", decryptTimings); err != nil {
+	if err := writeTimingsWithSize("encryption_random_split_decrypt_times.csv", decryptTimings); err != nil {
+		b.Logf("Failed to write decryption timing data: %v", err)
+	}
+
+	b.StartTimer()
+}
+
+// BenchmarkEncryption_EqualSplit measures optimized encryption for data split in half
+func BenchmarkEncryption_EqualSplit(b *testing.B) {
+	encryptTimings := make([]TimingEntry, 0, b.N)
+	decryptTimings := make([]TimingEntry, 0, b.N)
+	traceSize := len(traceEntries)
+
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		idx := i % traceSize
+		entry := traceEntries[idx]
+		size := entry.TotalSize
+
+		if size <= 1 {
+			continue // Need at least 2 bytes to split
+		}
+
+		// Generate test data and split in half (excluded from timing)
+		b.StopTimer()
+		data := generateRandomBytes(size)
+		splitPoint := size / 2
+		publicPart := data[:splitPoint]
+		privatePart := data[splitPoint:]
+		b.StartTimer()
+
+		// Encrypt both parts with optimized function
+		encryptedPublic, encryptedPrivate, encryptTime, err := encryptSplitWithTiming(publicPart, privatePart)
+		if err != nil {
+			b.Fatalf("Encryption failed: %v", err)
+		}
+		encryptTimings = append(encryptTimings, TimingEntry{LatencyNs: encryptTime, MessageSize: size})
+
+		// Decrypt both parts with optimized function
+		_, _, decryptTime, err := decryptSplitWithTiming(encryptedPublic, encryptedPrivate)
+		if err != nil {
+			b.Fatalf("Decryption failed: %v", err)
+		}
+		decryptTimings = append(decryptTimings, TimingEntry{LatencyNs: decryptTime, MessageSize: size})
+	}
+
+	b.StopTimer()
+
+	if b.N > 0 {
+		nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+		msgPerSec := 1e9 / nsPerOp
+		b.ReportMetric(msgPerSec, "msg/s")
+	}
+
+	if err := writeTimingsWithSize("encryption_equal_split_encrypt_times.csv", encryptTimings); err != nil {
+		b.Logf("Failed to write encryption timing data: %v", err)
+	}
+	if err := writeTimingsWithSize("encryption_equal_split_decrypt_times.csv", decryptTimings); err != nil {
 		b.Logf("Failed to write decryption timing data: %v", err)
 	}
 
@@ -537,8 +638,8 @@ func BenchmarkEncryption_RandomSplit(b *testing.B) {
 // BenchmarkEncryption_KeyValueSplit measures optimized encryption for key/value split
 // where the key is in one segment (public) and the value is in another segment (private)
 func BenchmarkEncryption_KeyValueSplit(b *testing.B) {
-	encryptTimings := make([]int64, 0, b.N)
-	decryptTimings := make([]int64, 0, b.N)
+	encryptTimings := make([]TimingEntry, 0, b.N)
+	decryptTimings := make([]TimingEntry, 0, b.N)
 	traceSize := len(traceEntries)
 
 	b.ReportAllocs()
@@ -554,6 +655,8 @@ func BenchmarkEncryption_KeyValueSplit(b *testing.B) {
 			continue // Need both key and value to have content
 		}
 
+		totalSize := keySize + valueSize
+
 		// Generate test data for key and value separately (excluded from timing)
 		b.StopTimer()
 		keyData := generateRandomBytes(keySize)
@@ -566,14 +669,14 @@ func BenchmarkEncryption_KeyValueSplit(b *testing.B) {
 		if err != nil {
 			b.Fatalf("Encryption failed: %v", err)
 		}
-		encryptTimings = append(encryptTimings, encryptTime)
+		encryptTimings = append(encryptTimings, TimingEntry{LatencyNs: encryptTime, MessageSize: totalSize})
 
 		// Decrypt both parts with optimized function
 		_, _, decryptTime, err := decryptSplitWithTiming(encryptedKey, encryptedValue)
 		if err != nil {
 			b.Fatalf("Decryption failed: %v", err)
 		}
-		decryptTimings = append(decryptTimings, decryptTime)
+		decryptTimings = append(decryptTimings, TimingEntry{LatencyNs: decryptTime, MessageSize: totalSize})
 	}
 
 	b.StopTimer()
@@ -584,10 +687,10 @@ func BenchmarkEncryption_KeyValueSplit(b *testing.B) {
 		b.ReportMetric(msgPerSec, "msg/s")
 	}
 
-	if err := writeTimings("encryption_key_value_split_encrypt_times.txt", encryptTimings); err != nil {
+	if err := writeTimingsWithSize("encryption_key_value_split_encrypt_times.csv", encryptTimings); err != nil {
 		b.Logf("Failed to write encryption timing data: %v", err)
 	}
-	if err := writeTimings("encryption_key_value_split_decrypt_times.txt", decryptTimings); err != nil {
+	if err := writeTimingsWithSize("encryption_key_value_split_decrypt_times.csv", decryptTimings); err != nil {
 		b.Logf("Failed to write decryption timing data: %v", err)
 	}
 

@@ -9,7 +9,10 @@ Usage:
     python plot_encryption_percentiles.py
 
 Input Files:
-    Same as plot_encryption_cdf.py - timing data files in 'profile_data/' directory.
+    CSV timing data files in 'profile_data/' directory with format:
+        latency_ns,message_size
+        1234,256
+        ...
 
 Output:
     - encryption_latency_percentiles.pdf: Bar chart comparing percentiles
@@ -31,6 +34,7 @@ OUTPUT_FILE = "encryption_latency_percentiles.pdf"
 FORMATS = {
     "Whole": "encryption_whole",
     "Random Split": "encryption_random_split",
+    "Equal Split": "encryption_equal_split",
     "Key-Value Split": "encryption_key_value_split",
 }
 
@@ -40,18 +44,30 @@ PERCENTILE_LABELS = ['P50', 'P75', 'P95', 'P99']
 
 
 def load_timings(filename):
-    """Load timing data from a file in nanoseconds."""
+    """Load timing data from a CSV file in nanoseconds.
+    
+    Expected CSV format:
+        latency_ns,message_size
+        1234,256
+        5678,512
+        ...
+    
+    Returns only the latency values (message_size is ignored).
+    """
     filepath = os.path.join(PROFILE_DATA_DIR, filename)
     timings = []
     
     with open(filepath, "r") as f:
+        header = f.readline()  # Skip CSV header
         for line in f:
             line = line.strip()
             if line:
                 try:
-                    ns = int(line)
+                    # CSV format: latency_ns,message_size
+                    parts = line.split(',')
+                    ns = int(parts[0])
                     timings.append(ns)
-                except ValueError:
+                except (ValueError, IndexError):
                     continue
     
     return np.array(timings)
@@ -188,7 +204,7 @@ def main():
     # Load encrypt timings
     encrypt_timings = {}
     for label, prefix in FORMATS.items():
-        filename = f"{prefix}_encrypt_times.txt"
+        filename = f"{prefix}_encrypt_times.csv"
         try:
             timings = load_timings(filename)
             if len(timings) > 0:
@@ -200,7 +216,7 @@ def main():
     # Load decrypt timings
     decrypt_timings = {}
     for label, prefix in FORMATS.items():
-        filename = f"{prefix}_decrypt_times.txt"
+        filename = f"{prefix}_decrypt_times.csv"
         try:
             timings = load_timings(filename)
             if len(timings) > 0:
