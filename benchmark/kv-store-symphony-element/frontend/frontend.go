@@ -120,8 +120,8 @@ func main() {
 	}
 
 	serializer := &serializer.SymphonySerializer{}
-	client, err := rpc.NewClient(serializer, "130.127.134.12:11000", nil)
-	// client, err := rpc.NewClient(serializer, "kvstore.default.svc.cluster.local:11000", nil)
+	// client, err := rpc.NewClient(serializer, ":11000", nil)
+	client, err := rpc.NewClient(serializer, "kvstore.default.svc.cluster.local:11000", nil)
 	if err != nil {
 		logging.Fatal("Failed to create RPC client", zap.Error(err))
 	}

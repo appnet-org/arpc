@@ -35,13 +35,6 @@ type verdictEntry struct {
 	LastAccess time.Time
 }
 
-// fragmentKey is a composite key for fragment storage
-type fragmentKey struct {
-	ConnKey string
-	RPCID   uint64
-	SeqNum  uint16
-}
-
 // rpcState tracks the state of an RPC's fragment reassembly
 // fragmentInfo stores fragment payload and completion status
 type fragmentInfo struct {
