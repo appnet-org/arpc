@@ -15,8 +15,8 @@ import (
 )
 
 // DataPacketHeaderSize is the size of the DataPacket header in bytes
-// Total: 1+8+2+2+4+2+4+2+4 = 29 bytes
-const DataPacketHeaderSize = 29
+// Total: 1+8+2+2+1+1+4+2+4+2+4 = 31 bytes
+const DataPacketHeaderSize = 31
 
 const (
 	// numShards is the number of shards for partitioning fragment storage
@@ -43,9 +43,16 @@ type fragmentKey struct {
 }
 
 // rpcState tracks the state of an RPC's fragment reassembly
+// fragmentInfo stores fragment payload and completion status
+type fragmentInfo struct {
+	payload       []byte
+	moreFragments bool // true if there are more fragments with the same SeqNumber
+}
+
+// rpcState tracks the state of an RPC's fragment reassembly
 type rpcState struct {
-	mu                     sync.Mutex // Per-RPC mutex for serialization
-	Fragments              map[uint16][]byte
+	mu                     sync.Mutex                         // Per-RPC mutex for serialization
+	Fragments              map[uint16]map[uint8]*fragmentInfo // SeqNumber -> FragmentIndex -> fragmentInfo
 	TotalPackets           uint16
 	PublicSegmentExtracted bool
 	LastSeen               time.Time
@@ -114,7 +121,7 @@ func (s *shard) getOrCreateRPCState(connKey string, rpcID uint64, totalPackets u
 	state, exists := s.rpcStates[connKey][rpcID]
 	if !exists {
 		state = &rpcState{
-			Fragments:              make(map[uint16][]byte),
+			Fragments:              make(map[uint16]map[uint8]*fragmentInfo),
 			TotalPackets:           totalPackets,
 			PublicSegmentExtracted: false,
 			LastSeen:               time.Now(),
@@ -197,9 +204,9 @@ func (pb *PacketBuffer) ProcessPacket(data []byte, src *net.UDPAddr) (*util.Buff
 			DstPort:      dataPacket.DstPort,
 			SrcIP:        dataPacket.SrcIP,
 			SrcPort:      dataPacket.SrcPort,
-			IsFull:       dataPacket.TotalPackets == 1,
-			SeqNumber:    int16(dataPacket.SeqNumber),
-			TotalPackets: dataPacket.TotalPackets,
+			IsFull:       true,
+			SeqNumber:    -1,
+			TotalPackets: 1,
 		}, util.PacketVerdictUnknown, nil
 	}
 
@@ -262,7 +269,14 @@ func (pb *PacketBuffer) addFragmentToBuffer(src *net.UDPAddr, dataPacket *packet
 		// Make a copy of the payload
 		payloadCopy := make([]byte, len(dataPacket.Payload))
 		copy(payloadCopy, dataPacket.Payload)
-		state.Fragments[dataPacket.SeqNumber] = payloadCopy
+		// Initialize map for this SeqNumber if it doesn't exist
+		if state.Fragments[dataPacket.SeqNumber] == nil {
+			state.Fragments[dataPacket.SeqNumber] = make(map[uint8]*fragmentInfo)
+		}
+		state.Fragments[dataPacket.SeqNumber][dataPacket.FragmentIndex] = &fragmentInfo{
+			payload:       payloadCopy,
+			moreFragments: dataPacket.MoreFragments,
+		}
 		state.LastSeen = time.Now()
 		return nil, 0
 	}
@@ -270,35 +284,98 @@ func (pb *PacketBuffer) addFragmentToBuffer(src *net.UDPAddr, dataPacket *packet
 	// Make a copy of the payload
 	payloadCopy := make([]byte, len(dataPacket.Payload))
 	copy(payloadCopy, dataPacket.Payload)
-	state.Fragments[dataPacket.SeqNumber] = payloadCopy
+	// Initialize map for this SeqNumber if it doesn't exist
+	if state.Fragments[dataPacket.SeqNumber] == nil {
+		state.Fragments[dataPacket.SeqNumber] = make(map[uint8]*fragmentInfo)
+	}
+	state.Fragments[dataPacket.SeqNumber][dataPacket.FragmentIndex] = &fragmentInfo{
+		payload:       payloadCopy,
+		moreFragments: dataPacket.MoreFragments,
+	}
 	state.LastSeen = time.Now()
 
 	// Check if we have enough data to cover the public segment
-	fragments := state.Fragments
+	fragments := state.Fragments // map[uint16]map[uint8]*fragmentInfo
 
-	// Check if first packet exists and get offsetToPrivate
-	firstPacketPayload, hasFirstPacket := fragments[0]
-	if !hasFirstPacket {
+	// Check if first packet exists (SeqNumber=0, FragmentIndex=0) and get offsetToPrivate
+	seq0Fragments, hasSeq0 := fragments[0]
+	if !hasSeq0 || seq0Fragments == nil {
+		return nil, 0
+	}
+	firstFragmentInfo, hasFirstFragment := seq0Fragments[0]
+	if !hasFirstFragment || firstFragmentInfo == nil {
 		return nil, 0
 	}
 
-	offsetPrivate := offsetToPrivate(firstPacketPayload)
+	offsetPrivate := offsetToPrivate(firstFragmentInfo.payload)
 
 	// Check if we have contiguous data from fragment 0 up to the offset
+	// We need to iterate through SeqNumbers and FragmentIndexes in order
 	cumulativeSize := 0
 	seqNum := uint16(0)
 	for cumulativeSize < offsetPrivate {
-		fragmentPayload, hasFragment := fragments[seqNum]
-		if !hasFragment {
+		seqFragments, hasSeq := fragments[seqNum]
+		if !hasSeq || seqFragments == nil || len(seqFragments) == 0 {
 			// Missing fragment means we don't have contiguous data yet
 			return nil, 0
 		}
-		cumulativeSize += len(fragmentPayload)
+
+		// For this SeqNumber, we need to check if we have all fragments from 0 to the last one
+		// Find the maximum FragmentIndex for this SeqNumber where MoreFragments=false
+		// If no fragment has MoreFragments=false, find the maximum FragmentIndex we have
+		maxFragIdx := uint8(0)
+		hasLastFragment := false
+		for fragIdx, fragInfo := range seqFragments {
+			if fragIdx > maxFragIdx {
+				maxFragIdx = fragIdx
+			}
+			if !fragInfo.moreFragments {
+				hasLastFragment = true
+				if fragIdx > maxFragIdx {
+					maxFragIdx = fragIdx
+				}
+			}
+		}
+
+		// If we don't have the last fragment yet, we need to wait for more fragments
+		// (unless we already have enough data)
+		if !hasLastFragment && maxFragIdx < 255 {
+			// We might be missing fragments, wait for more
+			// But if we already have enough cumulative size, we can proceed
+			tempSize := 0
+			for fragIdx := uint8(0); fragIdx <= maxFragIdx; fragIdx++ {
+				if fragInfo, exists := seqFragments[fragIdx]; exists {
+					tempSize += len(fragInfo.payload)
+				} else {
+					// Missing fragment, need to wait
+					return nil, 0
+				}
+			}
+			if tempSize < offsetPrivate-cumulativeSize {
+				// We don't have enough data from this SeqNumber yet
+				return nil, 0
+			}
+		}
+
+		// Check if we have all fragments from 0 to maxFragIdx
+		for fragIdx := uint8(0); fragIdx <= maxFragIdx; fragIdx++ {
+			fragInfo, hasFragment := seqFragments[fragIdx]
+			if !hasFragment || fragInfo == nil {
+				// Missing fragment means we don't have contiguous data yet
+				return nil, 0
+			}
+			cumulativeSize += len(fragInfo.payload)
+			if cumulativeSize >= offsetPrivate {
+				// We have enough data, break out of both loops
+				goto reassemble
+			}
+		}
 		seqNum++
 	}
 
+reassemble:
 	// lastUsedSeqNum is the last sequence number used
-	lastUsedSeqNum := seqNum - 1
+	lastUsedSeqNum := seqNum
 
 	// We have enough contiguous data - reassemble the public segment
 	// Use buffer pool if available, otherwise allocate
@@ -306,11 +383,35 @@ func (pb *PacketBuffer) addFragmentToBuffer(src *net.UDPAddr, dataPacket *packet
 	cumulativeSize = 0
 	seqNum = 0
 	for cumulativeSize < offsetPrivate {
-		fragmentPayload := fragments[seqNum]
-		publicSegment = append(publicSegment, fragmentPayload...)
-		cumulativeSize += len(fragmentPayload)
+		seqFragments := fragments[seqNum]
+		if seqFragments == nil {
+			break
+		}
+
+		// Find the maximum FragmentIndex for this SeqNumber
+		maxFragIdx := uint8(0)
+		for fragIdx := range seqFragments {
+			if fragIdx > maxFragIdx {
+				maxFragIdx = fragIdx
+			}
+		}
+
+		// Append all fragments from this SeqNumber in FragmentIndex order
+		for fragIdx := uint8(0); fragIdx <= maxFragIdx; fragIdx++ {
+			fragInfo, hasFragment := seqFragments[fragIdx]
+			if !hasFragment || fragInfo == nil {
+				break
+			}
+			publicSegment = append(publicSegment, fragInfo.payload...)
+			cumulativeSize += len(fragInfo.payload)
+			if cumulativeSize >= offsetPrivate {
+				// We have enough data, break out of all loops
+				goto done
+			}
+		}
 		seqNum++
 	}
+done:
 
 	// Mark that public segment has been extracted
 	state.PublicSegmentExtracted = true
@@ -406,7 +507,13 @@ func (pb *PacketBuffer) ProcessRemainingFragments(connKey string, rpcID uint64, 
 	state.mu.Lock()
 	defer state.mu.Unlock()
 
-	if len(state.Fragments) == 0 {
+	// Count total fragments
+	totalFragmentCount := 0
+	for _, seqFragments := range state.Fragments {
+		totalFragmentCount += len(seqFragments)
+	}
+
+	if totalFragmentCount == 0 {
 		return nil
 	}
 
@@ -416,36 +523,46 @@ func (pb *PacketBuffer) ProcessRemainingFragments(connKey string, rpcID uint64, 
 	}
 
 	// Create BufferedPacket for each remaining fragment
-	result := make([]*util.BufferedPacket, 0, len(state.Fragments))
+	result := make([]*util.BufferedPacket, 0, totalFragmentCount)
 	seqNumsToDelete := make([]uint16, 0, len(state.Fragments))
 
-	for seqNum, payload := range state.Fragments {
-		// Make a copy of the payload
-		payloadCopy := make([]byte, len(payload))
-		copy(payloadCopy, payload)
-
-		bufferedPacket := &util.BufferedPacket{
-			Payload:      payloadCopy,
-			Source:       metadata.Source,
-			Peer:         metadata.Peer,
-			PacketType:   packetType,
-			RPCID:        rpcID,
-			DstIP:        metadata.DstIP,
-			DstPort:      metadata.DstPort,
-			SrcIP:        metadata.SrcIP,
-			SrcPort:      metadata.SrcPort,
-			IsFull:       false,
-			SeqNumber:    int16(seqNum),
-			TotalPackets: totalPackets,
+	for seqNum, seqFragments := range state.Fragments {
+		if seqFragments == nil {
+			continue
 		}
-		result = append(result, bufferedPacket)
-		seqNumsToDelete = append(seqNumsToDelete, seqNum)
+		// Process all fragments for this SeqNumber
+		for fragIdx, fragInfo := range seqFragments {
+			if fragInfo == nil {
+				continue
+			}
+			// Make a copy of the payload
+			payloadCopy := make([]byte, len(fragInfo.payload))
+			copy(payloadCopy, fragInfo.payload)
 
-		logging.Debug("Processing remaining fragment",
-			zap.String("connKey", connKey),
-			zap.Uint64("rpcID", rpcID),
-			zap.Uint16("seqNum", seqNum),
-			zap.String("verdict", entry.Verdict.String()))
+			bufferedPacket := &util.BufferedPacket{
+				Payload:      payloadCopy,
+				Source:       metadata.Source,
+				Peer:         metadata.Peer,
+				PacketType:   packetType,
+				RPCID:        rpcID,
+				DstIP:        metadata.DstIP,
+				DstPort:      metadata.DstPort,
+				SrcIP:        metadata.SrcIP,
+				SrcPort:      metadata.SrcPort,
+				IsFull:       false,
+				SeqNumber:    int16(seqNum),
+				TotalPackets: totalPackets,
+			}
+			result = append(result, bufferedPacket)
+
+			logging.Debug("Processing remaining fragment",
+				zap.String("connKey", connKey),
+				zap.Uint64("rpcID", rpcID),
+				zap.Uint16("seqNum", seqNum),
+				zap.Uint8("fragIdx", fragIdx),
+				zap.String("verdict", entry.Verdict.String()))
+		}
+		seqNumsToDelete = append(seqNumsToDelete, seqNum)
 	}
 
 	// Remove processed fragments from buffer
@@ -555,7 +672,13 @@ func (pb *PacketBuffer) GetStats() map[string]any {
 		for _, rpcStates := range shard.rpcStates {
 			for _, state := range rpcStates {
 				state.mu.Lock()
-				stats["totalFragments"] = stats["totalFragments"].(int) + len(state.Fragments)
+				fragmentCount := 0
+				for _, seqFragments := range state.Fragments {
+					if seqFragments != nil {
+						fragmentCount += len(seqFragments)
+					}
+				}
+				stats["totalFragments"] = stats["totalFragments"].(int) + fragmentCount
 				state.mu.Unlock()
 			}
 		}
@@ -601,15 +724,17 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPa
 
 		codec := &packet.DataPacketCodec{}
 		singlePacket := &packet.DataPacket{
-			PacketTypeID: packet.PacketTypeID(uint8(bufferedPacket.PacketType)),
-			RPCID:        bufferedPacket.RPCID,
-			TotalPackets: bufferedPacket.TotalPackets,
-			SeqNumber:    seqNum,
-			DstIP:        bufferedPacket.DstIP,
-			DstPort:      bufferedPacket.DstPort,
-			SrcIP:        bufferedPacket.SrcIP,
-			SrcPort:      bufferedPacket.SrcPort,
-			Payload:      completePayload,
+			PacketTypeID:  packet.PacketTypeID(uint8(bufferedPacket.PacketType)),
+			RPCID:         bufferedPacket.RPCID,
+			TotalPackets:  bufferedPacket.TotalPackets,
+			SeqNumber:     seqNum,
+			MoreFragments: false,
+			FragmentIndex: 0,
+			DstIP:         bufferedPacket.DstIP,
+			DstPort:       bufferedPacket.DstPort,
+			SrcIP:         bufferedPacket.SrcIP,
+			SrcPort:       bufferedPacket.SrcPort,
+			Payload:       completePayload,
 		}
 
 		serialized, err := codec.Serialize(singlePacket, nil)
@@ -631,20 +756,175 @@ func (pb *PacketBuffer) FragmentPacketForForward(bufferedPacket *util.BufferedPa
 	totalfragments := uint16((len(completePayload) + chunkSize - 1) / chunkSize)
 	codec := &packet.DataPacketCodec{}
 	fragments := make([]FragmentedPacket, 0, totalfragments)
+
+	// Check if this is a public segment (SeqNumber == -1) and LastUsedSeqNum is set
+	// If so, we need to pack extra fragments into LastUsedSeqNum to avoid sequence number collisions
+	// LastUsedSeqNum is only set when buffered (SeqNumber == -1), so we can rely on it
+	if bufferedPacket.SeqNumber == -1 {
+		lastUsedSeqNum := bufferedPacket.LastUsedSeqNum
+		availableSeqNums := lastUsedSeqNum + 1 // 0 to LastUsedSeqNum inclusive
+
+		if totalfragments <= availableSeqNums {
+			// Normal case: we have enough sequence numbers, use them normally
+			for i := range int(totalfragments) {
+				start := i * chunkSize
+				end := min(start+chunkSize, len(completePayload))
+
+				fragment := &packet.DataPacket{
+					PacketTypeID:  packet.PacketTypeID(uint8(bufferedPacket.PacketType)),
+					RPCID:         bufferedPacket.RPCID,
+					TotalPackets:  totalfragments,
+					SeqNumber:     uint16(i),
+					MoreFragments: false,
+					FragmentIndex: 0,
+					DstIP:         bufferedPacket.DstIP,
+					DstPort:       bufferedPacket.DstPort,
+					SrcIP:         bufferedPacket.SrcIP,
+					SrcPort:       bufferedPacket.SrcPort,
+					Payload:       completePayload[start:end],
+				}
+
+				serialized, err := codec.Serialize(fragment, nil)
+				if err != nil {
+					logging.Error("Failed to serialize fragment", zap.Error(err))
+					return nil, err
+				}
+
+				fragments = append(fragments, FragmentedPacket{
+					Data:       serialized,
+					Peer:       bufferedPacket.Peer,
+					PacketType: bufferedPacket.PacketType,
+				})
+			}
+		} else {
+			// Need to pack extra fragments into LastUsedSeqNum
+			// Use sequence numbers 0 to LastUsedSeqNum-1 normally (one fragment each)
+			// Pack all remaining fragments into LastUsedSeqNum with FragmentIndex
+			fragmentsAtLastSeq := totalfragments - lastUsedSeqNum
+
+			logging.Debug("Packing extra fragments using MoreFragments and FragmentIndex",
+				zap.Uint64("rpcID", bufferedPacket.RPCID),
+				zap.Uint16("totalFragments", totalfragments),
+				zap.Uint16("lastUsedSeqNum", lastUsedSeqNum),
+				zap.Uint16("availableSeqNums", availableSeqNums),
+				zap.Uint16("fragmentsAtLastSeq", fragmentsAtLastSeq))
+
+			// First, create fragments for sequence numbers 0 to LastUsedSeqNum-1
+			for seqNum := uint16(0); seqNum < lastUsedSeqNum; seqNum++ {
+				start := int(seqNum) * chunkSize
+				end := min(start+chunkSize, len(completePayload))
+
+				fragment := &packet.DataPacket{
+					PacketTypeID:  packet.PacketTypeID(uint8(bufferedPacket.PacketType)),
+					RPCID:         bufferedPacket.RPCID,
+					TotalPackets:  availableSeqNums, // Use LastUsedSeqNum + 1, not totalfragments
+					SeqNumber:     seqNum,
+					MoreFragments: false,
+					FragmentIndex: 0,
+					DstIP:         bufferedPacket.DstIP,
+					DstPort:       bufferedPacket.DstPort,
+					SrcIP:         bufferedPacket.SrcIP,
+					SrcPort:       bufferedPacket.SrcPort,
+					Payload:       completePayload[start:end],
+				}
+
+				serialized, err := codec.Serialize(fragment, nil)
+				if err != nil {
+					logging.Error("Failed to serialize fragment", zap.Error(err))
+					return nil, err
+				}
+
+				fragments = append(fragments, FragmentedPacket{
+					Data:       serialized,
+					Peer:       bufferedPacket.Peer,
+					PacketType: bufferedPacket.PacketType,
+				})
+			}
+
+			// Now pack all remaining fragments into LastUsedSeqNum with FragmentIndex
+			for fragIdx := uint8(0); fragIdx < uint8(fragmentsAtLastSeq); fragIdx++ {
+				// Calculate the actual payload index for this fragment
+				// First (LastUsedSeqNum) fragments go to seq 0..LastUsedSeqNum-1
+				// Remaining fragments go to LastUsedSeqNum with FragmentIndex
+				payloadIndex := int(lastUsedSeqNum) + int(fragIdx)
+				start := payloadIndex * chunkSize
+				end := min(start+chunkSize, len(completePayload))
+
+				// MoreFragments=true for all fragments except the last one
+				moreFragments := fragIdx < uint8(fragmentsAtLastSeq-1)
+
+				if moreFragments {
+					logging.Debug("Using MoreFragments=true to pack fragment",
+						zap.Uint64("rpcID", bufferedPacket.RPCID),
+						zap.Uint16("seqNumber", lastUsedSeqNum),
+						zap.Uint8("fragmentIndex", fragIdx),
+						zap.Int("payloadSize", end-start))
+				}
+
+				fragment := &packet.DataPacket{
+					PacketTypeID:  packet.PacketTypeID(uint8(bufferedPacket.PacketType)),
+					RPCID:         bufferedPacket.RPCID,
+					TotalPackets:  availableSeqNums, // Use LastUsedSeqNum + 1, not totalfragments
+					SeqNumber:     lastUsedSeqNum,
+					MoreFragments: moreFragments,
+					FragmentIndex: fragIdx,
+					DstIP:         bufferedPacket.DstIP,
+					DstPort:       bufferedPacket.DstPort,
+					SrcIP:         bufferedPacket.SrcIP,
+					SrcPort:       bufferedPacket.SrcPort,
+					Payload:       completePayload[start:end],
+				}
+
+				serialized, err := codec.Serialize(fragment, nil)
+				if err != nil {
+					logging.Error("Failed to serialize fragment", zap.Error(err))
+					return nil, err
+				}
+
+				fragments = append(fragments, FragmentedPacket{
+					Data:       serialized,
+					Peer:       bufferedPacket.Peer,
+					PacketType: bufferedPacket.PacketType,
+				})
+
+				// Log the last fragment with MoreFragments=false
+				if !moreFragments {
+					logging.Debug("Last fragment at LastUsedSeqNum with MoreFragments=false",
+						zap.Uint64("rpcID", bufferedPacket.RPCID),
+						zap.Uint16("seqNumber", lastUsedSeqNum),
+						zap.Uint8("fragmentIndex", fragIdx),
+						zap.Int("payloadSize", end-start))
+				}
+			}
+		}
+
+		logging.Debug("Fragmented packet for forwarding",
+			zap.Uint64("rpcID", bufferedPacket.RPCID),
+			zap.Uint16("total fragments", totalfragments),
+			zap.Uint16("total sequence numbers", availableSeqNums),
+			zap.Uint16("lastUsedSeqNum", lastUsedSeqNum),
+			zap.Int("payload size", len(completePayload)))
+
+		return fragments, nil
+	}
+
+	// Default behavior: normal fragmentation (for fast-forwarded fragments or when LastUsedSeqNum is not set)
 	for i := range int(totalfragments) {
 		start := i * chunkSize
 		end := min(start+chunkSize, len(completePayload))
 
 		fragment := &packet.DataPacket{
-			PacketTypeID: packet.PacketTypeID(uint8(bufferedPacket.PacketType)),
-			RPCID:        bufferedPacket.RPCID,
-			TotalPackets: totalfragments,
-			SeqNumber:    uint16(i),
-			DstIP:        bufferedPacket.DstIP,
-			DstPort:      bufferedPacket.DstPort,
-			SrcIP:        bufferedPacket.SrcIP,
-			SrcPort:      bufferedPacket.SrcPort,
-			Payload:      completePayload[start:end],
+			PacketTypeID:  packet.PacketTypeID(uint8(bufferedPacket.PacketType)),
+			RPCID:         bufferedPacket.RPCID,
+			TotalPackets:  totalfragments,
+			SeqNumber:     uint16(i),
+			MoreFragments: false,
+			FragmentIndex: 0,
+			DstIP:         bufferedPacket.DstIP,
+			DstPort:       bufferedPacket.DstPort,
+			SrcIP:         bufferedPacket.SrcIP,
+			SrcPort:       bufferedPacket.SrcPort,
+			Payload:       completePayload[start:end],
 		}
 
 		serialized, err := codec.Serialize(fragment, nil)

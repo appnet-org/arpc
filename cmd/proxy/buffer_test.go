@@ -23,15 +23,17 @@ func init() {
 // Helper function to create a DataPacket
 func createDataPacket(rpcID uint64, seqNum uint16, totalPackets uint16, payload []byte) *packet.DataPacket {
 	return &packet.DataPacket{
-		PacketTypeID: packet.PacketTypeRequest.TypeID,
-		RPCID:        rpcID,
-		TotalPackets: totalPackets,
-		SeqNumber:    seqNum,
-		DstIP:        [4]byte{192, 168, 1, 1},
-		DstPort:      8080,
-		SrcIP:        [4]byte{192, 168, 1, 2},
-		SrcPort:      9090,
-		Payload:      payload,
+		PacketTypeID:  packet.PacketTypeRequest.TypeID,
+		RPCID:         rpcID,
+		TotalPackets:  totalPackets,
+		SeqNumber:     seqNum,
+		MoreFragments: false,
+		FragmentIndex: 0,
+		DstIP:         [4]byte{192, 168, 1, 1},
+		DstPort:       8080,
+		SrcIP:         [4]byte{192, 168, 1, 2},
+		SrcPort:       9090,
+		Payload:       payload,
 	}
 }
 
@@ -75,7 +77,7 @@ func TestPacketBuffer_ConcurrentFragmentProcessing(t *testing.T) {
 	privateSize := 100
 	fullPayload := createPayloadWithOffset(publicSize, privateSize)
 
-	// Split payload into fragments (each fragment can hold up to ~1371 bytes)
+	// Split payload into fragments (each fragment can hold up to ~1369 bytes)
 	fragmentSize := 600
 	frag0Len := fragmentSize
 	if frag0Len > len(fullPayload) {
@@ -573,7 +575,7 @@ func TestPacketBuffer_LargeMessageReassembly(t *testing.T) {
 	t.Logf("Offset to private: %d", offsetToPrivate(fullPayload))
 
 	// Fragment the payload like the client does
-	mtu := packet.MaxUDPPayloadSize - DataPacketHeaderSize // 1400 - 29 = 1371
+	mtu := packet.MaxUDPPayloadSize - DataPacketHeaderSize // 1400 - 31 = 1369
 	fragmentPayloads := fragmentPayloadLikeClient(fullPayload, mtu)
 	totalPackets := uint16(len(fragmentPayloads))
 
@@ -585,15 +587,17 @@ func TestPacketBuffer_LargeMessageReassembly(t *testing.T) {
 	serializedFragments := make([][]byte, len(fragmentPayloads))
 	for i, fragPayload := range fragmentPayloads {
 		pkt := &packet.DataPacket{
-			PacketTypeID: packet.PacketTypeRequest.TypeID,
-			RPCID:        rpcID,
-			TotalPackets: totalPackets,
-			SeqNumber:    uint16(i),
-			DstIP:        [4]byte{192, 168, 1, 1},
-			DstPort:      8080,
-			SrcIP:        [4]byte{192, 168, 1, 100},
-			SrcPort:      9090,
-			Payload:      fragPayload,
+			PacketTypeID:  packet.PacketTypeRequest.TypeID,
+			RPCID:         rpcID,
+			TotalPackets:  totalPackets,
+			SeqNumber:     uint16(i),
+			MoreFragments: false,
+			FragmentIndex: 0,
+			DstIP:         [4]byte{192, 168, 1, 1},
+			DstPort:       8080,
+			SrcIP:         [4]byte{192, 168, 1, 100},
+			SrcPort:       9090,
+			Payload:       fragPayload,
 		}
 		data, err := codec.Serialize(pkt, nil)
 		if err != nil {
@@ -691,15 +695,17 @@ func TestPacketBuffer_LargeMessageFragmentsOutOfOrder(t *testing.T) {
 	serializedFragments := make([][]byte, len(fragmentPayloads))
 	for i, fragPayload := range fragmentPayloads {
 		pkt := &packet.DataPacket{
-			PacketTypeID: packet.PacketTypeRequest.TypeID,
-			RPCID:        rpcID,
-			TotalPackets: totalPackets,
-			SeqNumber:    uint16(i),
-			DstIP:        [4]byte{192, 168, 1, 1},
-			DstPort:      8080,
-			SrcIP:        [4]byte{192, 168, 1, 101},
-			SrcPort:      9090,
-			Payload:      fragPayload,
+			PacketTypeID:  packet.PacketTypeRequest.TypeID,
+			RPCID:         rpcID,
+			TotalPackets:  totalPackets,
+			SeqNumber:     uint16(i),
+			MoreFragments: false,
+			FragmentIndex: 0,
+			DstIP:         [4]byte{192, 168, 1, 1},
+			DstPort:       8080,
+			SrcIP:         [4]byte{192, 168, 1, 101},
+			SrcPort:       9090,
+			Payload:       fragPayload,
 		}
 		data, err := codec.Serialize(pkt, nil)
 		if err != nil {
@@ -793,15 +799,17 @@ func TestPacketBuffer_LargeMessageConcurrentFragments(t *testing.T) {
 	serializedFragments := make([][]byte, len(fragmentPayloads))
 	for i, fragPayload := range fragmentPayloads {
 		pkt := &packet.DataPacket{
-			PacketTypeID: packet.PacketTypeRequest.TypeID,
-			RPCID:        rpcID,
-			TotalPackets: totalPackets,
-			SeqNumber:    uint16(i),
-			DstIP:        [4]byte{192, 168, 1, 1},
-			DstPort:      8080,
-			SrcIP:        [4]byte{192, 168, 1, 102},
-			SrcPort:      9090,
-			Payload:      fragPayload,
+			PacketTypeID:  packet.PacketTypeRequest.TypeID,
+			RPCID:         rpcID,
+			TotalPackets:  totalPackets,
+			SeqNumber:     uint16(i),
+			MoreFragments: false,
+			FragmentIndex: 0,
+			DstIP:         [4]byte{192, 168, 1, 1},
+			DstPort:       8080,
+			SrcIP:         [4]byte{192, 168, 1, 102},
+			SrcPort:       9090,
+			Payload:       fragPayload,
 		}
 		data, err := codec.Serialize(pkt, nil)
 		if err != nil {
@@ -889,15 +897,17 @@ func TestPacketBuffer_ReassemblyDataIntegrity(t *testing.T) {
 	// Create and process fragment 0
 	codec := &packet.DataPacketCodec{}
 	pkt := &packet.DataPacket{
-		PacketTypeID: packet.PacketTypeRequest.TypeID,
-		RPCID:        rpcID,
-		TotalPackets: totalPackets,
-		SeqNumber:    0,
-		DstIP:        [4]byte{192, 168, 1, 1},
-		DstPort:      8080,
-		SrcIP:        [4]byte{192, 168, 1, 150},
-		SrcPort:      9090,
-		Payload:      fragmentPayloads[0],
+		PacketTypeID:  packet.PacketTypeRequest.TypeID,
+		RPCID:         rpcID,
+		TotalPackets:  totalPackets,
+		SeqNumber:     0,
+		MoreFragments: false,
+		FragmentIndex: 0,
+		DstIP:         [4]byte{192, 168, 1, 1},
+		DstPort:       8080,
+		SrcIP:         [4]byte{192, 168, 1, 150},
+		SrcPort:       9090,
+		Payload:       fragmentPayloads[0],
 	}
 	data, err := codec.Serialize(pkt, nil)
 	if err != nil {
@@ -990,15 +1000,17 @@ func TestPacketBuffer_VeryLargeMessageLike523KB(t *testing.T) {
 	serializedFragments := make([][]byte, len(fragmentPayloads))
 	for i, fragPayload := range fragmentPayloads {
 		pkt := &packet.DataPacket{
-			PacketTypeID: packet.PacketTypeRequest.TypeID,
-			RPCID:        rpcID,
-			TotalPackets: totalPackets,
-			SeqNumber:    uint16(i),
-			DstIP:        [4]byte{192, 168, 1, 1},
-			DstPort:      8080,
-			SrcIP:        [4]byte{192, 168, 1, 200},
-			SrcPort:      9090,
-			Payload:      fragPayload,
+			PacketTypeID:  packet.PacketTypeRequest.TypeID,
+			RPCID:         rpcID,
+			TotalPackets:  totalPackets,
+			SeqNumber:     uint16(i),
+			MoreFragments: false,
+			FragmentIndex: 0,
+			DstIP:         [4]byte{192, 168, 1, 1},
+			DstPort:       8080,
+			SrcIP:         [4]byte{192, 168, 1, 200},
+			SrcPort:       9090,
+			Payload:       fragPayload,
 		}
 		data, err := codec.Serialize(pkt, nil)
 		if err != nil {
@@ -1058,4 +1070,301 @@ func TestPacketBuffer_VeryLargeMessageLike523KB(t *testing.T) {
 	if successCount != len(serializedFragments)-1 {
 		t.Errorf("Not all fragments were fast-forwarded: %d/%d", successCount, len(serializedFragments)-1)
 	}
+}
+
+// TestFragmentPacketForForward_LastUsedSeqNumPacking tests the new fragment packing logic
+// where extra fragments are packed into LastUsedSeqNum using MoreFragments and FragmentIndex
+func TestFragmentPacketForForward_LastUsedSeqNumPacking(t *testing.T) {
+	pb := NewPacketBuffer(5 * time.Second)
+	defer pb.Close()
+
+	src := &net.UDPAddr{IP: net.IPv4(192, 168, 1, 10), Port: 9090}
+	peer := &net.UDPAddr{IP: net.IPv4(192, 168, 1, 1), Port: 8080}
+	rpcID := uint64(99999)
+
+	// Test case 1: Public segment grows from 3 fragments to 5 fragments (LastUsedSeqNum=2)
+	// Expected: seq=0, seq=1 normally, seq=2 with FragmentIndex 0, 1, 2
+	chunkSize := packet.MaxUDPPayloadSize - DataPacketHeaderSize
+	largePayload := make([]byte, chunkSize*5) // Need 5 fragments
+	lastUsedSeqNum := uint16(2)               // Original used seq 0, 1, 2
+
+	bufferedPacket := &util.BufferedPacket{
+		Payload:        largePayload,
+		Source:         src,
+		Peer:           peer,
+		PacketType:     util.PacketTypeRequest,
+		RPCID:          rpcID,
+		DstIP:          [4]byte{192, 168, 1, 1},
+		DstPort:        8080,
+		SrcIP:          [4]byte{192, 168, 1, 10},
+		SrcPort:        9090,
+		IsFull:         false,
+		SeqNumber:      -1, // Public segment
+		TotalPackets:   0,
+		LastUsedSeqNum: lastUsedSeqNum,
+	}
+
+	fragments, err := pb.FragmentPacketForForward(bufferedPacket)
+	if err != nil {
+		t.Fatalf("Error fragmenting packet: %v", err)
+	}
+
+	expectedFragments := 5
+	if len(fragments) != expectedFragments {
+		t.Fatalf("Expected %d fragments, got %d", expectedFragments, len(fragments))
+	}
+
+	// Deserialize and verify fragments
+	codec := &packet.DataPacketCodec{}
+	seq0Count := 0
+	seq1Count := 0
+	seq2Count := 0
+	seq2FragmentIndices := make(map[uint8]bool)
+
+	for i, frag := range fragments {
+		pkt, err := codec.Deserialize(frag.Data)
+		if err != nil {
+			t.Fatalf("Failed to deserialize fragment %d: %v", i, err)
+		}
+
+		dataPkt := pkt.(*packet.DataPacket)
+		t.Logf("Fragment %d: SeqNumber=%d, FragmentIndex=%d, MoreFragments=%v, TotalPackets=%d",
+			i, dataPkt.SeqNumber, dataPkt.FragmentIndex, dataPkt.MoreFragments, dataPkt.TotalPackets)
+
+		// Verify TotalPackets is LastUsedSeqNum + 1, not totalFragments
+		expectedTotalPackets := lastUsedSeqNum + 1
+		if dataPkt.TotalPackets != expectedTotalPackets {
+			t.Errorf("Fragment %d: Expected TotalPackets=%d, got %d", i, expectedTotalPackets, dataPkt.TotalPackets)
+		}
+
+		// Count fragments per sequence number
+		switch dataPkt.SeqNumber {
+		case 0:
+			seq0Count++
+			if dataPkt.FragmentIndex != 0 {
+				t.Errorf("Fragment %d at seq=0 should have FragmentIndex=0, got %d", i, dataPkt.FragmentIndex)
+			}
+			if dataPkt.MoreFragments {
+				t.Errorf("Fragment %d at seq=0 should have MoreFragments=false", i)
+			}
+		case 1:
+			seq1Count++
+			if dataPkt.FragmentIndex != 0 {
+				t.Errorf("Fragment %d at seq=1 should have FragmentIndex=0, got %d", i, dataPkt.FragmentIndex)
+			}
+			if dataPkt.MoreFragments {
+				t.Errorf("Fragment %d at seq=1 should have MoreFragments=false", i)
+			}
+		case 2:
+			seq2Count++
+			seq2FragmentIndices[dataPkt.FragmentIndex] = true
+			// Last fragment at seq=2 should have MoreFragments=false
+			if dataPkt.FragmentIndex == 2 {
+				if dataPkt.MoreFragments {
+					t.Errorf("Fragment %d at seq=2, FragmentIndex=2 should have MoreFragments=false", i)
+				}
+			} else {
+				if !dataPkt.MoreFragments {
+					t.Errorf("Fragment %d at seq=2, FragmentIndex=%d should have MoreFragments=true", i, dataPkt.FragmentIndex)
+				}
+			}
+		default:
+			t.Errorf("Fragment %d: Unexpected SeqNumber=%d, should be 0, 1, or 2", i, dataPkt.SeqNumber)
+		}
+	}
+
+	// Verify distribution
+	if seq0Count != 1 {
+		t.Errorf("Expected 1 fragment at seq=0, got %d", seq0Count)
+	}
+	if seq1Count != 1 {
+		t.Errorf("Expected 1 fragment at seq=1, got %d", seq1Count)
+	}
+	if seq2Count != 3 {
+		t.Errorf("Expected 3 fragments at seq=2, got %d", seq2Count)
+	}
+
+	// Verify FragmentIndex values at seq=2
+	expectedFragmentIndices := map[uint8]bool{0: true, 1: true, 2: true}
+	if len(seq2FragmentIndices) != len(expectedFragmentIndices) {
+		t.Errorf("Expected FragmentIndex values %v at seq=2, got %v", expectedFragmentIndices, seq2FragmentIndices)
+	}
+	for idx := range expectedFragmentIndices {
+		if !seq2FragmentIndices[idx] {
+			t.Errorf("Missing FragmentIndex=%d at seq=2", idx)
+		}
+	}
+
+	t.Log("SUCCESS: Fragment packing with LastUsedSeqNum works correctly")
+}
+
+// TestFragmentPacketForForward_LastUsedSeqNumPacking_EdgeCase tests edge case where LastUsedSeqNum=0
+func TestFragmentPacketForForward_LastUsedSeqNumPacking_EdgeCase(t *testing.T) {
+	pb := NewPacketBuffer(5 * time.Second)
+	defer pb.Close()
+
+	src := &net.UDPAddr{IP: net.IPv4(192, 168, 1, 11), Port: 9090}
+	peer := &net.UDPAddr{IP: net.IPv4(192, 168, 1, 1), Port: 8080}
+	rpcID := uint64(100000)
+
+	// Test case: LastUsedSeqNum=0, but need 3 fragments
+	// Expected: All 3 fragments packed into seq=0 with FragmentIndex 0, 1, 2
+	chunkSize := packet.MaxUDPPayloadSize - DataPacketHeaderSize
+	largePayload := make([]byte, chunkSize*3) // Need 3 fragments
+	lastUsedSeqNum := uint16(0)               // Only seq 0 was used originally
+
+	bufferedPacket := &util.BufferedPacket{
+		Payload:        largePayload,
+		Source:         src,
+		Peer:           peer,
+		PacketType:     util.PacketTypeRequest,
+		RPCID:          rpcID,
+		DstIP:          [4]byte{192, 168, 1, 1},
+		DstPort:        8080,
+		SrcIP:          [4]byte{192, 168, 1, 11},
+		SrcPort:        9090,
+		IsFull:         false,
+		SeqNumber:      -1, // Public segment
+		TotalPackets:   0,
+		LastUsedSeqNum: lastUsedSeqNum,
+	}
+
+	fragments, err := pb.FragmentPacketForForward(bufferedPacket)
+	if err != nil {
+		t.Fatalf("Error fragmenting packet: %v", err)
+	}
+
+	expectedFragments := 3
+	if len(fragments) != expectedFragments {
+		t.Fatalf("Expected %d fragments, got %d", expectedFragments, len(fragments))
+	}
+
+	// Deserialize and verify all fragments are at seq=0
+	codec := &packet.DataPacketCodec{}
+	fragmentIndices := make(map[uint8]bool)
+
+	for i, frag := range fragments {
+		pkt, err := codec.Deserialize(frag.Data)
+		if err != nil {
+			t.Fatalf("Failed to deserialize fragment %d: %v", i, err)
+		}
+
+		dataPkt := pkt.(*packet.DataPacket)
+		t.Logf("Fragment %d: SeqNumber=%d, FragmentIndex=%d, MoreFragments=%v, TotalPackets=%d",
+			i, dataPkt.SeqNumber, dataPkt.FragmentIndex, dataPkt.MoreFragments, dataPkt.TotalPackets)
+
+		// All fragments should be at seq=0
+		if dataPkt.SeqNumber != 0 {
+			t.Errorf("Fragment %d: Expected SeqNumber=0, got %d", i, dataPkt.SeqNumber)
+		}
+
+		// Verify TotalPackets is 1 (LastUsedSeqNum + 1)
+		if dataPkt.TotalPackets != 1 {
+			t.Errorf("Fragment %d: Expected TotalPackets=1, got %d", i, dataPkt.TotalPackets)
+		}
+
+		fragmentIndices[dataPkt.FragmentIndex] = true
+
+		// Last fragment should have MoreFragments=false
+		if dataPkt.FragmentIndex == 2 {
+			if dataPkt.MoreFragments {
+				t.Errorf("Fragment %d: Last fragment should have MoreFragments=false", i)
+			}
+		} else {
+			if !dataPkt.MoreFragments {
+				t.Errorf("Fragment %d: Fragment with FragmentIndex=%d should have MoreFragments=true", i, dataPkt.FragmentIndex)
+			}
+		}
+	}
+
+	// Verify we have FragmentIndex 0, 1, 2
+	expectedIndices := map[uint8]bool{0: true, 1: true, 2: true}
+	if len(fragmentIndices) != len(expectedIndices) {
+		t.Errorf("Expected FragmentIndex values %v, got %v", expectedIndices, fragmentIndices)
+	}
+	for idx := range expectedIndices {
+		if !fragmentIndices[idx] {
+			t.Errorf("Missing FragmentIndex=%d", idx)
+		}
+	}
+
+	t.Log("SUCCESS: Edge case with LastUsedSeqNum=0 works correctly")
+}
+
+// TestFragmentPacketForForward_LastUsedSeqNum_NormalCase tests normal case where fragments fit within LastUsedSeqNum
+func TestFragmentPacketForForward_LastUsedSeqNum_NormalCase(t *testing.T) {
+	pb := NewPacketBuffer(5 * time.Second)
+	defer pb.Close()
+
+	src := &net.UDPAddr{IP: net.IPv4(192, 168, 1, 12), Port: 9090}
+	peer := &net.UDPAddr{IP: net.IPv4(192, 168, 1, 1), Port: 8080}
+	rpcID := uint64(100001)
+
+	// Test case: LastUsedSeqNum=2, but only need 2 fragments
+	// Expected: Normal fragmentation at seq=0, seq=1 (no packing needed)
+	chunkSize := packet.MaxUDPPayloadSize - DataPacketHeaderSize
+	mediumPayload := make([]byte, chunkSize*2) // Need 2 fragments
+	lastUsedSeqNum := uint16(2)                // Have seq 0, 1, 2 available
+
+	bufferedPacket := &util.BufferedPacket{
+		Payload:        mediumPayload,
+		Source:         src,
+		Peer:           peer,
+		PacketType:     util.PacketTypeRequest,
+		RPCID:          rpcID,
+		DstIP:          [4]byte{192, 168, 1, 1},
+		DstPort:        8080,
+		SrcIP:          [4]byte{192, 168, 1, 12},
+		SrcPort:        9090,
+		IsFull:         false,
+		SeqNumber:      -1, // Public segment
+		TotalPackets:   0,
+		LastUsedSeqNum: lastUsedSeqNum,
+	}
+
+	fragments, err := pb.FragmentPacketForForward(bufferedPacket)
+	if err != nil {
+		t.Fatalf("Error fragmenting packet: %v", err)
+	}
+
+	expectedFragments := 2
+	if len(fragments) != expectedFragments {
+		t.Fatalf("Expected %d fragments, got %d", expectedFragments, len(fragments))
+	}
+
+	// Deserialize and verify normal fragmentation (no FragmentIndex packing)
+	codec := &packet.DataPacketCodec{}
+
+	for i, frag := range fragments {
+		pkt, err := codec.Deserialize(frag.Data)
+		if err != nil {
+			t.Fatalf("Failed to deserialize fragment %d: %v", i, err)
+		}
+
+		dataPkt := pkt.(*packet.DataPacket)
+		t.Logf("Fragment %d: SeqNumber=%d, FragmentIndex=%d, MoreFragments=%v, TotalPackets=%d",
+			i, dataPkt.SeqNumber, dataPkt.FragmentIndex, dataPkt.MoreFragments, dataPkt.TotalPackets)
+
+		// Should use normal sequence numbers
+		if dataPkt.SeqNumber != uint16(i) {
+			t.Errorf("Fragment %d: Expected SeqNumber=%d, got %d", i, i, dataPkt.SeqNumber)
+		}
+
+		// FragmentIndex should be 0 (no packing)
+		if dataPkt.FragmentIndex != 0 {
+			t.Errorf("Fragment %d: Expected FragmentIndex=0, got %d", i, dataPkt.FragmentIndex)
+		}
+
+		// MoreFragments should be false (normal fragmentation)
+		if dataPkt.MoreFragments {
+			t.Errorf("Fragment %d: Expected MoreFragments=false, got true", i)
+		}
+
+		// TotalPackets should be totalFragments (not LastUsedSeqNum + 1)
+		if dataPkt.TotalPackets != uint16(expectedFragments) {
+			t.Errorf("Fragment %d: Expected TotalPackets=%d, got %d", i, expectedFragments, dataPkt.TotalPackets)
+		}
+	}
+
+	t.Log("SUCCESS: Normal case without packing works correctly")
 }

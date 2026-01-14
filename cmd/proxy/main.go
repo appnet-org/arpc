@@ -53,9 +53,17 @@ func (c *Config) SetEncryption(key []byte) {
 	if key == nil {
 		c.EnableEncryption = true
 		c.EncryptionKey = transport.DefaultPublicKey
+		// Initialize GCM objects with default keys
+		if err := transport.InitGCMObjects(transport.DefaultPublicKey, transport.DefaultPrivateKey); err != nil {
+			panic(fmt.Sprintf("Failed to initialize encryption: %v", err))
+		}
 	} else {
 		c.EnableEncryption = true
 		c.EncryptionKey = key
+		// Initialize GCM objects with provided public key and default private key
+		if err := transport.InitGCMObjects(key, transport.DefaultPrivateKey); err != nil {
+			panic(fmt.Sprintf("Failed to initialize encryption: %v", err))
+		}
 	}
 }
 
