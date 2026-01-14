@@ -144,8 +144,8 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 				zap.Int("encryptedSize", len(data)))
 		}
 		// Calculate effective MTU (subtract DataPacket header overhead)
-		const dataPacketHeaderSize = 29                                 // 1+8+2+2+4+2+4+2+4 bytes
-		effectiveMTU := packet.MaxUDPPayloadSize - dataPacketHeaderSize // 1400 - 29 = 1371
+		const dataPacketHeaderSize = 31                                 // 1+8+2+2+1+1+4+2+4+2+4 bytes
+		effectiveMTU := packet.MaxUDPPayloadSize - dataPacketHeaderSize // 1400 - 31 = 1369
 
 		// Use FragmentPackets for intelligent head/tail-aligned fragmentation
 		fragments, err := FragmentPackets(data, effectiveMTU)
@@ -159,15 +159,17 @@ func (t *UDPTransport) Send(addr string, rpcID uint64, data []byte, packetType p
 		for seqNum, fragment := range fragments {
 			// Create DataPacket
 			pkt := &packet.DataPacket{
-				PacketTypeID: packetType.TypeID,
-				RPCID:        rpcID,
-				TotalPackets: totalPackets,
-				SeqNumber:    uint16(seqNum),
-				DstIP:        dstIP,
-				DstPort:      dstPort,
-				SrcIP:        srcIP,
-				SrcPort:      srcPort,
-				Payload:      fragment,
+				PacketTypeID:  packetType.TypeID,
+				RPCID:         rpcID,
+				TotalPackets:  totalPackets,
+				SeqNumber:     uint16(seqNum),
+				MoreFragments: false,
+				FragmentIndex: 0,
+				DstIP:         dstIP,
+				DstPort:       dstPort,
+				SrcIP:         srcIP,
+				SrcPort:       srcPort,
+				Payload:       fragment,
 			}
 
 			// Get handler chain and process
