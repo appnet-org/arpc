@@ -378,6 +378,12 @@ func (m *GetRequestRaw) SetUsername(v string) error {
 		return nil
 	}
 	// Need to remarshal: unmarshal, update, marshal, truncate to public-only
+	// Preserve reserved bytes (serviceID at bytes 5-9, methodID at bytes 9-13) from original buffer
+	var originalServiceID, originalMethodID uint32
+	if len(*m) >= 13 {
+		originalServiceID = binary.LittleEndian.Uint32((*m)[5:9])
+		originalMethodID = binary.LittleEndian.Uint32((*m)[9:13])
+	}
 	var temp GetRequest
 	// Create a fake complete buffer by appending a minimal private segment
 	// Calculate private table size
@@ -394,6 +400,11 @@ func (m *GetRequestRaw) SetUsername(v string) error {
 	fullData, err := temp.MarshalSymphony()
 	if err != nil {
 		return fmt.Errorf("failed to marshal: %w", err)
+	}
+	// Restore reserved bytes (serviceID and methodID) in the marshaled payload
+	if len(fullData) >= 13 {
+		binary.LittleEndian.PutUint32(fullData[5:9], originalServiceID)
+		binary.LittleEndian.PutUint32(fullData[9:13], originalMethodID)
 	}
 	offsetToPrivate := int(binary.LittleEndian.Uint32(fullData[1:5]))
 	*m = GetRequestRaw(fullData[:offsetToPrivate])
@@ -814,6 +825,12 @@ func (m *GetResponseRaw) SetUsername(v string) error {
 		return nil
 	}
 	// Need to remarshal: unmarshal, update, marshal, truncate to public-only
+	// Preserve reserved bytes (serviceID at bytes 5-9, methodID at bytes 9-13) from original buffer
+	var originalServiceID, originalMethodID uint32
+	if len(*m) >= 13 {
+		originalServiceID = binary.LittleEndian.Uint32((*m)[5:9])
+		originalMethodID = binary.LittleEndian.Uint32((*m)[9:13])
+	}
 	var temp GetResponse
 	// Create a fake complete buffer by appending a minimal private segment
 	// Calculate private table size
@@ -830,6 +847,11 @@ func (m *GetResponseRaw) SetUsername(v string) error {
 	fullData, err := temp.MarshalSymphony()
 	if err != nil {
 		return fmt.Errorf("failed to marshal: %w", err)
+	}
+	// Restore reserved bytes (serviceID and methodID) in the marshaled payload
+	if len(fullData) >= 13 {
+		binary.LittleEndian.PutUint32(fullData[5:9], originalServiceID)
+		binary.LittleEndian.PutUint32(fullData[9:13], originalMethodID)
 	}
 	offsetToPrivate := int(binary.LittleEndian.Uint32(fullData[1:5]))
 	*m = GetResponseRaw(fullData[:offsetToPrivate])
@@ -1320,6 +1342,12 @@ func (m *SetRequestRaw) SetUsername(v string) error {
 		return nil
 	}
 	// Need to remarshal: unmarshal, update, marshal, truncate to public-only
+	// Preserve reserved bytes (serviceID at bytes 5-9, methodID at bytes 9-13) from original buffer
+	var originalServiceID, originalMethodID uint32
+	if len(*m) >= 13 {
+		originalServiceID = binary.LittleEndian.Uint32((*m)[5:9])
+		originalMethodID = binary.LittleEndian.Uint32((*m)[9:13])
+	}
 	var temp SetRequest
 	// Create a fake complete buffer by appending a minimal private segment
 	// Calculate private table size
@@ -1336,6 +1364,11 @@ func (m *SetRequestRaw) SetUsername(v string) error {
 	fullData, err := temp.MarshalSymphony()
 	if err != nil {
 		return fmt.Errorf("failed to marshal: %w", err)
+	}
+	// Restore reserved bytes (serviceID and methodID) in the marshaled payload
+	if len(fullData) >= 13 {
+		binary.LittleEndian.PutUint32(fullData[5:9], originalServiceID)
+		binary.LittleEndian.PutUint32(fullData[9:13], originalMethodID)
 	}
 	offsetToPrivate := int(binary.LittleEndian.Uint32(fullData[1:5]))
 	*m = SetRequestRaw(fullData[:offsetToPrivate])
@@ -1798,6 +1831,12 @@ func (m *SetResponseRaw) SetUsername(v string) error {
 		return nil
 	}
 	// Need to remarshal: unmarshal, update, marshal, truncate to public-only
+	// Preserve reserved bytes (serviceID at bytes 5-9, methodID at bytes 9-13) from original buffer
+	var originalServiceID, originalMethodID uint32
+	if len(*m) >= 13 {
+		originalServiceID = binary.LittleEndian.Uint32((*m)[5:9])
+		originalMethodID = binary.LittleEndian.Uint32((*m)[9:13])
+	}
 	var temp SetResponse
 	// Create a fake complete buffer by appending a minimal private segment
 	// Calculate private table size
@@ -1814,6 +1853,11 @@ func (m *SetResponseRaw) SetUsername(v string) error {
 	fullData, err := temp.MarshalSymphony()
 	if err != nil {
 		return fmt.Errorf("failed to marshal: %w", err)
+	}
+	// Restore reserved bytes (serviceID and methodID) in the marshaled payload
+	if len(fullData) >= 13 {
+		binary.LittleEndian.PutUint32(fullData[5:9], originalServiceID)
+		binary.LittleEndian.PutUint32(fullData[9:13], originalMethodID)
 	}
 	offsetToPrivate := int(binary.LittleEndian.Uint32(fullData[1:5]))
 	*m = SetResponseRaw(fullData[:offsetToPrivate])

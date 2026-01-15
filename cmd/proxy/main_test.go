@@ -105,15 +105,17 @@ func TestPacketProcessing_ExistingVerdict(t *testing.T) {
 	// Create a packet
 	codec := &packet.DataPacketCodec{}
 	pkt := &packet.DataPacket{
-		PacketTypeID: packet.PacketTypeRequest.TypeID,
-		RPCID:        rpcID,
-		TotalPackets: 1,
-		SeqNumber:    0,
-		DstIP:        [4]byte{192, 168, 1, 1},
-		DstPort:      8080,
-		SrcIP:        [4]byte{192, 168, 1, 10},
-		SrcPort:      9090,
-		Payload:      []byte{1, 2, 3, 4, 5},
+		PacketTypeID:  packet.PacketTypeRequest.TypeID,
+		RPCID:         rpcID,
+		TotalPackets:  1,
+		SeqNumber:     0,
+		MoreFragments: false,
+		FragmentIndex: 0,
+		DstIP:         [4]byte{192, 168, 1, 1},
+		DstPort:       8080,
+		SrcIP:         [4]byte{192, 168, 1, 10},
+		SrcPort:       9090,
+		Payload:       []byte{1, 2, 3, 4, 5},
 	}
 	data, err := codec.Serialize(pkt, nil)
 	if err != nil {
@@ -159,15 +161,17 @@ func TestPacketProcessing_ConcurrentVerdictStorage(t *testing.T) {
 	src := &net.UDPAddr{IP: net.IPv4(192, 168, 1, 11), Port: 9090}
 	codec := &packet.DataPacketCodec{}
 	pkt := &packet.DataPacket{
-		PacketTypeID: packet.PacketTypeRequest.TypeID,
-		RPCID:        rpcID,
-		TotalPackets: 1,
-		SeqNumber:    0,
-		DstIP:        [4]byte{192, 168, 1, 1},
-		DstPort:      8080,
-		SrcIP:        [4]byte{192, 168, 1, 11},
-		SrcPort:      9090,
-		Payload:      []byte{1, 2, 3, 4, 5},
+		PacketTypeID:  packet.PacketTypeRequest.TypeID,
+		RPCID:         rpcID,
+		TotalPackets:  1,
+		SeqNumber:     0,
+		MoreFragments: false,
+		FragmentIndex: 0,
+		DstIP:         [4]byte{192, 168, 1, 1},
+		DstPort:       8080,
+		SrcIP:         [4]byte{192, 168, 1, 11},
+		SrcPort:       9090,
+		Payload:       []byte{1, 2, 3, 4, 5},
 	}
 	data, _ := codec.Serialize(pkt, nil)
 	_, verdict, _ := pb.ProcessPacket(data, src)
@@ -250,7 +254,7 @@ func TestLargeMessage_EndToEndSimulation(t *testing.T) {
 	t.Logf("Full payload size: %d bytes", len(fullPayload))
 
 	// Fragment the payload
-	mtu := packet.MaxUDPPayloadSize - DataPacketHeaderSize // 1371
+	mtu := packet.MaxUDPPayloadSize - DataPacketHeaderSize // 1369
 	fragmentPayloads := fragmentPayloadForMainTest(fullPayload, mtu)
 	totalPackets := uint16(len(fragmentPayloads))
 
@@ -311,15 +315,17 @@ func TestLargeMessage_EndToEndSimulation(t *testing.T) {
 	// Process each fragment through the proxy
 	for i, fragPayload := range fragmentPayloads {
 		pkt := &packet.DataPacket{
-			PacketTypeID: packet.PacketTypeRequest.TypeID,
-			RPCID:        rpcID,
-			TotalPackets: totalPackets,
-			SeqNumber:    uint16(i),
-			DstIP:        dstIP,
-			DstPort:      dstPort,
-			SrcIP:        [4]byte{127, 0, 0, 1},
-			SrcPort:      12345,
-			Payload:      fragPayload,
+			PacketTypeID:  packet.PacketTypeRequest.TypeID,
+			RPCID:         rpcID,
+			TotalPackets:  totalPackets,
+			SeqNumber:     uint16(i),
+			MoreFragments: false,
+			FragmentIndex: 0,
+			DstIP:         dstIP,
+			DstPort:       dstPort,
+			SrcIP:         [4]byte{127, 0, 0, 1},
+			SrcPort:       12345,
+			Payload:       fragPayload,
 		}
 
 		data, err := codec.Serialize(pkt, nil)
@@ -345,6 +351,12 @@ func TestLargeMessage_EndToEndSimulation(t *testing.T) {
 
 		// If this is the public segment extraction (SeqNumber == -1)
 		if bufferedPacket.SeqNumber == -1 && existingVerdict == util.PacketVerdictUnknown {
+			// Split the payload into public and private segments (like handlePacket does)
+			payload := bufferedPacket.Payload
+			if len(payload) > offsetToPrivate(payload) {
+				publicPayload := payload[:offsetToPrivate(payload)]
+				bufferedPacket.Payload = publicPayload
+			}
 			// Process through element chain (empty chain, so just pass)
 			err := runElementsChain(context.Background(), state, bufferedPacket)
 			if err != nil {
@@ -544,15 +556,17 @@ func TestLargeMessage_FragmentZeroDelayed(t *testing.T) {
 	serializedFragments := make([][]byte, len(fragmentPayloads))
 	for i, fragPayload := range fragmentPayloads {
 		pkt := &packet.DataPacket{
-			PacketTypeID: packet.PacketTypeRequest.TypeID,
-			RPCID:        rpcID,
-			TotalPackets: totalPackets,
-			SeqNumber:    uint16(i),
-			DstIP:        [4]byte{192, 168, 1, 1},
-			DstPort:      8080,
-			SrcIP:        [4]byte{192, 168, 1, 50},
-			SrcPort:      9090,
-			Payload:      fragPayload,
+			PacketTypeID:  packet.PacketTypeRequest.TypeID,
+			RPCID:         rpcID,
+			TotalPackets:  totalPackets,
+			SeqNumber:     uint16(i),
+			MoreFragments: false,
+			FragmentIndex: 0,
+			DstIP:         [4]byte{192, 168, 1, 1},
+			DstPort:       8080,
+			SrcIP:         [4]byte{192, 168, 1, 50},
+			SrcPort:       9090,
+			Payload:       fragPayload,
 		}
 		data, err := codec.Serialize(pkt, nil)
 		if err != nil {

@@ -19,15 +19,17 @@ var (
 
 // DataPacket represents the common structure for Request and Response packets
 type DataPacket struct {
-	PacketTypeID PacketTypeID
-	RPCID        uint64  // Unique RPC ID
-	TotalPackets uint16  // Total number of packets in this RPC
-	SeqNumber    uint16  // Sequence number of this packet
-	DstIP        [4]byte // Destination IP address (4 bytes)
-	DstPort      uint16  // Destination port
-	SrcIP        [4]byte // Source IP address (4 bytes)
-	SrcPort      uint16  // Source port
-	Payload      []byte  // Partial application data
+	PacketTypeID  PacketTypeID
+	RPCID         uint64  // Unique RPC ID
+	TotalPackets  uint16  // Total number of packets in this RPC
+	SeqNumber     uint16  // Sequence number of this packet
+	MoreFragments bool    // Indicates if there are more fragments with the same sequence number
+	FragmentIndex uint8   // Indexes fragments that share the same sequence number (0-255)
+	DstIP         [4]byte // Destination IP address (4 bytes)
+	DstPort       uint16  // Destination port
+	SrcIP         [4]byte // Source IP address (4 bytes)
+	SrcPort       uint16  // Source port
+	Payload       []byte  // Partial application data
 }
 
 // RequestPacket extends DataPacket for request packets
@@ -51,7 +53,7 @@ type ErrorPacket struct {
 type DataPacketCodec struct{}
 
 // Serialize encodes a DataPacket into binary format:
-// [PacketTypeID(1B)][RPCID(8B)][TotalPackets(2B)][SeqNumber(2B)][DstIP(4B)][DstPort(2B)][SrcIP(4B)][SrcPort(2B)][PayloadLen(4B)][Payload]
+// [PacketTypeID(1B)][RPCID(8B)][TotalPackets(2B)][SeqNumber(2B)][MoreFragments(1B)][FragmentIndex(1B)][DstIP(4B)][DstPort(2B)][SrcIP(4B)][SrcPort(2B)][PayloadLen(4B)][Payload]
 func (c *DataPacketCodec) Serialize(packet any, pool *common.BufferPool) ([]byte, error) {
 	p, ok := packet.(*DataPacket)
 	if !ok {
@@ -59,7 +61,7 @@ func (c *DataPacketCodec) Serialize(packet any, pool *common.BufferPool) ([]byte
 	}
 
 	payloadLen := len(p.Payload)
-	totalSize := 29 + payloadLen // 1+8+2+2+4+2+4+2+4 = 29 bytes for header
+	totalSize := 31 + payloadLen // 1+8+2+2+1+1+4+2+4+2+4 = 31 bytes for header
 
 	var buf []byte
 	if pool != nil {
@@ -74,23 +76,33 @@ func (c *DataPacketCodec) Serialize(packet any, pool *common.BufferPool) ([]byte
 	binary.LittleEndian.PutUint16(buf[9:11], p.TotalPackets)
 	binary.LittleEndian.PutUint16(buf[11:13], p.SeqNumber)
 
+	// Write MoreFragments as a byte (0 or 1)
+	if p.MoreFragments {
+		buf[13] = 1
+	} else {
+		buf[13] = 0
+	}
+
+	// Write FragmentIndex
+	buf[14] = p.FragmentIndex
+
 	// Copy destination IP (4 bytes)
-	copy(buf[13:17], p.DstIP[:])
+	copy(buf[15:19], p.DstIP[:])
 
 	// Write destination port
-	binary.LittleEndian.PutUint16(buf[17:19], p.DstPort)
+	binary.LittleEndian.PutUint16(buf[19:21], p.DstPort)
 
 	// Copy source IP (4 bytes)
-	copy(buf[19:23], p.SrcIP[:])
+	copy(buf[21:25], p.SrcIP[:])
 
 	// Write source port
-	binary.LittleEndian.PutUint16(buf[23:25], p.SrcPort)
+	binary.LittleEndian.PutUint16(buf[25:27], p.SrcPort)
 
 	// Write payload length
-	binary.LittleEndian.PutUint32(buf[25:29], uint32(payloadLen))
+	binary.LittleEndian.PutUint32(buf[27:31], uint32(payloadLen))
 
 	// Copy payload
-	copy(buf[29:], p.Payload)
+	copy(buf[31:], p.Payload)
 
 	// Note: We don't return the buffer to the pool here because it's returned to the caller
 	// The caller (transport.Send) is responsible for returning it after WriteToUDP
@@ -98,9 +110,9 @@ func (c *DataPacketCodec) Serialize(packet any, pool *common.BufferPool) ([]byte
 }
 
 // Deserialize decodes binary data into a DataPacket
-// Format: [PacketTypeID(1B)][RPCID(8B)][TotalPackets(2B)][SeqNumber(2B)][DstIP(4B)][DstPort(2B)][SrcIP(4B)][SrcPort(2B)][PayloadLen(4B)][Payload]
+// Format: [PacketTypeID(1B)][RPCID(8B)][TotalPackets(2B)][SeqNumber(2B)][MoreFragments(1B)][FragmentIndex(1B)][DstIP(4B)][DstPort(2B)][SrcIP(4B)][SrcPort(2B)][PayloadLen(4B)][Payload]
 func (c *DataPacketCodec) Deserialize(data []byte) (any, error) {
-	if len(data) < 29 {
+	if len(data) < 31 {
 		return nil, errors.New("data too short for DataPacket header")
 	}
 
@@ -110,29 +122,35 @@ func (c *DataPacketCodec) Deserialize(data []byte) (any, error) {
 	p.TotalPackets = binary.LittleEndian.Uint16(data[9:11])
 	p.SeqNumber = binary.LittleEndian.Uint16(data[11:13])
 
+	// Read MoreFragments (convert byte to bool)
+	p.MoreFragments = data[13] != 0
+
+	// Read FragmentIndex
+	p.FragmentIndex = data[14]
+
 	// Copy destination IP (4 bytes)
-	copy(p.DstIP[:], data[13:17])
+	copy(p.DstIP[:], data[15:19])
 
 	// Read destination port
-	p.DstPort = binary.LittleEndian.Uint16(data[17:19])
+	p.DstPort = binary.LittleEndian.Uint16(data[19:21])
 
 	// Copy source IP (4 bytes)
-	copy(p.SrcIP[:], data[19:23])
+	copy(p.SrcIP[:], data[21:25])
 
 	// Read source port
-	p.SrcPort = binary.LittleEndian.Uint16(data[23:25])
+	p.SrcPort = binary.LittleEndian.Uint16(data[25:27])
 
 	// Read payload length
-	payloadLen := binary.LittleEndian.Uint32(data[25:29])
+	payloadLen := binary.LittleEndian.Uint32(data[27:31])
 
 	// Validate length
-	if len(data) < 29+int(payloadLen) {
+	if len(data) < 31+int(payloadLen) {
 		return nil, errors.New("data too short for declared payload length")
 	}
 
 	// Use zero-copy slice for payload - caller must keep buffer alive until payload is no longer needed
 	payloadLenInt := int(payloadLen)
-	p.Payload = data[29 : 29+payloadLenInt]
+	p.Payload = data[31 : 31+payloadLenInt]
 
 	return p, nil
 }
