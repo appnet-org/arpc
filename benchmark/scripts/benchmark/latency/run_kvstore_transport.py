@@ -26,27 +26,55 @@ logger = logging.getLogger(__name__)
 
 # Get the directory of this script
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ARPC_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR))))
+ARPC_DIR = "/users/xzhu/arpc"
 
 # Use relative paths from the script directory
 wrk_path = os.path.join(ARPC_DIR, "benchmark/scripts/wrk/wrk")
 lua_path = os.path.join(ARPC_DIR, "benchmark/meta-kv-trace/kvstore-wrk.lua")
 
 # All available transport variants
-ALL_VARIANTS = ["udp", "reliable", "cc", "reliable-cc", "fc", "cc-fc", "reliable-fc", "reliable-cc-fc", "reliable-cc-fc-encryption"]
+# ALL_VARIANTS = ["udp", "reliable", "cc", "reliable-cc", "fc", "cc-fc", "reliable-fc", "reliable-cc-fc", "reliable-cc-fc-encryption", "quic"]
+ALL_VARIANTS = ["udp", "reliable", "reliable-cc", "reliable-cc-fc", "reliable-cc-fc-encryption", "quic"]
 
-# Manifest paths for each variant (relative to script directory)
+# Manifest paths for each variant
 manifest_dict = {
-    "kv-store-symphony-transport-udp": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-udp.yaml"),
-    "kv-store-symphony-transport-reliable": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-reliable.yaml"),
-    # "kv-store-symphony-transport-cc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-cc.yaml"),
-    "kv-store-symphony-transport-reliable-cc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-reliable-cc.yaml"),
-    # "kv-store-symphony-transport-fc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-fc.yaml"),
-    # "kv-store-symphony-transport-cc-fc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-cc-fc.yaml"),
-    # "kv-store-symphony-transport-reliable-fc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-reliable-fc.yaml"),
-    "kv-store-symphony-transport-reliable-cc-fc": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-reliable-cc-fc.yaml"),
-    "kv-store-symphony-transport-reliable-cc-fc-encryption": os.path.join(SCRIPT_DIR, "../../../kv-store-symphony-transport/manifest/kvstore-reliable-cc-fc-encryption.yaml"),
+    "kv-store-symphony-transport-udp": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony-transport/manifest/kvstore-udp.yaml"),
+    "kv-store-symphony-transport-reliable": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony-transport/manifest/kvstore-reliable.yaml"),
+    "kv-store-symphony-transport-cc": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony-transport/manifest/kvstore-cc.yaml"),
+    "kv-store-symphony-transport-reliable-cc": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony-transport/manifest/kvstore-reliable-cc.yaml"),
+    "kv-store-symphony-transport-fc": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony-transport/manifest/kvstore-fc.yaml"),
+    "kv-store-symphony-transport-cc-fc": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony-transport/manifest/kvstore-cc-fc.yaml"),
+    "kv-store-symphony-transport-reliable-fc": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony-transport/manifest/kvstore-reliable-fc.yaml"),
+    "kv-store-symphony-transport-reliable-cc-fc": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony-transport/manifest/kvstore-reliable-cc-fc.yaml"),
+    "kv-store-symphony-transport-reliable-cc-fc-encryption": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony-transport/manifest/kvstore-reliable-cc-fc-encryption.yaml"),
+    "kv-store-symphony-transport-quic": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-quic.yaml"),
 }
+
+def validate_paths(selected_manifests):
+    """Validate that all required paths exist before running benchmarks."""
+    missing_paths = []
+    
+    # Check wrk executable
+    if not os.path.exists(wrk_path):
+        missing_paths.append(f"wrk executable: {wrk_path}")
+    
+    # Check lua script
+    if not os.path.exists(lua_path):
+        missing_paths.append(f"Lua script: {lua_path}")
+    
+    # Check manifest files
+    for manifest_name, manifest_path in selected_manifests.items():
+        if not os.path.exists(manifest_path):
+            missing_paths.append(f"Manifest '{manifest_name}': {manifest_path}")
+    
+    if missing_paths:
+        logger.error("The following required paths do not exist:")
+        for path in missing_paths:
+            logger.error(f"  - {path}")
+        return False
+    
+    logger.info("All required paths validated successfully")
+    return True
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -302,6 +330,11 @@ def main():
         if key in manifest_dict:
             selected_manifests[key] = manifest_dict[key]
     
+    # Validate all paths exist before starting
+    if not validate_paths(selected_manifests):
+        logger.error("Path validation failed. Exiting.")
+        sys.exit(1)
+    
     # Store results for all manifests
     results = {}
     
@@ -310,6 +343,15 @@ def main():
     logger.info("Starting KV Store Transport Variant Benchmark")
     logger.info(f"Testing {len(selected_manifests)} variant configurations: {', '.join(args.variants)}")
     logger.info("=" * 60)
+    logger.info("")
+    
+    # Print all benchmarks that are about to run
+    logger.info("Benchmarks to run:")
+    logger.info("-" * 40)
+    for i, (manifest_name, manifest_path) in enumerate(selected_manifests.items(), 1):
+        logger.info(f"  {i}. {manifest_name}")
+        logger.info(f"     Manifest: {manifest_path}")
+    logger.info("-" * 40)
     logger.info("")
     
     # Iterate over each manifest
