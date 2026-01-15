@@ -45,15 +45,15 @@ ALL_VARIANTS = ["udp", "reliable", "cc", "reliable-cc", "fc", "cc-fc", "reliable
 
 # Manifest paths for each variant
 manifest_dict = {
-    "kv-store-symphony-transport-udp": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony-transport/manifest/kvstore-udp.yaml"),
-    "kv-store-symphony-transport-reliable": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony-transport/manifest/kvstore-reliable.yaml"),
-    "kv-store-symphony-transport-cc": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony-transport/manifest/kvstore-cc.yaml"),
-    "kv-store-symphony-transport-reliable-cc": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony-transport/manifest/kvstore-reliable-cc.yaml"),
-    "kv-store-symphony-transport-fc": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony-transport/manifest/kvstore-fc.yaml"),
-    "kv-store-symphony-transport-cc-fc": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony-transport/manifest/kvstore-cc-fc.yaml"),
-    "kv-store-symphony-transport-reliable-fc": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony-transport/manifest/kvstore-reliable-fc.yaml"),
-    "kv-store-symphony-transport-reliable-cc-fc": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony-transport/manifest/kvstore-reliable-cc-fc.yaml"),
-    "kv-store-symphony-transport-reliable-cc-fc-encryption": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony-transport/manifest/kvstore-reliable-cc-fc-encryption.yaml"),
+    "kv-store-symphony-transport-udp": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/transport-manifest/kvstore-udp.yaml"),
+    "kv-store-symphony-transport-reliable": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/transport-manifest/kvstore-reliable.yaml"),
+    "kv-store-symphony-transport-cc": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/transport-manifest/kvstore-cc.yaml"),
+    "kv-store-symphony-transport-reliable-cc": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/transport-manifest/kvstore-reliable-cc.yaml"),
+    "kv-store-symphony-transport-fc": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/transport-manifest/kvstore-fc.yaml"),
+    "kv-store-symphony-transport-cc-fc": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/transport-manifest/kvstore-cc-fc.yaml"),
+    "kv-store-symphony-transport-reliable-fc": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/transport-manifest/kvstore-reliable-fc.yaml"),
+    "kv-store-symphony-transport-reliable-cc-fc": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/transport-manifest/kvstore-reliable-cc-fc.yaml"),
+    "kv-store-symphony-transport-reliable-cc-fc-encryption": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/transport-manifest/kvstore-reliable-cc-fc-encryption.yaml"),
 }
 
 def parse_arguments():
