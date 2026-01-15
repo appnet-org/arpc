@@ -101,6 +101,11 @@ func main() {
 	// Configure encryption from environment variable
 	if enableEncryption := os.Getenv("ENABLE_ENCRYPTION"); enableEncryption == "true" {
 		config.SetEncryption(nil)
+		// Initialize GCM cipher objects for encryption/decryption
+		if err := transport.InitGCMObjects(transport.DefaultPublicKey, transport.DefaultPrivateKey); err != nil {
+			logging.Fatal("Failed to initialize GCM objects", zap.Error(err))
+		}
+		logging.Info("Encryption GCM objects initialized")
 	}
 
 	logging.Info("Proxy configuration",
