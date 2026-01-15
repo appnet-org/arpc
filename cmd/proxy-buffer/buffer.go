@@ -198,8 +198,13 @@ func (pb *PacketBuffer) addFragmentToBuffer(src, peer *net.UDPAddr, packetType u
 	state := shard.getOrCreateRPCState(connKey, dataPacket.RPCID, dataPacket.TotalPackets, src, peer, packetType, dataPacket)
 
 	// Serialize fragment processing per RPC
+	// NOTE: We manually manage the lock instead of using defer to avoid a deadlock.
+	// cleanupRPCState acquires shard.mu, and cleanupExpiredFragments acquires shard.mu
+	// then state.mu. If we held state.mu while calling cleanupRPCState, we'd have:
+	//   - This goroutine: state.mu -> shard.mu
+	//   - Cleanup goroutine: shard.mu -> state.mu
+	// This ABBA pattern causes deadlock.
 	state.mu.Lock()
-	defer state.mu.Unlock()
 
 	// Make a copy of the payload
 	payloadCopy := make([]byte, len(dataPacket.Payload))
@@ -213,6 +218,7 @@ func (pb *PacketBuffer) addFragmentToBuffer(src, peer *net.UDPAddr, packetType u
 			zap.Uint64("rpcID", dataPacket.RPCID),
 			zap.Int("received", len(state.Fragments)),
 			zap.Uint16("total", state.TotalPackets))
+		state.mu.Unlock()
 		return nil
 	}
 
@@ -225,6 +231,7 @@ func (pb *PacketBuffer) addFragmentToBuffer(src, peer *net.UDPAddr, packetType u
 			logging.Error("Missing fragment during reassembly",
 				zap.Uint64("rpcID", dataPacket.RPCID),
 				zap.Uint16("seqNum", i))
+			state.mu.Unlock()
 			return nil
 		}
 		completePayload = append(completePayload, fragment...)
@@ -234,6 +241,9 @@ func (pb *PacketBuffer) addFragmentToBuffer(src, peer *net.UDPAddr, packetType u
 		zap.Uint64("rpcID", dataPacket.RPCID),
 		zap.Uint16("totalPackets", state.TotalPackets),
 		zap.Int("size", len(completePayload)))
+
+	// Release state.mu BEFORE calling cleanupRPCState to avoid deadlock
+	state.mu.Unlock()
 
 	// Clean up the RPC state after successful reassembly
 	pb.cleanupRPCState(connKey, dataPacket.RPCID)
