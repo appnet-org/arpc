@@ -31,8 +31,8 @@ manifest_dict = {
     # "kv-store-grpc-no-proxy": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/latency/buffer-manifest/kvstore.yaml"),
     # "kv-store-grpc-envoy-buffering": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/latency/buffer-manifest/kvstore-envoy-h2-buffering.yaml"),
     # "kv-store-grpc-envoy-streaming": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/latency/buffer-manifest/kvstore-envoy-h2-streaming.yaml"),
-    "kv-store-symphony-no-proxy": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore.yaml"),
-    "kv-store-symphony-proxy-streaming": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore-proxy.yaml"),
+    # "kv-store-symphony-no-proxy": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore.yaml"),
+    # "kv-store-symphony-proxy-streaming": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore-proxy.yaml"),
     "kv-store-symphony-proxy-buffering": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore-proxy-buffering.yaml"),
 }
 
@@ -173,6 +173,8 @@ def run_buffer_benchmark(manifest_path):
         logger.warning(f"Deployment for {manifest_path} did not become ready, skipping...")
         cleanup_manifest(manifest_path)
         return
+    
+    time.sleep(15)
     
     # Step 3: Test application health
     if not test_application():
