@@ -68,7 +68,8 @@ type CCConnectionState struct {
 	LastActivity time.Time
 
 	// Tx side (sent packets)
-	SentPackets map[uint64]*SentPacketInfo // packetID → info
+	SentPackets   map[uint64]*SentPacketInfo // packetID → info
+	bytesInFlight uint64                     // Running total of bytes in flight (optimization to avoid O(n) calculation)
 
 	// Rx side (received packets)
 	ReceivedPackets map[uint64]uint64 // packetID → bytes
@@ -166,8 +167,8 @@ func (h *CCHandler) trackSentPacket(dataPkt *packet.DataPacket, connKey uint64) 
 	now := time.Now()
 	nowMonotime := monotime.FromTime(now)
 
-	// Calculate bytes in flight before checking
-	bytesInFlight := h.calculateBytesInFlightLocked(conn)
+	// Get current bytes in flight (maintained as running total)
+	bytesInFlight := conn.bytesInFlight
 
 	// Check HasPacingBudget first
 	if !h.ccAlgorithm.HasPacingBudget(nowMonotime) {
@@ -191,6 +192,8 @@ func (h *CCHandler) trackSentPacket(dataPkt *packet.DataPacket, connKey uint64) 
 		sendTime: now,
 	}
 	conn.SentPackets[packetID] = packetInfo
+	// Update running total
+	conn.bytesInFlight += bytes
 
 	// Schedule timeout for this packet (use uint64 arithmetic for timer key)
 	timerKey := transport.TimerKey(uint64(TimerKeyCCPacketTimeoutBase) + packetID)
@@ -335,7 +338,7 @@ func (h *CCHandler) processFeedback(feedback *CCFeedbackPacket, connKey uint64) 
 	}
 
 	// Process ACKs and detect losses
-	priorInFlight := h.calculateBytesInFlightLocked(conn)
+	priorInFlight := conn.bytesInFlight
 	var ackedPackets []uint64
 	var lostPackets []uint64
 
@@ -364,8 +367,14 @@ func (h *CCHandler) processFeedback(feedback *CCFeedbackPacket, connKey uint64) 
 			timerKey := transport.TimerKey(uint64(TimerKeyCCPacketTimeoutBase) + packetID)
 			h.timerMgr.StopTimer(timerKey)
 
-			// Remove acked packet
+			// Remove acked packet and update running total
 			delete(conn.SentPackets, packetID)
+			// Safety check: only subtract if we have enough to avoid underflow
+			if conn.bytesInFlight >= info.bytes {
+				conn.bytesInFlight -= info.bytes
+			} else {
+				conn.bytesInFlight = 0
+			}
 		}
 	}
 
@@ -383,8 +392,14 @@ func (h *CCHandler) processFeedback(feedback *CCFeedbackPacket, connKey uint64) 
 			)
 			h.ccAlgorithm.MaybeExitSlowStart()
 			priorInFlight -= info.bytes
-			// Remove lost packet
+			// Remove lost packet and update running total
 			delete(conn.SentPackets, packetID)
+			// Safety check: only subtract if we have enough to avoid underflow
+			if conn.bytesInFlight >= info.bytes {
+				conn.bytesInFlight -= info.bytes
+			} else {
+				conn.bytesInFlight = 0
+			}
 		}
 	}
 
@@ -396,16 +411,6 @@ func (h *CCHandler) processFeedback(feedback *CCFeedbackPacket, connKey uint64) 
 	return nil
 }
 
-// calculateBytesInFlightLocked calculates total bytes in flight for a connection
-// Must be called with lock held
-func (h *CCHandler) calculateBytesInFlightLocked(conn *CCConnectionState) uint64 {
-	var total uint64
-	for _, info := range conn.SentPackets {
-		total += info.bytes
-	}
-	return total
-}
-
 // CanSend checks if we can send more data based on congestion window
 // Returns true if bytesInFlight < congestionWindow
 func (h *CCHandler) CanSend() bool {
@@ -415,7 +420,7 @@ func (h *CCHandler) CanSend() bool {
 	// Calculate total bytes in flight across all connections
 	var totalBytesInFlight uint64
 	for _, conn := range h.connections {
-		totalBytesInFlight += h.calculateBytesInFlightLocked(conn)
+		totalBytesInFlight += conn.bytesInFlight
 	}
 
 	return h.ccAlgorithm.CanSend(protocol.ByteCount(totalBytesInFlight))
@@ -478,8 +483,14 @@ func (h *CCHandler) checkTimeoutPacket(connKey uint64, packetID uint64) {
 		)
 		h.ccAlgorithm.MaybeExitSlowStart()
 
-		// Remove timeout packet
+		// Remove timeout packet and update running total
 		delete(conn.SentPackets, packetID)
+		// Safety check: only subtract if we have enough to avoid underflow
+		if conn.bytesInFlight >= info.bytes {
+			conn.bytesInFlight -= info.bytes
+		} else {
+			conn.bytesInFlight = 0
+		}
 	}
 }
 
