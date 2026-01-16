@@ -15,8 +15,8 @@ import (
 )
 
 // DataPacketHeaderSize is the size of the DataPacket header in bytes
-// Total: 1+8+2+2+4+2+4+2+4 = 29 bytes
-const DataPacketHeaderSize = 29
+// Total: 1+8+2+2+1+1+4+2+4+2+4 = 31 bytes (includes MoreFragments and FragmentIndex)
+const DataPacketHeaderSize = 31
 
 const (
 	// numShards is the number of shards for partitioning fragment storage

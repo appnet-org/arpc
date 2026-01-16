@@ -107,8 +107,8 @@ func main() {
 	enableEncryption := os.Getenv("ENABLE_ENCRYPTION") == "true"
 
 	serializer := &serializer.SymphonySerializer{}
-	// client, err := rpc.NewClient(serializer, ":11000", nil, enableEncryption)
-	client, err := rpc.NewClient(serializer, "kvstore.default.svc.cluster.local:11000", nil, enableEncryption)
+	client, err := rpc.NewClient(serializer, ":11000", nil, enableEncryption)
+	// client, err := rpc.NewClient(serializer, "kvstore.default.svc.cluster.local:11000", nil, enableEncryption)
 	if err != nil {
 		logging.Fatal("Failed to create RPC client", zap.Error(err))
 	}
