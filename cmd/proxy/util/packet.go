@@ -73,3 +73,8 @@ func (p PacketVerdict) String() string {
 	}
 	return "packet_verdict_unknown"
 }
+
+// GetRPCID returns the RPC ID of the buffered packet.
+func (bp *BufferedPacket) GetRPCID() uint64 {
+	return bp.RPCID
+}
