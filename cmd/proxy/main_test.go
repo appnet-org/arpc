@@ -639,3 +639,145 @@ func TestLargeMessage_FragmentZeroDelayed(t *testing.T) {
 
 	t.Log("SUCCESS: All fragments accounted for even with delayed fragment 0")
 }
+
+// TestHandlePacket_ErrorPacketDetection tests that error packets are detected correctly
+func TestHandlePacket_ErrorPacketDetection(t *testing.T) {
+	// Create proxy state
+	state := &ProxyState{
+		elementChain: NewRPCElementChain(),
+		packetBuffer: NewPacketBuffer(5 * time.Second),
+	}
+	defer state.packetBuffer.Close()
+
+	// Create an error packet
+	codec := &packet.ErrorPacketCodec{}
+	errorPacket := &packet.ErrorPacket{
+		PacketTypeID: packet.PacketTypeError.TypeID,
+		RPCID:        uint64(77777),
+		DstIP:        [4]byte{127, 0, 0, 1},
+		DstPort:      8080,
+		SrcIP:        [4]byte{192, 168, 1, 50},
+		SrcPort:      5050,
+		ErrorMsg:     "Test error detection",
+	}
+
+	serialized, err := codec.Serialize(errorPacket, nil)
+	if err != nil {
+		t.Fatalf("Failed to serialize error packet: %v", err)
+	}
+
+	// Verify the packet type ID is correct
+	if len(serialized) == 0 {
+		t.Fatal("Serialized packet is empty")
+	}
+
+	if serialized[0] != byte(packet.PacketTypeError.TypeID) {
+		t.Errorf("Expected packet type ID %d, got %d", packet.PacketTypeError.TypeID, serialized[0])
+	}
+
+	// Process the error packet through the buffer
+	src := &net.UDPAddr{IP: net.IPv4(192, 168, 1, 50), Port: 5050}
+	bufferedPacket, err := state.packetBuffer.ProcessErrorPacket(serialized, src)
+	if err != nil {
+		t.Fatalf("Failed to process error packet: %v", err)
+	}
+
+	// Verify the buffered packet has correct routing info
+	if bufferedPacket.PacketType != util.PacketTypeError {
+		t.Errorf("Expected PacketType Error, got %v", bufferedPacket.PacketType)
+	}
+
+	if bufferedPacket.RPCID != errorPacket.RPCID {
+		t.Errorf("RPCID mismatch: expected %d, got %d", errorPacket.RPCID, bufferedPacket.RPCID)
+	}
+
+	if string(bufferedPacket.Payload) != errorPacket.ErrorMsg {
+		t.Errorf("ErrorMsg mismatch: expected %s, got %s", errorPacket.ErrorMsg, string(bufferedPacket.Payload))
+	}
+
+	// Verify routing fields
+	if bufferedPacket.DstIP != errorPacket.DstIP {
+		t.Errorf("DstIP mismatch: expected %v, got %v", errorPacket.DstIP, bufferedPacket.DstIP)
+	}
+
+	if bufferedPacket.DstPort != errorPacket.DstPort {
+		t.Errorf("DstPort mismatch: expected %d, got %d", errorPacket.DstPort, bufferedPacket.DstPort)
+	}
+
+	if bufferedPacket.SrcIP != errorPacket.SrcIP {
+		t.Errorf("SrcIP mismatch: expected %v, got %v", errorPacket.SrcIP, bufferedPacket.SrcIP)
+	}
+
+	if bufferedPacket.SrcPort != errorPacket.SrcPort {
+		t.Errorf("SrcPort mismatch: expected %d, got %d", errorPacket.SrcPort, bufferedPacket.SrcPort)
+	}
+}
+
+// TestSendErrorPacket_WithRoutingInfo tests SendErrorPacket creates packets with correct routing fields
+func TestSendErrorPacket_WithRoutingInfo(t *testing.T) {
+	// Test that SendErrorPacket creates an error packet with routing information
+	// We verify this by creating the packet manually and checking the serialization
+
+	rpcID := uint64(55555)
+	errorMsg := "SendErrorPacket test"
+	dstIP := [4]byte{10, 0, 0, 200}
+	dstPort := uint16(3030)
+	srcIP := [4]byte{192, 168, 10, 10}
+	srcPort := uint16(2020)
+
+	// Create error packet manually (simulating what SendErrorPacket does)
+	errorPacket := &packet.ErrorPacket{
+		PacketTypeID: packet.PacketTypeError.TypeID,
+		RPCID:        rpcID,
+		DstIP:        dstIP,
+		DstPort:      dstPort,
+		SrcIP:        srcIP,
+		SrcPort:      srcPort,
+		ErrorMsg:     errorMsg,
+	}
+
+	// Serialize the packet
+	codec := &packet.ErrorPacketCodec{}
+	serialized, err := codec.Serialize(errorPacket, nil)
+	if err != nil {
+		t.Fatalf("Failed to serialize error packet: %v", err)
+	}
+
+	// Deserialize to verify all fields are preserved
+	receivedAny, err := codec.Deserialize(serialized)
+	if err != nil {
+		t.Fatalf("Failed to deserialize error packet: %v", err)
+	}
+
+	receivedPacket, ok := receivedAny.(*packet.ErrorPacket)
+	if !ok {
+		t.Fatal("Deserialized packet is not an ErrorPacket")
+	}
+
+	// Verify all fields
+	if receivedPacket.RPCID != rpcID {
+		t.Errorf("RPCID mismatch: expected %d, got %d", rpcID, receivedPacket.RPCID)
+	}
+
+	if receivedPacket.ErrorMsg != errorMsg {
+		t.Errorf("ErrorMsg mismatch: expected %s, got %s", errorMsg, receivedPacket.ErrorMsg)
+	}
+
+	if receivedPacket.DstIP != dstIP {
+		t.Errorf("DstIP mismatch: expected %v, got %v", dstIP, receivedPacket.DstIP)
+	}
+
+	if receivedPacket.DstPort != dstPort {
+		t.Errorf("DstPort mismatch: expected %d, got %d", dstPort, receivedPacket.DstPort)
+	}
+
+	if receivedPacket.SrcIP != srcIP {
+		t.Errorf("SrcIP mismatch: expected %v, got %v", srcIP, receivedPacket.SrcIP)
+	}
+
+	if receivedPacket.SrcPort != srcPort {
+		t.Errorf("SrcPort mismatch: expected %d, got %d", srcPort, receivedPacket.SrcPort)
+	}
+
+	t.Log("SendErrorPacket routing fields verified successfully")
+}

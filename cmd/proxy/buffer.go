@@ -429,6 +429,43 @@ func (pb *PacketBuffer) deserializePacket(data []byte) (*packet.DataPacket, erro
 	return dataPacket, nil
 }
 
+// ProcessErrorPacket processes an error packet and returns a BufferedPacket for forwarding.
+// Error packets are not buffered or fragmented - they fit in one MTU and are forwarded directly.
+func (pb *PacketBuffer) ProcessErrorPacket(data []byte, src *net.UDPAddr) (*util.BufferedPacket, error) {
+	// Deserialize error packet
+	codec := &packet.ErrorPacketCodec{}
+	packetAny, err := codec.Deserialize(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to deserialize error packet: %w", err)
+	}
+
+	errorPacket, ok := packetAny.(*packet.ErrorPacket)
+	if !ok {
+		return nil, fmt.Errorf("unexpected packet type in ProcessErrorPacket")
+	}
+
+	// Create destination address from the packet's routing info
+	peer := &net.UDPAddr{IP: net.IP(errorPacket.DstIP[:]), Port: int(errorPacket.DstPort)}
+
+	// Create BufferedPacket with error message as payload
+	bufferedPacket := &util.BufferedPacket{
+		Payload:      []byte(errorPacket.ErrorMsg),
+		Source:       src,
+		Peer:         peer,
+		PacketType:   util.PacketTypeError,
+		RPCID:        errorPacket.RPCID,
+		DstIP:        errorPacket.DstIP,
+		DstPort:      errorPacket.DstPort,
+		SrcIP:        errorPacket.SrcIP,
+		SrcPort:      errorPacket.SrcPort,
+		IsFull:       true,
+		SeqNumber:    -1,
+		TotalPackets: 1,
+	}
+
+	return bufferedPacket, nil
+}
+
 // CleanupUsedFragments removes fragments up to and including the lastUsedSeqNum
 // This should be called after the public segment has been successfully forwarded
 func (pb *PacketBuffer) CleanupUsedFragments(connKey string, rpcID uint64, lastUsedSeqNum uint16) {

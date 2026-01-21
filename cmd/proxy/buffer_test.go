@@ -1368,3 +1368,194 @@ func TestFragmentPacketForForward_LastUsedSeqNum_NormalCase(t *testing.T) {
 
 	t.Log("SUCCESS: Normal case without packing works correctly")
 }
+
+// TestErrorPacketCodec_SerializeDeserialize tests error packet serialization and deserialization with IP/port fields
+func TestErrorPacketCodec_SerializeDeserialize(t *testing.T) {
+	codec := &packet.ErrorPacketCodec{}
+
+	// Create an error packet with routing information
+	originalPacket := &packet.ErrorPacket{
+		PacketTypeID: packet.PacketTypeError.TypeID,
+		RPCID:        uint64(12345),
+		DstIP:        [4]byte{192, 168, 1, 100},
+		DstPort:      8080,
+		SrcIP:        [4]byte{10, 0, 0, 50},
+		SrcPort:      9090,
+		ErrorMsg:     "Test error message",
+	}
+
+	// Serialize the packet
+	serialized, err := codec.Serialize(originalPacket, nil)
+	if err != nil {
+		t.Fatalf("Failed to serialize error packet: %v", err)
+	}
+
+	// Verify serialized data has correct length (29 bytes header + message length)
+	expectedLen := 29 + len("Test error message")
+	if len(serialized) != expectedLen {
+		t.Errorf("Expected serialized length %d, got %d", expectedLen, len(serialized))
+	}
+
+	// Deserialize the packet
+	deserializedAny, err := codec.Deserialize(serialized)
+	if err != nil {
+		t.Fatalf("Failed to deserialize error packet: %v", err)
+	}
+
+	deserializedPacket, ok := deserializedAny.(*packet.ErrorPacket)
+	if !ok {
+		t.Fatalf("Deserialized packet is not an ErrorPacket")
+	}
+
+	// Verify all fields match
+	if deserializedPacket.PacketTypeID != originalPacket.PacketTypeID {
+		t.Errorf("PacketTypeID mismatch: expected %d, got %d", originalPacket.PacketTypeID, deserializedPacket.PacketTypeID)
+	}
+	if deserializedPacket.RPCID != originalPacket.RPCID {
+		t.Errorf("RPCID mismatch: expected %d, got %d", originalPacket.RPCID, deserializedPacket.RPCID)
+	}
+	if deserializedPacket.DstIP != originalPacket.DstIP {
+		t.Errorf("DstIP mismatch: expected %v, got %v", originalPacket.DstIP, deserializedPacket.DstIP)
+	}
+	if deserializedPacket.DstPort != originalPacket.DstPort {
+		t.Errorf("DstPort mismatch: expected %d, got %d", originalPacket.DstPort, deserializedPacket.DstPort)
+	}
+	if deserializedPacket.SrcIP != originalPacket.SrcIP {
+		t.Errorf("SrcIP mismatch: expected %v, got %v", originalPacket.SrcIP, deserializedPacket.SrcIP)
+	}
+	if deserializedPacket.SrcPort != originalPacket.SrcPort {
+		t.Errorf("SrcPort mismatch: expected %d, got %d", originalPacket.SrcPort, deserializedPacket.SrcPort)
+	}
+	if deserializedPacket.ErrorMsg != originalPacket.ErrorMsg {
+		t.Errorf("ErrorMsg mismatch: expected %s, got %s", originalPacket.ErrorMsg, deserializedPacket.ErrorMsg)
+	}
+}
+
+// TestErrorPacketCodec_MTUValidation tests that error messages exceeding MTU are rejected
+func TestErrorPacketCodec_MTUValidation(t *testing.T) {
+	codec := &packet.ErrorPacketCodec{}
+
+	// Create an error packet with a message that's too long
+	// MaxUDPPayloadSize is typically 1400, header is 29 bytes, so max message is 1371 bytes
+	longMessage := make([]byte, packet.MaxUDPPayloadSize-28) // One byte too long
+	for i := range longMessage {
+		longMessage[i] = 'A'
+	}
+
+	errorPacket := &packet.ErrorPacket{
+		PacketTypeID: packet.PacketTypeError.TypeID,
+		RPCID:        uint64(12345),
+		DstIP:        [4]byte{192, 168, 1, 100},
+		DstPort:      8080,
+		SrcIP:        [4]byte{10, 0, 0, 50},
+		SrcPort:      9090,
+		ErrorMsg:     string(longMessage),
+	}
+
+	// Attempt to serialize - should fail
+	_, err := codec.Serialize(errorPacket, nil)
+	if err == nil {
+		t.Error("Expected error when serializing message that exceeds MTU, but got none")
+	}
+	if err != nil && err.Error() != "error message too long, must fit in one MTU" {
+		t.Errorf("Expected MTU error message, got: %v", err)
+	}
+
+	// Test with a message that fits
+	validMessage := make([]byte, packet.MaxUDPPayloadSize-30) // Should fit
+	for i := range validMessage {
+		validMessage[i] = 'B'
+	}
+	errorPacket.ErrorMsg = string(validMessage)
+
+	_, err = codec.Serialize(errorPacket, nil)
+	if err != nil {
+		t.Errorf("Expected no error for valid message size, got: %v", err)
+	}
+}
+
+// TestPacketBuffer_ProcessErrorPacket tests the ProcessErrorPacket method
+func TestPacketBuffer_ProcessErrorPacket(t *testing.T) {
+	pb := NewPacketBuffer(5 * time.Second)
+	defer pb.Close()
+
+	// Create and serialize an error packet
+	codec := &packet.ErrorPacketCodec{}
+	errorPacket := &packet.ErrorPacket{
+		PacketTypeID: packet.PacketTypeError.TypeID,
+		RPCID:        uint64(99999),
+		DstIP:        [4]byte{192, 168, 1, 200},
+		DstPort:      7070,
+		SrcIP:        [4]byte{10, 0, 0, 100},
+		SrcPort:      6060,
+		ErrorMsg:     "Connection timeout",
+	}
+
+	serialized, err := codec.Serialize(errorPacket, nil)
+	if err != nil {
+		t.Fatalf("Failed to serialize error packet: %v", err)
+	}
+
+	// Process the error packet
+	src := &net.UDPAddr{IP: net.IPv4(10, 0, 0, 100), Port: 6060}
+	bufferedPacket, err := pb.ProcessErrorPacket(serialized, src)
+	if err != nil {
+		t.Fatalf("Failed to process error packet: %v", err)
+	}
+
+	// Verify the buffered packet
+	if bufferedPacket == nil {
+		t.Fatal("Expected buffered packet, got nil")
+	}
+
+	if bufferedPacket.RPCID != errorPacket.RPCID {
+		t.Errorf("RPCID mismatch: expected %d, got %d", errorPacket.RPCID, bufferedPacket.RPCID)
+	}
+
+	if bufferedPacket.PacketType != util.PacketTypeError {
+		t.Errorf("PacketType mismatch: expected Error, got %v", bufferedPacket.PacketType)
+	}
+
+	if string(bufferedPacket.Payload) != errorPacket.ErrorMsg {
+		t.Errorf("Payload mismatch: expected %s, got %s", errorPacket.ErrorMsg, string(bufferedPacket.Payload))
+	}
+
+	if bufferedPacket.DstIP != errorPacket.DstIP {
+		t.Errorf("DstIP mismatch: expected %v, got %v", errorPacket.DstIP, bufferedPacket.DstIP)
+	}
+
+	if bufferedPacket.DstPort != errorPacket.DstPort {
+		t.Errorf("DstPort mismatch: expected %d, got %d", errorPacket.DstPort, bufferedPacket.DstPort)
+	}
+
+	if bufferedPacket.SrcIP != errorPacket.SrcIP {
+		t.Errorf("SrcIP mismatch: expected %v, got %v", errorPacket.SrcIP, bufferedPacket.SrcIP)
+	}
+
+	if bufferedPacket.SrcPort != errorPacket.SrcPort {
+		t.Errorf("SrcPort mismatch: expected %d, got %d", errorPacket.SrcPort, bufferedPacket.SrcPort)
+	}
+
+	// Verify peer address is constructed from DstIP and DstPort
+	expectedPeerIP := net.IP(errorPacket.DstIP[:])
+	if !bufferedPacket.Peer.IP.Equal(expectedPeerIP) {
+		t.Errorf("Peer IP mismatch: expected %v, got %v", expectedPeerIP, bufferedPacket.Peer.IP)
+	}
+
+	if bufferedPacket.Peer.Port != int(errorPacket.DstPort) {
+		t.Errorf("Peer Port mismatch: expected %d, got %d", errorPacket.DstPort, bufferedPacket.Peer.Port)
+	}
+
+	// Verify packet is marked as full (no fragmentation)
+	if !bufferedPacket.IsFull {
+		t.Error("Expected IsFull to be true for error packet")
+	}
+
+	if bufferedPacket.SeqNumber != -1 {
+		t.Errorf("Expected SeqNumber -1, got %d", bufferedPacket.SeqNumber)
+	}
+
+	if bufferedPacket.TotalPackets != 1 {
+		t.Errorf("Expected TotalPackets 1, got %d", bufferedPacket.TotalPackets)
+	}
+}

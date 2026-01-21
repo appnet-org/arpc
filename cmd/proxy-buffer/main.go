@@ -12,6 +12,7 @@ import (
 
 	"github.com/appnet-org/arpc/cmd/proxy-buffer/util"
 	"github.com/appnet-org/arpc/pkg/logging"
+	"github.com/appnet-org/arpc/pkg/packet"
 	"github.com/appnet-org/arpc/pkg/transport"
 	"go.uber.org/zap"
 )
@@ -205,6 +206,48 @@ func runProxyServer(port int, state *ProxyState, config *Config) error {
 func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data []byte, config *Config) {
 	ctx := context.Background()
 
+	// Check if this is an error packet (PacketTypeID == 3)
+	if len(data) > 0 && data[0] == byte(packet.PacketTypeError.TypeID) {
+		// Process error packet - forward directly without element chain
+		bufferedPacket, err := state.packetBuffer.ProcessErrorPacket(data, src)
+		if err != nil {
+			logging.Error("Error processing error packet", zap.Error(err))
+			return
+		}
+
+		// Serialize the error packet for forwarding
+		errorPacket := &packet.ErrorPacket{
+			PacketTypeID: packet.PacketTypeError.TypeID,
+			RPCID:        bufferedPacket.RPCID,
+			DstIP:        bufferedPacket.DstIP,
+			DstPort:      bufferedPacket.DstPort,
+			SrcIP:        bufferedPacket.SrcIP,
+			SrcPort:      bufferedPacket.SrcPort,
+			ErrorMsg:     string(bufferedPacket.Payload),
+		}
+
+		codec := &packet.ErrorPacketCodec{}
+		serialized, err := codec.Serialize(errorPacket, nil)
+		if err != nil {
+			logging.Error("Failed to serialize error packet for forwarding", zap.Error(err))
+			return
+		}
+
+		// Forward the error packet to the destination
+		if _, err := conn.WriteToUDP(serialized, bufferedPacket.Peer); err != nil {
+			logging.Error("Failed to forward error packet", zap.Error(err))
+			return
+		}
+
+		logging.Debug("Forwarded error packet",
+			zap.Uint64("rpcID", bufferedPacket.RPCID),
+			zap.String("from", bufferedPacket.Source.String()),
+			zap.String("to", bufferedPacket.Peer.String()),
+			zap.String("errorMsg", string(bufferedPacket.Payload)))
+
+		return
+	}
+
 	// Process packet - returns nil if still buffering fragments
 	// Returns a complete BufferedPacket only when ALL fragments have been received
 	bufferedPacket, err := state.packetBuffer.ProcessPacket(data, src)
@@ -252,7 +295,7 @@ func handlePacket(conn *net.UDPConn, state *ProxyState, src *net.UDPAddr, data [
 		logging.Error("Error processing packet through element chain or packet was dropped",
 			zap.Error(err))
 		// Send error packet back to the source
-		if sendErr := util.SendErrorPacket(conn, bufferedPacket.Source, bufferedPacket.RPCID, err.Error()); sendErr != nil {
+		if sendErr := util.SendErrorPacket(conn, bufferedPacket.Source, bufferedPacket.RPCID, err.Error(), bufferedPacket.SrcIP, bufferedPacket.SrcPort, bufferedPacket.DstIP, bufferedPacket.DstPort); sendErr != nil {
 			logging.Error("Failed to send error packet", zap.Error(sendErr))
 		}
 		return
