@@ -18,9 +18,18 @@ import (
 const (
 	// ElementPluginDir is the fixed directory where element plugins are stored
 	ElementPluginDir = "/appnet/arpc-plugins"
-	// ElementPluginPrefix is the prefix for element plugin files
-	ElementPluginPrefix = "element-"
+	// DefaultElementPluginPrefix is the default prefix for element plugin files
+	DefaultElementPluginPrefix = "element-"
 )
+
+// GetElementPluginPrefix returns the element plugin prefix from the ELEMENT_PLUGIN_PREFIX
+// environment variable, or the default if not set.
+func GetElementPluginPrefix() string {
+	if prefix := os.Getenv("ELEMENT_PLUGIN_PREFIX"); prefix != "" {
+		return prefix
+	}
+	return DefaultElementPluginPrefix
+}
 
 var (
 	// currentElementChain is stored in an atomic.Value for lock-free reads
@@ -148,7 +157,7 @@ func updateElements(prefix string) {
 		dir = ElementPluginDir
 	}
 	if prefixName == "" {
-		prefixName = ElementPluginPrefix
+		prefixName = GetElementPluginPrefix()
 	}
 
 	files, err := os.ReadDir(dir)

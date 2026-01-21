@@ -95,7 +95,7 @@ func main() {
 	logging.Info("Starting bidirectional UDP proxy on :15002 and :15006...")
 
 	// Initialize dynamic element loader
-	InitElementLoader(ElementPluginDir + "/" + ElementPluginPrefix)
+	InitElementLoader(ElementPluginDir + "/" + GetElementPluginPrefix())
 
 	config := DefaultConfig()
 

@@ -12,7 +12,7 @@ PROXY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Generate timestamp-based filename if not provided
 if [ -z "$1" ]; then
     TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
-    OUTPUT_NAME="element-example-${TIMESTAMP}.so"
+    OUTPUT_NAME="frontend-${TIMESTAMP}.so"
 else
     OUTPUT_NAME="$1"
 fi
