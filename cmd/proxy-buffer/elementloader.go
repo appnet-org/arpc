@@ -10,14 +10,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/appnet-org/arpc/cmd/proxy-buffer/util"
 	"github.com/appnet-org/arpc/pkg/logging"
-	"github.com/appnet-org/proxy-buffer/util"
 	"go.uber.org/zap"
 )
 
 const (
 	// ElementPluginDir is the fixed directory where element plugins are stored
-	ElementPluginDir = "/tmp/arpc/elements"
+	ElementPluginDir = "/appnet/arpc-plugins"
 	// ElementPluginPrefix is the prefix for element plugin files
 	ElementPluginPrefix = "element-"
 )
@@ -270,4 +270,3 @@ func loadElementPlugin(elementPluginPath string) elementInit {
 	logging.Info("Successfully loaded element plugin", zap.String("path", elementPluginPath))
 	return wrapper
 }
-

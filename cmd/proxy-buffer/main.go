@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/appnet-org/arpc/cmd/proxy-buffer/util"
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/transport"
-	"github.com/appnet-org/proxy-buffer/util"
 	"go.uber.org/zap"
 )
 

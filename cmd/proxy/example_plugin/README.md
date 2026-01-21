@@ -41,7 +41,7 @@ go build -buildmode=plugin -o element-example.so example_element.go
 3. The compiled `.so` file must be placed in `/tmp/arpc/elements/` directory
 4. The filename must start with `element-` prefix (e.g., `element-example.so`, `element-example-v2.so`)
 5. **File Selection**: The elementloader selects the **highest alphabetically sorted** file. Using timestamps (like `element-example-20240115-143022.so`) ensures newer builds are automatically selected.
-6. **Type Sharing**: The plugin defines `RPCElement` interface locally. For production, consider moving the interface to a shared package (e.g., `github.com/appnet-org/proxy/element`) so both the proxy and plugins can import it directly.
+6. **Type Sharing**: The plugin defines `RPCElement` interface locally. For production, consider moving the interface to a shared package (e.g., `github.com/appnet-org/arpc/cmd/proxy/element`) so both the proxy and plugins can import it directly.
 
 ## Plugin Requirements
 
@@ -86,7 +86,7 @@ package main
 
 import (
     "context"
-    "github.com/appnet-org/proxy/util"
+    "github.com/appnet-org/arpc/cmdproxy/util"
 )
 
 type MyCustomElement struct {

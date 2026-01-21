@@ -1,4 +1,4 @@
-module github.com/appnet-org/proxy-buffer
+module github.com/appnet-org/arpc/cmd/proxy-buffer
 
 go 1.24.0
 

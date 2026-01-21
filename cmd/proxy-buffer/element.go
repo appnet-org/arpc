@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/appnet-org/proxy-buffer/util"
+	"github.com/appnet-org/arpc/cmd/proxy-buffer/util"
 )
 
 // RPCElement defines the interface for RPC elements.
@@ -63,4 +63,3 @@ func (c *RPCElementChain) ProcessResponse(ctx context.Context, packet *util.Buff
 	}
 	return packet, util.PacketVerdictPass, ctx, nil
 }
-

@@ -10,8 +10,8 @@ package main
 import (
 	"context"
 
+	"github.com/appnet-org/arpc/cmd/proxy/util"
 	"github.com/appnet-org/arpc/pkg/logging"
-	"github.com/appnet-org/proxy/util"
 	"go.uber.org/zap"
 )
 

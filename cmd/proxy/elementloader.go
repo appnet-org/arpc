@@ -10,14 +10,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/appnet-org/arpc/cmd/proxy/util"
 	"github.com/appnet-org/arpc/pkg/logging"
-	"github.com/appnet-org/proxy/util"
 	"go.uber.org/zap"
 )
 
 const (
 	// ElementPluginDir is the fixed directory where element plugins are stored
-	ElementPluginDir = "/tmp/arpc/elements"
+	ElementPluginDir = "/appnet/arpc-plugins"
 	// ElementPluginPrefix is the prefix for element plugin files
 	ElementPluginPrefix = "element-"
 )

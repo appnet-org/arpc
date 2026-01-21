@@ -39,8 +39,8 @@ manifest_dict = {
     # "kv-store-thrift-http": os.path.join(ARPC_DIR, "benchmark/kv-store-thrift-http/manifest/kvstore.yaml"),
     # "kv-store-symphony": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore.yaml"),
     # "kv-store-symphony-proxy": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore-proxy.yaml"),
-    "kv-store-symphony-proxy-buffering": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore-proxy-buffering.yaml"),
-    # "kv-store-arpc-tcp": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-tcp.yaml"),
+    # "kv-store-symphony-proxy-buffering": os.path.join(ARPC_DIR, "benchmark/kv-store-symphony/manifest/kvstore-proxy-buffering.yaml"),
+    "kv-store-arpc-tcp": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-tcp.yaml"),
     # "kv-store-arpc-quic": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-quic.yaml"),
     # "kv-store-arpc-h2": os.path.join(ARPC_DIR, "benchmark/scripts/manifest-arpc/kv-store-arpc-h2.yaml"),
 }

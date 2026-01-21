@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/appnet-org/proxy/util"
+	"github.com/appnet-org/arpc/cmd/proxy/util"
 )
 
 // RPCElement defines the interface for RPC elements.

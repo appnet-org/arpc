@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/appnet-org/arpc/cmd/proxy/util"
 	"github.com/appnet-org/arpc/pkg/logging"
 	"github.com/appnet-org/arpc/pkg/packet"
-	"github.com/appnet-org/proxy/util"
 )
 
 func init() {

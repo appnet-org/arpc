@@ -1,7 +1,7 @@
 # Set Go image
 FROM golang:1.24.0-bullseye AS builder
 
-ENV CGO_ENABLED=0
+ENV CGO_ENABLED=1
 ENV GO111MODULE=on
 
 # Create workspace
