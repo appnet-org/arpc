@@ -42,11 +42,15 @@ type ResponsePacket struct {
 	DataPacket
 }
 
-// ErrorPacket has exactly two fields as specified
+// ErrorPacket has routing information similar to DataPacket
 type ErrorPacket struct {
 	PacketTypeID PacketTypeID
-	RPCID        uint64 // RPC ID that caused the error
-	ErrorMsg     string // Error message string (must fit in on one MTU)
+	RPCID        uint64  // RPC ID that caused the error
+	DstIP        [4]byte // Destination IP address (4 bytes)
+	DstPort      uint16  // Destination port
+	SrcIP        [4]byte // Source IP address (4 bytes)
+	SrcPort      uint16  // Source port
+	ErrorMsg     string  // Error message string (must fit in one MTU)
 }
 
 // DataPacketCodec implements DataPacket serialization for both Request and Response packets
@@ -159,7 +163,7 @@ func (c *DataPacketCodec) Deserialize(data []byte) (any, error) {
 type ErrorPacketCodec struct{}
 
 // Serialize encodes an ErrorPacket into binary format:
-// [PacketTypeID(1B)][RPCID(8B)][MsgLen(4B)][Msg]
+// [PacketTypeID(1B)][RPCID(8B)][DstIP(4B)][DstPort(2B)][SrcIP(4B)][SrcPort(2B)][MsgLen(4B)][Msg]
 func (c *ErrorPacketCodec) Serialize(packet any, pool *common.BufferPool) ([]byte, error) {
 	p, ok := packet.(*ErrorPacket)
 	if !ok {
@@ -167,11 +171,11 @@ func (c *ErrorPacketCodec) Serialize(packet any, pool *common.BufferPool) ([]byt
 	}
 
 	msgBytes := []byte(p.ErrorMsg)
-	if len(msgBytes) > MaxUDPPayloadSize-13 { // 1+8+4 header = 13B
+	if len(msgBytes) > MaxUDPPayloadSize-29 { // 1+8+4+2+4+2+4 header = 29B
 		return nil, errors.New("error message too long, must fit in one MTU")
 	}
 
-	totalSize := 13 + len(msgBytes)
+	totalSize := 29 + len(msgBytes)
 
 	var buf []byte
 	if pool != nil {
@@ -183,8 +187,24 @@ func (c *ErrorPacketCodec) Serialize(packet any, pool *common.BufferPool) ([]byt
 	// Write fields
 	buf[0] = byte(p.PacketTypeID)
 	binary.LittleEndian.PutUint64(buf[1:9], p.RPCID)
-	binary.LittleEndian.PutUint32(buf[9:13], uint32(len(msgBytes)))
-	copy(buf[13:], msgBytes)
+
+	// Copy destination IP (4 bytes)
+	copy(buf[9:13], p.DstIP[:])
+
+	// Write destination port
+	binary.LittleEndian.PutUint16(buf[13:15], p.DstPort)
+
+	// Copy source IP (4 bytes)
+	copy(buf[15:19], p.SrcIP[:])
+
+	// Write source port
+	binary.LittleEndian.PutUint16(buf[19:21], p.SrcPort)
+
+	// Write message length
+	binary.LittleEndian.PutUint32(buf[21:25], uint32(len(msgBytes)))
+
+	// Copy message
+	copy(buf[25:], msgBytes)
 
 	// Note: We don't return the buffer to the pool here because it's returned to the caller
 	// The caller (transport.Send) is responsible for returning it after WriteToUDP
@@ -192,20 +212,35 @@ func (c *ErrorPacketCodec) Serialize(packet any, pool *common.BufferPool) ([]byt
 }
 
 // Deserialize decodes binary data into an ErrorPacket
+// Format: [PacketTypeID(1B)][RPCID(8B)][DstIP(4B)][DstPort(2B)][SrcIP(4B)][SrcPort(2B)][MsgLen(4B)][Msg]
 func (c *ErrorPacketCodec) Deserialize(data []byte) (any, error) {
-	if len(data) < 13 {
+	if len(data) < 29 {
 		return nil, errors.New("data too short for ErrorPacket header")
 	}
 
 	pkt := &ErrorPacket{}
 	pkt.PacketTypeID = PacketTypeID(data[0])
 	pkt.RPCID = binary.LittleEndian.Uint64(data[1:9])
-	msgLen := binary.LittleEndian.Uint32(data[9:13])
 
-	if len(data) < 13+int(msgLen) {
+	// Copy destination IP (4 bytes)
+	copy(pkt.DstIP[:], data[9:13])
+
+	// Read destination port
+	pkt.DstPort = binary.LittleEndian.Uint16(data[13:15])
+
+	// Copy source IP (4 bytes)
+	copy(pkt.SrcIP[:], data[15:19])
+
+	// Read source port
+	pkt.SrcPort = binary.LittleEndian.Uint16(data[19:21])
+
+	// Read message length
+	msgLen := binary.LittleEndian.Uint32(data[21:25])
+
+	if len(data) < 29+int(msgLen) {
 		return nil, errors.New("data too short for declared error message length")
 	}
 
-	pkt.ErrorMsg = string(data[13 : 13+msgLen])
+	pkt.ErrorMsg = string(data[25 : 25+msgLen])
 	return pkt, nil
 }

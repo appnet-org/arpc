@@ -9,12 +9,16 @@ import (
 	"go.uber.org/zap"
 )
 
-// sendErrorPacket sends an error packet back to the source
-func SendErrorPacket(conn *net.UDPConn, dest *net.UDPAddr, rpcID uint64, errorMsg string) error {
+// SendErrorPacket sends an error packet back to the source with routing information
+func SendErrorPacket(conn *net.UDPConn, dest *net.UDPAddr, rpcID uint64, errorMsg string, dstIP [4]byte, dstPort uint16, srcIP [4]byte, srcPort uint16) error {
 	// Create error packet
 	errorPacket := &packet.ErrorPacket{
 		PacketTypeID: packet.PacketTypeError.TypeID,
 		RPCID:        rpcID,
+		DstIP:        dstIP,
+		DstPort:      dstPort,
+		SrcIP:        srcIP,
+		SrcPort:      srcPort,
 		ErrorMsg:     errorMsg,
 	}
 
