@@ -6,7 +6,7 @@ import (
 	"math/rand"
 	"sync"
 
-	kv "github.com/appnet-org/arpc/benchmark/kv-store-symphony-element/symphony"
+	kv "github.com/appnet-org/arpc-sigcomm/kv-store-symphony/symphony"
 
 	"github.com/appnet-org/arpc/cmd/proxy/util"
 	"github.com/appnet-org/arpc/pkg/logging"

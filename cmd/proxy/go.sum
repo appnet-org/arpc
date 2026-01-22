@@ -1,7 +1,5 @@
 capnproto.org/go/capnp/v3 v3.1.0-alpha.1 h1:8/sMnWuatR99G0L0vmnrXj0zVP0MrlyClRqSmqGYydo=
 capnproto.org/go/capnp/v3 v3.1.0-alpha.1/go.mod h1:2vT5D2dtG8sJGEoEKU17e+j7shdaYp1Myl8X03B3hmc=
-github.com/appnet-org/arpc/benchmark/kv-store-symphony-element v0.0.0-20260101073445-6c01641db464 h1:BlCGYQSnoaqWh8+QSOyTTv0V7QOEs/TW3sqAUikOYzI=
-github.com/appnet-org/arpc/benchmark/kv-store-symphony-element v0.0.0-20260101073445-6c01641db464/go.mod h1:Ve+mkniG+PuOuizEBo51r5LtHmZA7Jagqs34rhateh8=
 github.com/colega/zeropool v0.0.0-20230505084239-6fb4a4f75381 h1:d5EKgQfRQvO97jnISfR89AiCCCJMwMFoSxUiU0OGCRU=
 github.com/colega/zeropool v0.0.0-20230505084239-6fb4a4f75381/go.mod h1:OU76gHeRo8xrzGJU3F3I1CqX1ekM8dfJw0+wPeMwnp0=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=

@@ -1004,11 +1004,13 @@ func generateRawGetters(g *protogen.GeneratedFile, msg *protogen.Message, rawNam
 		if !isPublic {
 			g.P("    // ASSERT: Private field requires complete buffer")
 			g.P("    if len(m) < 5 {")
-			g.P("        panic(\"private getter called on invalid buffer\")")
+			g.P("        panic(fmt.Sprintf(\"private getter ", field.GoName, " called on invalid buffer: len(m)=%d, need at least 5 bytes\", len(m)))")
 			g.P("    }")
 			g.P("    offsetToPrivate := int(binary.LittleEndian.Uint32(m[1:5]))")
 			g.P("    if offsetToPrivate >= len(m) || m[offsetToPrivate] != 0x01 {")
-			g.P("        panic(\"private getter called on public-only buffer\")")
+			g.P("        marker := byte(0)")
+			g.P("        if offsetToPrivate < len(m) { marker = m[offsetToPrivate] }")
+			g.P("        panic(fmt.Sprintf(\"private getter ", field.GoName, " called on public-only buffer: offsetToPrivate=%d, len(m)=%d, marker=0x%02x (expected 0x01)\", offsetToPrivate, len(m), marker))")
 			g.P("    }")
 		}
 
@@ -1058,18 +1060,20 @@ func generateRawSetters(g *protogen.GeneratedFile, msg *protogen.Message, rawNam
 			g.P("    if len(*m) >= 5 {")
 			g.P("        offsetToPrivate := int(binary.LittleEndian.Uint32((*m)[1:5]))")
 			g.P("        if offsetToPrivate < len(*m) && (*m)[offsetToPrivate] == 0x01 {")
-			g.P("            panic(\"public setter called on complete buffer\")")
+			g.P("            panic(fmt.Sprintf(\"public setter ", field.GoName, " called on complete buffer: offsetToPrivate=%d, len(m)=%d, marker=0x01 (should not modify complete buffer)\", offsetToPrivate, len(*m)))")
 			g.P("        }")
 			g.P("    }")
 		} else {
 			// Private fields must assert complete buffer
 			g.P("    // ASSERT: Private field setter requires complete buffer")
 			g.P("    if len(*m) < 5 {")
-			g.P("        panic(\"private setter called on invalid buffer\")")
+			g.P("        panic(fmt.Sprintf(\"private setter ", field.GoName, " called on invalid buffer: len(m)=%d, need at least 5 bytes\", len(*m)))")
 			g.P("    }")
 			g.P("    offsetToPrivate := int(binary.LittleEndian.Uint32((*m)[1:5]))")
 			g.P("    if offsetToPrivate >= len(*m) || (*m)[offsetToPrivate] != 0x01 {")
-			g.P("        panic(\"private setter called on public-only buffer\")")
+			g.P("        marker := byte(0)")
+			g.P("        if offsetToPrivate < len(*m) { marker = (*m)[offsetToPrivate] }")
+			g.P("        panic(fmt.Sprintf(\"private setter ", field.GoName, " called on public-only buffer: offsetToPrivate=%d, len(m)=%d, marker=0x%02x (expected 0x01)\", offsetToPrivate, len(*m), marker))")
 			g.P("    }")
 		}
 

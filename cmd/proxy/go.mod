@@ -4,9 +4,11 @@ go 1.24.0
 
 replace github.com/appnet-org/arpc => ../..
 
+replace github.com/appnet-org/arpc-sigcomm/kv-store-symphony => /users/xzhu/compiler/compiler/experiments/arpc-sigcomm/kv-store-symphony
+
 require (
-	github.com/appnet-org/arpc v0.0.0-00010101000000-000000000000
-	github.com/appnet-org/arpc/benchmark/kv-store-symphony-element v0.0.0-20260101073445-6c01641db464
+	github.com/appnet-org/arpc v0.0.0-20260121062022-8a0f1bc09760
+	github.com/appnet-org/arpc-sigcomm/kv-store-symphony v0.0.0-00010101000000-000000000000
 	go.uber.org/zap v1.27.1
 )
 
