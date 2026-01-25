@@ -30,30 +30,55 @@ func BenchmarkTripleEncryption_Whole(b *testing.B) {
 			continue
 		}
 
-		// Generate test data for this trace entry (excluded from timing)
+		// Generate fresh random data for each round (excluded from timing)
+		// This avoids cache advantages from reusing the same data
 		b.StopTimer()
-		data := generateRandomBytes(size)
+		data1 := generateRandomBytes(size)
+		data2 := generateRandomBytes(size)
+		data3 := generateRandomBytes(size)
 		b.StartTimer()
 
 		var totalEncryptTime int64
 		var totalDecryptTime int64
 
-		// Perform encrypt/decrypt 3 times and sum the latencies
-		for round := 0; round < 3; round++ {
-			// Encrypt with optimized function
-			encrypted, encryptTime, err := encryptWholeWithTiming(data, true)
-			if err != nil {
-				b.Fatalf("Encryption failed: %v", err)
-			}
-			totalEncryptTime += encryptTime
-
-			// Decrypt with optimized function
-			_, decryptTime, err := decryptWholeWithTiming(encrypted, true)
-			if err != nil {
-				b.Fatalf("Decryption failed: %v", err)
-			}
-			totalDecryptTime += decryptTime
+		// Round 1
+		encrypted1, encryptTime1, err := encryptWholeWithTiming(data1, true)
+		if err != nil {
+			b.Fatalf("Encryption failed: %v", err)
 		}
+		totalEncryptTime += encryptTime1
+
+		_, decryptTime1, err := decryptWholeWithTiming(encrypted1, true)
+		if err != nil {
+			b.Fatalf("Decryption failed: %v", err)
+		}
+		totalDecryptTime += decryptTime1
+
+		// Round 2
+		encrypted2, encryptTime2, err := encryptWholeWithTiming(data2, true)
+		if err != nil {
+			b.Fatalf("Encryption failed: %v", err)
+		}
+		totalEncryptTime += encryptTime2
+
+		_, decryptTime2, err := decryptWholeWithTiming(encrypted2, true)
+		if err != nil {
+			b.Fatalf("Decryption failed: %v", err)
+		}
+		totalDecryptTime += decryptTime2
+
+		// Round 3
+		encrypted3, encryptTime3, err := encryptWholeWithTiming(data3, true)
+		if err != nil {
+			b.Fatalf("Encryption failed: %v", err)
+		}
+		totalEncryptTime += encryptTime3
+
+		_, decryptTime3, err := decryptWholeWithTiming(encrypted3, true)
+		if err != nil {
+			b.Fatalf("Decryption failed: %v", err)
+		}
+		totalDecryptTime += decryptTime3
 
 		encryptTimings = append(encryptTimings, TimingEntry{LatencyNs: totalEncryptTime, MessageSize: size})
 		decryptTimings = append(decryptTimings, TimingEntry{LatencyNs: totalDecryptTime, MessageSize: size})
@@ -95,10 +120,11 @@ func BenchmarkTripleEncryption_RandomSplit(b *testing.B) {
 			continue // Need at least 2 bytes to split
 		}
 
-		// Generate test data and calculate random split point (excluded from timing)
+		// Generate fresh random data for each operation (excluded from timing)
+		// This avoids cache advantages from reusing the same data
 		b.StopTimer()
-		data := generateRandomBytes(size)
-		// Generate random split point between 1 and size-1
+		// Data for Step 1: full split operation
+		data1 := generateRandomBytes(size)
 		splitPoint := 1
 		if size > 2 {
 			splitPointBytes := make([]byte, 4)
@@ -111,15 +137,21 @@ func BenchmarkTripleEncryption_RandomSplit(b *testing.B) {
 				splitPoint = size - 1
 			}
 		}
-		publicPart := data[:splitPoint]
-		privatePart := data[splitPoint:]
+		publicPart1 := data1[:splitPoint]
+		privatePart1 := data1[splitPoint:]
+
+		// Data for Step 2: first split only (round 1)
+		firstSplitData2 := generateRandomBytes(splitPoint)
+
+		// Data for Step 3: first split only (round 2)
+		firstSplitData3 := generateRandomBytes(splitPoint)
 		b.StartTimer()
 
 		var totalEncryptTime int64
 		var totalDecryptTime int64
 
 		// Step 1: Encrypt/decrypt both splits once
-		encryptedPublic, encryptedPrivate, encryptTime, err := encryptSplitWithTiming(publicPart, privatePart)
+		encryptedPublic, encryptedPrivate, encryptTime, err := encryptSplitWithTiming(publicPart1, privatePart1)
 		if err != nil {
 			b.Fatalf("Encryption failed: %v", err)
 		}
@@ -131,20 +163,31 @@ func BenchmarkTripleEncryption_RandomSplit(b *testing.B) {
 		}
 		totalDecryptTime += decryptTime
 
-		// Step 2: Encrypt/decrypt only the first split (public part) 2 more times
-		for round := 0; round < 2; round++ {
-			encrypted, encTime, err := encryptWholeWithTiming(publicPart, true)
-			if err != nil {
-				b.Fatalf("Encryption of first split failed: %v", err)
-			}
-			totalEncryptTime += encTime
-
-			_, decTime, err := decryptWholeWithTiming(encrypted, true)
-			if err != nil {
-				b.Fatalf("Decryption of first split failed: %v", err)
-			}
-			totalDecryptTime += decTime
+		// Step 2: Encrypt/decrypt only the first split (fresh data)
+		encrypted2, encTime2, err := encryptWholeWithTiming(firstSplitData2, true)
+		if err != nil {
+			b.Fatalf("Encryption of first split failed: %v", err)
 		}
+		totalEncryptTime += encTime2
+
+		_, decTime2, err := decryptWholeWithTiming(encrypted2, true)
+		if err != nil {
+			b.Fatalf("Decryption of first split failed: %v", err)
+		}
+		totalDecryptTime += decTime2
+
+		// Step 3: Encrypt/decrypt only the first split (fresh data)
+		encrypted3, encTime3, err := encryptWholeWithTiming(firstSplitData3, true)
+		if err != nil {
+			b.Fatalf("Encryption of first split failed: %v", err)
+		}
+		totalEncryptTime += encTime3
+
+		_, decTime3, err := decryptWholeWithTiming(encrypted3, true)
+		if err != nil {
+			b.Fatalf("Decryption of first split failed: %v", err)
+		}
+		totalDecryptTime += decTime3
 
 		encryptTimings = append(encryptTimings, TimingEntry{LatencyNs: totalEncryptTime, MessageSize: size})
 		decryptTimings = append(decryptTimings, TimingEntry{LatencyNs: totalDecryptTime, MessageSize: size})
@@ -186,19 +229,28 @@ func BenchmarkTripleEncryption_EqualSplit(b *testing.B) {
 			continue // Need at least 2 bytes to split
 		}
 
-		// Generate test data and split in half (excluded from timing)
+		// Generate fresh random data for each operation (excluded from timing)
+		// This avoids cache advantages from reusing the same data
 		b.StopTimer()
-		data := generateRandomBytes(size)
 		splitPoint := size / 2
-		publicPart := data[:splitPoint]
-		privatePart := data[splitPoint:]
+
+		// Data for Step 1: full split operation
+		data1 := generateRandomBytes(size)
+		publicPart1 := data1[:splitPoint]
+		privatePart1 := data1[splitPoint:]
+
+		// Data for Step 2: first split only (round 1)
+		firstSplitData2 := generateRandomBytes(splitPoint)
+
+		// Data for Step 3: first split only (round 2)
+		firstSplitData3 := generateRandomBytes(splitPoint)
 		b.StartTimer()
 
 		var totalEncryptTime int64
 		var totalDecryptTime int64
 
 		// Step 1: Encrypt/decrypt both splits once
-		encryptedPublic, encryptedPrivate, encryptTime, err := encryptSplitWithTiming(publicPart, privatePart)
+		encryptedPublic, encryptedPrivate, encryptTime, err := encryptSplitWithTiming(publicPart1, privatePart1)
 		if err != nil {
 			b.Fatalf("Encryption failed: %v", err)
 		}
@@ -210,20 +262,31 @@ func BenchmarkTripleEncryption_EqualSplit(b *testing.B) {
 		}
 		totalDecryptTime += decryptTime
 
-		// Step 2: Encrypt/decrypt only the first split (public part) 2 more times
-		for round := 0; round < 2; round++ {
-			encrypted, encTime, err := encryptWholeWithTiming(publicPart, true)
-			if err != nil {
-				b.Fatalf("Encryption of first split failed: %v", err)
-			}
-			totalEncryptTime += encTime
-
-			_, decTime, err := decryptWholeWithTiming(encrypted, true)
-			if err != nil {
-				b.Fatalf("Decryption of first split failed: %v", err)
-			}
-			totalDecryptTime += decTime
+		// Step 2: Encrypt/decrypt only the first split (fresh data)
+		encrypted2, encTime2, err := encryptWholeWithTiming(firstSplitData2, true)
+		if err != nil {
+			b.Fatalf("Encryption of first split failed: %v", err)
 		}
+		totalEncryptTime += encTime2
+
+		_, decTime2, err := decryptWholeWithTiming(encrypted2, true)
+		if err != nil {
+			b.Fatalf("Decryption of first split failed: %v", err)
+		}
+		totalDecryptTime += decTime2
+
+		// Step 3: Encrypt/decrypt only the first split (fresh data)
+		encrypted3, encTime3, err := encryptWholeWithTiming(firstSplitData3, true)
+		if err != nil {
+			b.Fatalf("Encryption of first split failed: %v", err)
+		}
+		totalEncryptTime += encTime3
+
+		_, decTime3, err := decryptWholeWithTiming(encrypted3, true)
+		if err != nil {
+			b.Fatalf("Decryption of first split failed: %v", err)
+		}
+		totalDecryptTime += decTime3
 
 		encryptTimings = append(encryptTimings, TimingEntry{LatencyNs: totalEncryptTime, MessageSize: size})
 		decryptTimings = append(decryptTimings, TimingEntry{LatencyNs: totalDecryptTime, MessageSize: size})
@@ -270,10 +333,18 @@ func BenchmarkTripleEncryption_KeyValueSplit(b *testing.B) {
 
 		totalSize := keySize + valueSize
 
-		// Generate test data for key and value separately (excluded from timing)
+		// Generate fresh random data for each operation (excluded from timing)
+		// This avoids cache advantages from reusing the same data
 		b.StopTimer()
-		keyData := generateRandomBytes(keySize)
-		valueData := generateRandomBytes(valueSize)
+		// Data for Step 1: full split operation (key + value)
+		keyData1 := generateRandomBytes(keySize)
+		valueData1 := generateRandomBytes(valueSize)
+
+		// Data for Step 2: key only (round 1)
+		keyData2 := generateRandomBytes(keySize)
+
+		// Data for Step 3: key only (round 2)
+		keyData3 := generateRandomBytes(keySize)
 		b.StartTimer()
 
 		var totalEncryptTime int64
@@ -281,7 +352,7 @@ func BenchmarkTripleEncryption_KeyValueSplit(b *testing.B) {
 
 		// Step 1: Encrypt/decrypt both splits once
 		// Key as public part, Value as private part
-		encryptedKey, encryptedValue, encryptTime, err := encryptSplitWithTiming(keyData, valueData)
+		encryptedKey, encryptedValue, encryptTime, err := encryptSplitWithTiming(keyData1, valueData1)
 		if err != nil {
 			b.Fatalf("Encryption failed: %v", err)
 		}
@@ -293,20 +364,31 @@ func BenchmarkTripleEncryption_KeyValueSplit(b *testing.B) {
 		}
 		totalDecryptTime += decryptTime
 
-		// Step 2: Encrypt/decrypt only the first split (key) 2 more times
-		for round := 0; round < 2; round++ {
-			encrypted, encTime, err := encryptWholeWithTiming(keyData, true)
-			if err != nil {
-				b.Fatalf("Encryption of key failed: %v", err)
-			}
-			totalEncryptTime += encTime
-
-			_, decTime, err := decryptWholeWithTiming(encrypted, true)
-			if err != nil {
-				b.Fatalf("Decryption of key failed: %v", err)
-			}
-			totalDecryptTime += decTime
+		// Step 2: Encrypt/decrypt only the key (fresh data)
+		encrypted2, encTime2, err := encryptWholeWithTiming(keyData2, true)
+		if err != nil {
+			b.Fatalf("Encryption of key failed: %v", err)
 		}
+		totalEncryptTime += encTime2
+
+		_, decTime2, err := decryptWholeWithTiming(encrypted2, true)
+		if err != nil {
+			b.Fatalf("Decryption of key failed: %v", err)
+		}
+		totalDecryptTime += decTime2
+
+		// Step 3: Encrypt/decrypt only the key (fresh data)
+		encrypted3, encTime3, err := encryptWholeWithTiming(keyData3, true)
+		if err != nil {
+			b.Fatalf("Encryption of key failed: %v", err)
+		}
+		totalEncryptTime += encTime3
+
+		_, decTime3, err := decryptWholeWithTiming(encrypted3, true)
+		if err != nil {
+			b.Fatalf("Decryption of key failed: %v", err)
+		}
+		totalDecryptTime += decTime3
 
 		encryptTimings = append(encryptTimings, TimingEntry{LatencyNs: totalEncryptTime, MessageSize: totalSize})
 		decryptTimings = append(decryptTimings, TimingEntry{LatencyNs: totalDecryptTime, MessageSize: totalSize})
