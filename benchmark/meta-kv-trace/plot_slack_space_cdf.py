@@ -96,7 +96,7 @@ def plot_slack_space_cdf(slack_data, output_filename=OUTPUT_FILE, mtu=MTU, show_
         show_legend: whether to show the legend (default: False)
     """
     # Setup Figure
-    fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+    fig, ax = plt.subplots(1, 1, figsize=(5, 2.5))
     
     # Standard SIGCOMM Color Palette
     color = '#4878d0'
