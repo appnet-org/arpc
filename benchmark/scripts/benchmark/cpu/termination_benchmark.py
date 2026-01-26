@@ -37,8 +37,8 @@ lua_path = os.path.join(ARPC_DIR, "benchmark/meta-kv-trace/kvstore-wrk.lua")
 
 manifest_dict = {
     "kv-store-grpc": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/termination-manifest/kvstore.yaml"),
-    # "kv-store-grpc-proxy-tcp": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/termination-manifest/kvstore-proxy-tcp.yaml"),
-    # "kv-store-grpc-proxy-h2": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/termination-manifest/kvstore-proxy-h2.yaml"),
+    "kv-store-grpc-proxy-tcp": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/termination-manifest/kvstore-proxy-tcp.yaml"),
+    "kv-store-grpc-proxy-h2": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/termination-manifest/kvstore-proxy-h2.yaml"),
     "kv-store-grpc-envoy-tcp": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/termination-manifest/kvstore-envoy-tcp.yaml"),
     "kv-store-grpc-envoy-h2": os.path.join(ARPC_DIR, "benchmark/scripts/benchmark/cpu/termination-manifest/kvstore-envoy-h2.yaml"),
 }

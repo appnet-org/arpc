@@ -19,7 +19,7 @@ metadata:
   creationTimestamp: null
   name: frontend
 spec:
-  replicas: 1
+  replicas: 5
   selector:
     matchLabels:
       app: frontend
@@ -282,7 +282,7 @@ metadata:
   creationTimestamp: null
   name: kvstore
 spec:
-  replicas: 1
+  replicas: 5
   selector:
     matchLabels:
       app: kvstore
