@@ -1,11 +1,21 @@
 # Computes and saves log-scale CDFs of key/value/total sizes from SET ops in a large cache trace CSV, processed in chunks.
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib
 import numpy as np
 
-TRACE_FILE = "kvcache_traces_1.csv"
-PLOT_FILE = "set_size_cdf.png"
+# --- Global Style Settings ---
+matplotlib.rcParams['pdf.fonttype'] = 42
+matplotlib.rcParams['ps.fonttype'] = 42
+matplotlib.rcParams.update({'font.size': 14})
+
+TRACE_FILE = "kvcache_traces_1.csv.zst"
+PLOT_FILE = "set_size_cdf.pdf"
 MAX_ROWS = 5_000_000  # limit processed rows
+# MAX_ROWS = 5_000  # limit processed rows
+
+# Standard SIGCOMM Color Palette
+COLORS = ['#4878d0', '#ee854a', '#6acc64', '#d65f5f', '#956cb4']
 
 def main():
     key_sizes = []
@@ -57,22 +67,25 @@ def main():
     tot_x, tot_y = compute_cdf(total_sizes)
 
     # Plot CDFs (log-scale x-axis)
-    plt.figure(figsize=(8, 5))
-    plt.plot(key_x, key_y, label="Key size CDF")
-    plt.plot(val_x, val_y, label="Value size CDF")
-    plt.plot(tot_x, tot_y, label="Key + Value size CDF", linestyle="--", linewidth=2)
+    fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+    
+    ax.plot(key_x, key_y, label="Key size", color=COLORS[0], linestyle='-', linewidth=2.5)
+    ax.plot(val_x, val_y, label="Value size", color=COLORS[1], linestyle='-', linewidth=2.5)
+    ax.plot(tot_x, tot_y, label="Key + Value size", color=COLORS[2], linestyle='--', linewidth=2.5)
 
-    # Vertical line at 1400 bytes (e.g., MTU boundary)
-    plt.axvline(x=1400, color="red", linestyle="--", linewidth=1, label="1400 bytes")
-
-    plt.xscale("log")
-    plt.xlabel("Size (bytes, log scale)")
-    plt.ylabel("CDF")
-    plt.title("CDF of Key, Value, and Total Sizes")
-    plt.legend(loc="upper left") 
-    plt.grid(True, which="both", linestyle="--", linewidth=0.5)
+    ax.set_xscale("log")
+    ax.set_xlabel("Size (bytes)", fontsize=14)
+    
+    # Styling y-axis as percentage
+    ax.set_yticks([0, 0.25, 0.50, 0.75, 1.0])
+    ax.set_yticklabels(['0', '25', '50', '75', '100'])
+    ax.set_ylabel('CDF (%)')
+    
+    ax.legend(loc='lower right', frameon=True)
+    ax.grid(True, which="major", ls="-", alpha=0.3)
+    
     plt.tight_layout()
-    plt.savefig(PLOT_FILE, dpi=200)
+    plt.savefig(PLOT_FILE, bbox_inches='tight')
     plt.close()
     print(f"Saved log-scale CDF plot with 1400-byte marker to {PLOT_FILE}")
 
