@@ -47,7 +47,9 @@ def main():
 
     # Print percentiles for key+value sizes
     p90, p95, p99 = np.percentile(total_sizes, [90, 95, 99])
-    print(f"\nKey + Value Size Percentiles:")
+    print(f"\nKey + Value Size Statistics:")
+    print(f"  Min: {total_sizes.min()} bytes")
+    print(f"  Max: {total_sizes.max()} bytes")
     print(f"  P90: {p90:.0f} bytes")
     print(f"  P95: {p95:.0f} bytes")
     print(f"  P99: {p99:.0f} bytes\n")
