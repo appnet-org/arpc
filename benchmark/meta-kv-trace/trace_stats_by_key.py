@@ -45,16 +45,23 @@ def main():
     value_sizes = np.array(value_sizes)
     total_sizes = key_sizes + value_sizes  # combined size
 
-    # Remove top and bottom x%
-    def trim_outliers(data):
-        low, high = np.percentile(data, [0, 100])
-        trimmed = data[(data >= low) & (data <= high)]
-        print(f"Trimmed to {len(trimmed)} values (5th-95th percentile range: {low:.2f}-{high:.2f})")
-        return trimmed
+    # Print percentiles for key+value sizes
+    p90, p95, p99 = np.percentile(total_sizes, [90, 95, 99])
+    print(f"\nKey + Value Size Percentiles:")
+    print(f"  P90: {p90:.0f} bytes")
+    print(f"  P95: {p95:.0f} bytes")
+    print(f"  P99: {p99:.0f} bytes\n")
 
-    key_sizes = trim_outliers(key_sizes)
-    value_sizes = trim_outliers(value_sizes)
-    total_sizes = trim_outliers(total_sizes)
+    # # Remove top and bottom x%
+    # def trim_outliers(data):
+    #     low, high = np.percentile(data, [0, 100])
+    #     trimmed = data[(data >= low) & (data <= high)]
+    #     print(f"Trimmed to {len(trimmed)} values (5th-95th percentile range: {low:.2f}-{high:.2f})")
+    #     return trimmed
+
+    # key_sizes = trim_outliers(key_sizes)
+    # value_sizes = trim_outliers(value_sizes)
+    # total_sizes = trim_outliers(total_sizes)
 
     # Compute CDFs
     def compute_cdf(data):
@@ -67,7 +74,7 @@ def main():
     tot_x, tot_y = compute_cdf(total_sizes)
 
     # Plot CDFs (log-scale x-axis)
-    fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+    fig, ax = plt.subplots(1, 1, figsize=(5, 3))
     
     ax.plot(key_x, key_y, label="Key size", color=COLORS[0], linestyle='-', linewidth=2.5)
     ax.plot(val_x, val_y, label="Value size", color=COLORS[1], linestyle='-', linewidth=2.5)
