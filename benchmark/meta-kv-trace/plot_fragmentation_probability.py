@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 """
-Slack Space CDF Plotter for Meta KV Trace
+Fragmentation Probability Plotter for Meta KV Trace
 
-This script computes and plots a Cumulative Distribution Function (CDF) of the
-remaining slack space for each key-value pair in the trace.
+This script computes and plots the probability of fragmentation based on
+expansion size for multi-packet messages.
 
-Slack space is calculated as: (key_size + value_size) % MTU
-This represents the number of bytes that don't fill a complete MTU packet.
-
-Only key-value pairs that exceed a single MTU are considered (i.e., those that
-require fragmentation).
+For a given expansion size X, the probability of fragmentation is the
+percentage of packets where Slack Space < X. This means if we add X bytes
+to the message, it would require an additional packet.
 
 Usage:
-    python plot_slack_space_cdf.py
+    python plot_fragmentation_probability.py
 
 Prerequisites:
     - Python 3.x
@@ -24,7 +22,7 @@ Input Files:
     - kvcache_traces_1.csv.zst: Compressed CSV trace data
 
 Output:
-    - slack_space_cdf.pdf: A PDF file containing the CDF plot of slack space
+    - fragmentation_probability.pdf: A PDF file containing the probability plot
 """
 import matplotlib.pyplot as plt
 import numpy as np
@@ -39,11 +37,11 @@ matplotlib.rcParams['ps.fonttype'] = 42
 matplotlib.rcParams.update({'font.size': 14})
 
 TRACE_FILE = "kvcache_traces_1.csv.zst"
-OUTPUT_FILE = "slack_space_cdf.pdf"
+OUTPUT_FILE = "fragmentation_probability.pdf"
 MTU = 1500  # Standard Ethernet MTU in bytes
-MAX_LINES = 2000000  # Maximum number of lines to process
+MAX_LINES = 1000000  # Maximum number of lines to process
 
-# Expansion use cases to annotate with vertical lines
+# Expansion use cases to annotate
 ANNOTATIONS = [
     {"name": "GPS", "size": 16, "color": "#e41a1c"},
     {"name": "Tracing ID", "size": 55, "color": "#377eb8"},
@@ -107,65 +105,112 @@ def load_slack_space(filename, mtu=MTU, max_lines=MAX_LINES):
     return np.array(slack_values)
 
 
-def plot_slack_space_cdf(slack_data, output_filename=OUTPUT_FILE, mtu=MTU, show_legend=False):
+def compute_fragmentation_probability(slack_data, expansion_sizes):
     """
-    Plots a CDF of slack space values.
+    Compute the probability of fragmentation for each expansion size.
+    
+    For a given expansion size X, the probability of fragmentation is the
+    percentage of packets where Slack Space < X.
+    
+    Args:
+        slack_data: numpy array of slack space values
+        expansion_sizes: array of expansion sizes to evaluate
+    
+    Returns:
+        numpy array of fragmentation probabilities (0-100%)
+    """
+    probabilities = []
+    n = len(slack_data)
+    
+    for size in expansion_sizes:
+        # Count packets where slack < expansion size (would cause fragmentation)
+        fragmented = np.sum(slack_data < size)
+        probability = 100.0 * fragmented / n
+        probabilities.append(probability)
+    
+    return np.array(probabilities)
+
+
+def plot_fragmentation_probability(slack_data, output_filename=OUTPUT_FILE, mtu=MTU):
+    """
+    Plots the probability of fragmentation based on expansion size.
     
     Args:
         slack_data: numpy array of slack space values
         output_filename: output PDF filename
-        mtu: MTU value used (for legend label)
-        show_legend: whether to show the legend (default: False)
+        mtu: MTU value (for x-axis range)
     """
     # Setup Figure
-    fig, ax = plt.subplots(1, 1, figsize=(6,3))
+    fig, ax = plt.subplots(1, 1, figsize=(6, 3.5))
     
-    # Standard SIGCOMM Color Palette
-    color = '#4878d0'
+    # Main curve color
+    curve_color = '#4878d0'
     
-    # Compute CDF
-    sorted_data = np.sort(slack_data)
-    yvals = np.arange(1, len(sorted_data) + 1) / len(sorted_data)
+    # Compute probabilities for all expansion sizes from 0 to MTU
+    expansion_sizes = np.arange(0, mtu + 1)
+    probabilities = compute_fragmentation_probability(slack_data, expansion_sizes)
     
-    ax.plot(sorted_data, yvals, 
-            color=color, 
+    # Plot the main curve
+    ax.plot(expansion_sizes, probabilities, 
+            color=curve_color, 
             linestyle='-', 
-            linewidth=2.5)
+            linewidth=2.5,
+            label='Fragmentation Probability')
 
     # Add vertical dashed lines for annotations
     for annotation in ANNOTATIONS:
         size = annotation["size"]
         name = annotation["name"]
-        ann_color = annotation["color"]
+        color = annotation["color"]
         
-        # Draw vertical dashed line with label for legend
-        ax.axvline(x=size, color=ann_color, linestyle='--', linewidth=1.5, alpha=0.8,
-                   label=f'{name} ({size}B)')
+        # Get the probability at this expansion size
+        prob = probabilities[size]
+        
+        # Draw vertical dashed line
+        ax.axvline(x=size, color=color, linestyle='--', linewidth=1.5, alpha=0.8)
+        
+        # Add label with name and probability
+        # Position the label to avoid overlap
+        y_offset = 5 if size < 300 else -10
+        ax.annotate(f'{name}\n({size}B, {prob:.1f}%)', 
+                    xy=(size, prob),
+                    xytext=(size + 30, prob + y_offset),
+                    fontsize=10,
+                    color=color,
+                    ha='left',
+                    arrowprops=dict(arrowstyle='->', color=color, lw=1))
 
     # Styling
-    ax.set_yticks([0, 0.25, 0.50, 0.75, 1.0])
-    ax.set_yticklabels(['0', '25', '50', '75', '100'])
-    ax.set_ylabel('CDF (%)')
-    ax.set_xlabel('Slack Space (bytes)', fontsize=14)
+    ax.set_ylabel('Probability of Fragmentation (%)')
+    ax.set_xlabel('Expansion Size (Bytes)', fontsize=14)
     
-    # Set x-axis limits from 0 to MTU
+    # Set axis limits
     ax.set_xlim(0, mtu)
+    ax.set_ylim(0, 100)
+    
+    # Set y-axis ticks
+    ax.set_yticks([0, 20, 40, 60, 80, 100])
     
     ax.grid(True, which="major", ls="-", alpha=0.3)
-    
-    # Show legend below the figure
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.35), ncol=3, frameon=True)
 
     plt.tight_layout()
 
     print(f"Saving plot to {output_filename}...")
     plt.savefig(output_filename, bbox_inches='tight')
     plt.close()
-    print(f"Saved CDF plot to {output_filename}")
+    print(f"Saved fragmentation probability plot to {output_filename}")
+    
+    # Print probabilities for annotated expansion sizes
+    print("\nFragmentation probabilities for annotated expansion sizes:")
+    for annotation in ANNOTATIONS:
+        size = annotation["size"]
+        name = annotation["name"]
+        prob = probabilities[size]
+        print(f"  {name} ({size} bytes): {prob:.2f}%")
 
 
 def main():
-    print(f"Loading trace data from {TRACE_FILE}...", flush=True)
+    print(f"Loading trace data from {TRACE_FILE}...")
     slack_data = load_slack_space(TRACE_FILE, MTU)
     
     if len(slack_data) > 0:
@@ -174,13 +219,8 @@ def main():
         print(f"  Max: {slack_data.max()} bytes")
         print(f"  Mean: {slack_data.mean():.2f} bytes")
         print(f"  Median: {np.median(slack_data):.2f} bytes")
-        print(f"  Std Dev: {slack_data.std():.2f} bytes")
         
-        # Calculate percentage that exactly fills MTU boundaries
-        zero_slack = np.sum(slack_data == 0)
-        print(f"  Zero slack (exact MTU fit): {zero_slack} ({100*zero_slack/len(slack_data):.2f}%)")
-        
-        plot_slack_space_cdf(slack_data, OUTPUT_FILE, MTU)
+        plot_fragmentation_probability(slack_data, OUTPUT_FILE, MTU)
     else:
         print("Error: No data found in trace file.")
 
