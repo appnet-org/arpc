@@ -55,9 +55,9 @@ OUTPUT_FILE = "triple_encryption_latency_cdf.pdf"
 
 # Format labels and file prefixes (order matters for legend)
 FORMATS = {
-    "Whole": "triple_encryption_whole",
-    "Random Split": "triple_encryption_random_split",
-    "Key-Value Split": "triple_encryption_key_value_split",
+    "Baseline (Whole)": "triple_encryption_whole",
+    "fRPC (Random Split)": "triple_encryption_random_split",
+    "fRPC (Key-Value Split)": "triple_encryption_key_value_split",
 }
 
 def load_timings(filename):
