@@ -142,7 +142,8 @@ def plot_combined_latency_cdfs(data_left, data_right,
                bbox_to_anchor=(0.5, -0.15), 
                ncol=ncol, 
                frameon=True,
-               columnspacing=1.5)
+               columnspacing=1.5,
+               fontsize=12)
 
     # 5. Adjust Layout
     plt.tight_layout()
