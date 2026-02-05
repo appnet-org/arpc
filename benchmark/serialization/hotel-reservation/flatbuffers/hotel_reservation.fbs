@@ -1,0 +1,147 @@
+// Hotel Reservation FlatBuffers Schema
+// Matches hotel_reservation.proto message definitions
+
+namespace hotel_reservation;
+
+// -----------------Geo service-----------------
+
+table NearbyRequest {
+    lat:float;
+    lon:float;
+    latstring:string;
+}
+
+table NearbyResult {
+    hotel_ids:[string];
+}
+
+// -----------------Profile service-----------------
+
+table GetProfilesRequest {
+    hotel_ids:[string];
+    locale:string;
+}
+
+table GetProfilesResult {
+    hotels:[Hotel];
+}
+
+table Hotel {
+    id:string;
+    name:string;
+    phone_number:string;
+    description:string;
+    address:Address;
+    images:[Image];
+}
+
+table Address {
+    street_number:string;
+    street_name:string;
+    city:string;
+    state:string;
+    country:string;
+    postal_code:string;
+    lat:float;
+    lon:float;
+}
+
+table Image {
+    url:string;
+    default:bool;
+}
+
+// -----------------Recommendation service-----------------
+
+table GetRecommendationsRequest {
+    require:string;
+    lat:double;
+    lon:double;
+}
+
+table GetRecommendationsResult {
+    hotel_ids:[string];
+}
+
+// -----------------Rate service-----------------
+
+table GetRatesRequest {
+    hotel_ids:[string];
+    in_date:string;
+    out_date:string;
+}
+
+table GetRatesResult {
+    rate_plans:[RatePlan];
+}
+
+table RatePlan {
+    hotel_id:string;
+    code:string;
+    in_date:string;
+    out_date:string;
+    room_type:RoomType;
+}
+
+table RoomType {
+    bookable_rate:double;
+    total_rate:double;
+    total_rate_inclusive:double;
+    code:string;
+    currency:string;
+    room_description:string;
+}
+
+// -----------------Reservation service-----------------
+
+table ReservationRequest {
+    customer_name:string;
+    hotel_id:[string];
+    in_date:string;
+    out_date:string;
+    room_number:int32;
+}
+
+table ReservationResult {
+    hotel_id:[string];
+}
+
+// -----------------Search service-----------------
+
+table SearchRequest {
+    lat:float;
+    lon:float;
+    in_date:string;
+    out_date:string;
+}
+
+table SearchResult {
+    hotel_ids:[string];
+}
+
+// -----------------User service-----------------
+
+table CheckUserRequest {
+    username:string;
+    password:string;
+}
+
+table CheckUserResult {
+    correct:bool;
+}
+
+// Root types for RPC operations
+root_type NearbyRequest;
+root_type NearbyResult;
+root_type GetProfilesRequest;
+root_type GetProfilesResult;
+root_type GetRecommendationsRequest;
+root_type GetRecommendationsResult;
+root_type GetRatesRequest;
+root_type GetRatesResult;
+root_type ReservationRequest;
+root_type ReservationResult;
+root_type SearchRequest;
+root_type SearchResult;
+root_type CheckUserRequest;
+root_type CheckUserResult;
