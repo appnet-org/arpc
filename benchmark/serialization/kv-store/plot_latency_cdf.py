@@ -10,7 +10,7 @@ Supported Formats:
     - Cap'n Proto
     - Protobuf
     - fRPC (Symphony)
-    - fRPC Hybrid (optional, requires --include-hybrid flag)
+    - fRPC (B-Opt) (optional, requires --include-hybrid flag)
 
 Usage:
     # Plot base formats only (default)
@@ -46,10 +46,10 @@ Output:
     - serialization_latency_cdf.pdf: A PDF file containing side-by-side CDF plots
       for write and read latencies with a shared legend at the bottom (base formats only).
     - serialization_latency_cdf_hybrid.pdf: A PDF file when --include-hybrid is used,
-      containing all formats including fRPC Hybrid.
+      containing all formats including fRPC (B-Opt).
 
 Command-line Options:
-    --include-hybrid    Include fRPC Hybrid format in the plot (default: False)
+    --include-hybrid    Include fRPC (B-Opt) format in the plot (default: False)
     --help, -h          Show this help message and exit
 """
 import argparse
@@ -173,7 +173,7 @@ def plot_merged_latency_cdfs(data_left, data_right,
 def main():
     parser = argparse.ArgumentParser(description='Plot CDF of serialization latency')
     parser.add_argument('--include-hybrid', action='store_true',
-                        help='Include fRPC Hybrid in the plot (default: False)')
+                        help='Include fRPC (B-Opt) in the plot (default: False)')
     args = parser.parse_args()
     
     # Build FORMATS dict based on flag
