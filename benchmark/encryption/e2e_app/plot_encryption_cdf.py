@@ -49,7 +49,7 @@ DECRYPT_OUTPUT_FILE = "e2e_decryption_latency_cdf.pdf"
 
 # Strategy labels and file suffixes (order matters for legend)
 STRATEGIES = {
-    "Baseline": "whole",
+    "TLS": "whole",
     "fRPC": "fixed_split",
 }
 
@@ -91,7 +91,8 @@ def load_timings(filename):
 
 
 def plot_app_comparison_cdfs(data_left, data_right, 
-                              x_labels=('Online Boutique', 'Hotel Reservation'),
+                              titles=('Online Boutique', 'Hotel Reservation'),
+                              x_label='Latency (ns)',
                               y_label='CDF (%)',
                               output_filename="latency_cdf.pdf", 
                               system_order=None):
@@ -150,8 +151,11 @@ def plot_app_comparison_cdfs(data_left, data_right,
         # Y-label only on the left plot
         ax.set_ylabel(y_label if idx == 0 else "") 
         
-        # X-LABELS CUSTOMIZED (application name)
-        ax.set_xlabel(x_labels[idx], fontsize=14)
+        # Application name as title at top
+        ax.set_title(titles[idx], fontsize=14)
+        
+        # X-label for latency
+        ax.set_xlabel(x_label, fontsize=14)
         
         ax.set_xscale('log')
         ax.set_xlim(x_min, x_max)  # Use consistent x-axis limits
@@ -225,7 +229,8 @@ def main():
         plot_app_comparison_cdfs(
             boutique_encrypt, 
             hotel_encrypt,
-            x_labels=('Online Boutique\nEncrypt Latency (ns)', 'Hotel Reservation\nEncrypt Latency (ns)'),
+            titles=('Online Boutique', 'Hotel Reservation'),
+            x_label='Encrypt Latency (ns)',
             y_label='CDF (%)',
             output_filename=ENCRYPT_OUTPUT_FILE,
             system_order=system_order
@@ -242,7 +247,8 @@ def main():
         plot_app_comparison_cdfs(
             boutique_decrypt, 
             hotel_decrypt,
-            x_labels=('Online Boutique\nDecrypt Latency (ns)', 'Hotel Reservation\nDecrypt Latency (ns)'),
+            titles=('Online Boutique', 'Hotel Reservation'),
+            x_label='Decrypt Latency (ns)',
             y_label='CDF (%)',
             output_filename=DECRYPT_OUTPUT_FILE,
             system_order=system_order
