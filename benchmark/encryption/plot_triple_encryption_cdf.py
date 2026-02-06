@@ -55,7 +55,7 @@ OUTPUT_FILE = "triple_encryption_latency_cdf.pdf"
 
 # Format labels and file prefixes (order matters for legend)
 FORMATS = {
-    "Baseline (Whole)": "triple_encryption_whole",
+    "Baseline": "triple_encryption_whole",
     "fRPC (Random Split)": "triple_encryption_random_split",
     "fRPC (Key-Value Split)": "triple_encryption_key_value_split",
 }
