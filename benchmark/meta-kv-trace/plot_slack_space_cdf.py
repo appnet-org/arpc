@@ -146,7 +146,7 @@ def plot_slack_space_cdf(slack_data, output_filename=OUTPUT_FILE, mtu=MTU, show_
     ax.set_yticks([0, 0.25, 0.50, 0.75, 1.0])
     ax.set_yticklabels(['0', '25', '50', '75', '100'])
     ax.set_ylabel('CDF (%)')
-    ax.set_xlabel('Slack Space (bytes)', fontsize=14)
+    ax.set_xlabel('Slack Space (bytes)', fontsize=16)
     
     # Set x-axis limits from 0 to MTU
     ax.set_xlim(0, mtu)
@@ -154,7 +154,7 @@ def plot_slack_space_cdf(slack_data, output_filename=OUTPUT_FILE, mtu=MTU, show_
     ax.grid(True, which="major", ls="-", alpha=0.3)
     
     # Show legend below the figure
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.35), ncol=3, frameon=True)
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.45), ncol=3, frameon=True)
 
     plt.tight_layout()
 

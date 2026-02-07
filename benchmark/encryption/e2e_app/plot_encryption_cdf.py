@@ -152,10 +152,10 @@ def plot_app_comparison_cdfs(data_left, data_right,
         ax.set_ylabel(y_label if idx == 0 else "") 
         
         # Application name as title at top
-        ax.set_title(titles[idx], fontsize=14)
+        ax.set_title(titles[idx], fontsize=16)
         
         # X-label for latency
-        ax.set_xlabel(x_label, fontsize=14)
+        ax.set_xlabel(x_label, fontsize=16)
         
         ax.set_xscale('log')
         ax.set_xlim(x_min, x_max)  # Use consistent x-axis limits

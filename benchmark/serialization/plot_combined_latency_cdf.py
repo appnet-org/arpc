@@ -125,8 +125,8 @@ def plot_combined_latency_cdfs(data_left, data_right,
         ax.set_ylabel('CDF (%)' if idx == 0 else "") 
         
         # Set subplot title and x-label
-        ax.set_title(subplot_titles[idx], fontsize=14)
-        ax.set_xlabel(xlabel, fontsize=14)
+        ax.set_title(subplot_titles[idx], fontsize=16)
+        ax.set_xlabel(xlabel, fontsize=16)
         
         ax.set_xscale('log')
         ax.grid(True, which="major", ls="-", alpha=0.3)
