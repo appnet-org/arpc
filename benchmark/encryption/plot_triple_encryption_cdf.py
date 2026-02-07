@@ -48,7 +48,7 @@ import os
 # --- Global Style Settings ---
 matplotlib.rcParams['pdf.fonttype'] = 42
 matplotlib.rcParams['ps.fonttype'] = 42
-matplotlib.rcParams.update({'font.size': 14})
+matplotlib.rcParams.update({'font.size': 16})
 
 PROFILE_DATA_DIR = "profile_data"
 OUTPUT_FILE = "triple_encryption_latency_cdf.pdf"
