@@ -45,5 +45,5 @@ See [examples/README.md](examples/README.md)
 
 ## Contact
 
-If you have any questions or comments, please get in touch with Xiangfeng Zhu (xfzhu@cs.washington.edu).
+If you have any questions or comments, please get in touch with Xiangfeng Zhu (xzhu0027@gmail.com).
 
