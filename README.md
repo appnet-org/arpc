@@ -35,8 +35,8 @@ See [examples/README.md](examples/README.md)
 >
 > Without these settings, Kubernetes will assign a default TCP-based ClusterIP, which does **not work properly for aRPC(UDP) communication**.
  
- 
-## Learn more
+
+## Learn More
 
 - [Low-level technical docs](docs/)
 - [Performance Benchmark](benchmark/)
