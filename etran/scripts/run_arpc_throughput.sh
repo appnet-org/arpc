@@ -1,0 +1,15 @@
+#!/bin/bash
+set -euo pipefail
+
+export NIC_QUEUES=${NIC_QUEUES:-4}
+export APP_THREADS=${APP_THREADS:-4}
+export KV_CONNECTIONS=${KV_CONNECTIONS:-64}
+export PENDING_MESSAGES=${PENDING_MESSAGES:-64}
+export KEY_COUNT=${KEY_COUNT:-1000}
+export VALUE_SIZE=${VALUE_SIZE:-64}
+export REQUEST_GAP_NS=0
+export WARMUP_SECONDS=${WARMUP_SECONDS:-2}
+export RUN_SECONDS=${RUN_SECONDS:-60}
+export COOLDOWN_SECONDS=${COOLDOWN_SECONDS:-1}
+
+exec "$(dirname "$0")/run_arpc_kv_cases.sh"
